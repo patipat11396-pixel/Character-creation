@@ -56,7 +56,7 @@ python3 tools/process_character.py
    vertices (about 13% of the mesh); the buttock crease and crotch are left
    alone. The weights over the shoulders, upper back and neck are smoothed
    too, which removes the crumpling there when the arms go up.
-4. **Units and layout.** The mesh is welded into an indexed mesh , scaled from centimetres to metres, and the `_RT`
+4. **Units and layout.** The mesh is welded into an indexed mesh, scaled from centimetres to metres, and the `_RT`
    suffix is dropped from clip names.
 
 The skeleton's other bones, the bind pose and all 178 animations are
