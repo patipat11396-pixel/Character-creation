@@ -145,10 +145,10 @@ export class HairRig {
     Object.assign(out, { width: _v.x, depth: _v.y, height: _v.z });
     // A drag that starts right on the scale handle's centre can produce wild
     // values; keep everything finite and within sensible limits.
-    const limits = { side: 6, forward: 6, up: 6, tilt: 45, roll: 45, turn: 45 };
+    const limits = { side: [-8, 8], forward: [-10, 10], up: [-10, 20], tilt: [-45, 45], roll: [-45, 45], turn: [-45, 45] };
     for (const [k, v] of Object.entries(out)) {
       if (!Number.isFinite(v)) { out[k] = s[k]; continue; }
-      out[k] = k in limits ? THREE.MathUtils.clamp(v, -limits[k], limits[k]) : THREE.MathUtils.clamp(v, 0.6, 1.6);
+      out[k] = k in limits ? THREE.MathUtils.clamp(v, ...limits[k]) : THREE.MathUtils.clamp(v, 0.6, 1.6);
     }
     return out;
   }
