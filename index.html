@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Character Creation</title>
+<link rel="stylesheet" href="src/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<main class="app">
+  <section class="stage">
+    <canvas id="view"></canvas>
+    <div class="loading" id="loading">Loading character…</div>
+    <p class="hint">Drag to rotate · scroll to zoom</p>
+  </section>
+
+  <aside class="panel">
+    <h1>Create your character</h1>
+
+    <label class="field">
+      <span class="label">Name</span>
+      <input id="name" type="text" maxlength="24" placeholder="Enter a name" autocomplete="off">
+    </label>
+
+    <div class="field">
+      <div class="label-row">
+        <span class="label">Skin tone</span>
+        <span class="value" id="tone-value"></span>
+      </div>
+      <div class="swatches" id="swatches" role="radiogroup" aria-label="Skin tone"></div>
+      <p class="note">Monk Skin Tone Scale, 10 tones from lightest to deepest.</p>
+    </div>
+
+    <label class="field">
+      <span class="label">Preview animation</span>
+      <select id="anim"></select>
+    </label>
+
+    <details class="field debug">
+      <summary>Model check</summary>
+      <div class="segmented" role="radiogroup" aria-label="Model version">
+        <button type="button" data-model="smooth" class="on">Smoothed</button>
+        <button type="button" data-model="original">Original</button>
+      </div>
+      <label class="check"><input type="checkbox" id="weights"> Show bone weights</label>
+    </details>
+
+    <div class="actions">
+      <button type="button" id="random" class="secondary">Randomize</button>
+      <button type="button" id="confirm" class="primary">Confirm</button>
+    </div>
+    <p class="status" id="status" role="status"></p>
+  </aside>
+</main>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,312 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
+
+const MODELS = {
+  smooth: 'models/character.glb',
+  original: 'models/base_character.glb',
+};
+// Shown first in the animation list; every other clip follows.
+const FEATURED = ['Idle_A', 'Walk', 'Jog', 'Sprint', 'Dance_Simple', 'Greeting',
+  'Sword_Regular_Combo', 'Sitting_Idle', 'Crouch_Idle', 'Pushup'];
+const STORAGE_KEY = 'character-creation:character';
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('view');
+
+const state = {
+  name: '',
+  tone: DEFAULT_TONE,
+  anim: 'Idle_A',
+  model: 'smooth',
+  weights: false,
+};
+
+// ---------------------------------------------------------------- scene
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x15171c);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.6;
+
+const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
+camera.position.set(0.6, 0.95, 3.2);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.62, 0);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 1.0;
+controls.maxDistance = 5;
+controls.minPolarAngle = 0.35;
+controls.maxPolarAngle = Math.PI / 2 + 0.05;
+
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(1.5, 3, 2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -1.2;
+key.shadow.camera.right = key.shadow.camera.top = 1.2;
+key.shadow.bias = -0.0005;
+key.shadow.normalBias = 0.02;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xbfd4ff, 1.2);
+rim.position.set(-2, 2, -2.5);
+scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2d35, 0.5));
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(1.4, 64),
+  new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.95 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// One skin material shared by both model versions, so a tone change shows on
+// whichever is visible.
+const skin = new THREE.MeshPhysicalMaterial({
+  roughness: 0.55,
+  sheen: 0.4,
+  sheenRoughness: 0.6,
+});
+const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+
+// ---------------------------------------------------------------- models
+
+const loader = new GLTFLoader();
+const characters = {}; // model key -> { root, mesh, mixer, clips, action }
+const clock = new THREE.Clock();
+
+async function loadModel(kind) {
+  if (characters[kind]) return characters[kind];
+  const gltf = await loader.loadAsync(MODELS[kind]);
+  const root = gltf.scene;
+  let mesh;
+  root.traverse((o) => {
+    if (o.isSkinnedMesh) {
+      mesh = o;
+      o.castShadow = true;
+      o.frustumCulled = false; // animated bounds differ from the bind pose
+    }
+  });
+  mesh.material = skin;
+  addWeightColors(mesh.geometry);
+  const mixer = new THREE.AnimationMixer(root);
+  const clips = new Map(gltf.animations.map((c) => [c.name, c]));
+  const character = { root, mesh, mixer, clips, action: null };
+  characters[kind] = character;
+  scene.add(root);
+  return character;
+}
+
+// A colour per bone, blended by each vertex's skin weights, for the debug view.
+function addWeightColors(geometry) {
+  const joints = geometry.attributes.skinIndex;
+  const weights = geometry.attributes.skinWeight;
+  const colors = new Float32Array(joints.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < joints.count; i++) {
+    let r = 0, g = 0, b = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = weights.getComponent(i, k);
+      if (!w) continue;
+      c.setHSL(((joints.getComponent(i, k) * 0.618034) % 1), 0.75, 0.55);
+      r += c.r * w; g += c.g * w; b += c.b * w;
+    }
+    colors.set([r, g, b], i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+function playAnimation(character, name) {
+  const clip = character.clips.get(name);
+  if (!clip) return;
+  const next = character.mixer.clipAction(clip);
+  if (character.action === next) return;
+  next.reset().play();
+  if (character.action) next.crossFadeFrom(character.action, 0.25, false);
+  character.action = next;
+}
+
+function syncTime(from, to) {
+  if (from?.action && to.action) to.action.time = from.action.time;
+}
+
+// ---------------------------------------------------------------- UI
+
+function buildSwatches() {
+  const box = $('swatches');
+  SKIN_TONES.forEach((tone, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch' + (i >= 5 ? ' dark' : '');
+    b.style.background = tone.hex;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', `Tone ${i + 1} of ${SKIN_TONES.length}`);
+    b.innerHTML = `<span>${i + 1}</span>`;
+    b.addEventListener('click', () => setTone(i));
+    b.addEventListener('keydown', (e) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      setTone((state.tone + step + SKIN_TONES.length) % SKIN_TONES.length);
+      box.children[state.tone].focus();
+    });
+    box.appendChild(b);
+  });
+}
+
+function setTone(i) {
+  state.tone = i;
+  skin.color.set(SKIN_TONES[i].hex);
+  skin.sheenColor.set(SKIN_TONES[i].hex).lerp(new THREE.Color(0xffffff), 0.3);
+  [...$('swatches').children].forEach((b, k) => {
+    b.setAttribute('aria-checked', String(k === i));
+    b.tabIndex = k === i ? 0 : -1;
+  });
+  $('tone-value').textContent = `${i + 1} / ${SKIN_TONES.length}`;
+}
+
+function buildAnimationList(clips) {
+  const select = $('anim');
+  const names = [...clips.keys()];
+  const featured = FEATURED.filter((n) => clips.has(n));
+  const rest = names.filter((n) => !featured.includes(n)).sort();
+  const group = (label, list) => {
+    const g = document.createElement('optgroup');
+    g.label = label;
+    list.forEach((n) => g.appendChild(new Option(n.replace(/_/g, ' '), n)));
+    select.appendChild(g);
+  };
+  select.appendChild(new Option('T-pose (no animation)', ''));
+  group('Featured', featured);
+  group('All animations', rest);
+  select.value = state.anim;
+  select.addEventListener('change', () => {
+    state.anim = select.value;
+    applyAnimation();
+  });
+}
+
+function applyAnimation() {
+  for (const ch of Object.values(characters)) {
+    if (state.anim) {
+      playAnimation(ch, state.anim);
+    } else {
+      ch.mixer.stopAllAction();
+      ch.action = null;
+      ch.root.traverse((o) => o.isSkinnedMesh && o.skeleton.pose());
+    }
+  }
+}
+
+async function setModel(kind) {
+  const buttons = document.querySelectorAll('[data-model]');
+  buttons.forEach((b) => b.classList.toggle('on', b.dataset.model === kind));
+  if (!characters[kind]) status('Loading original model…');
+  const previous = characters[state.model];
+  const ch = await loadModel(kind);
+  state.model = kind;
+  applyAnimation();
+  syncTime(previous, ch);
+  for (const [k, c] of Object.entries(characters)) c.root.visible = k === kind;
+  applyWeightView();
+  status('');
+}
+
+function applyWeightView() {
+  for (const ch of Object.values(characters)) {
+    ch.mesh.material = state.weights ? weightMaterial : skin;
+  }
+}
+
+function status(text) {
+  $('status').textContent = text;
+}
+
+function randomize() {
+  setTone(Math.floor(Math.random() * SKIN_TONES.length));
+}
+
+function confirmCharacter() {
+  const name = $('name').value.trim();
+  if (!name) {
+    status('Please enter a name first.');
+    $('name').focus();
+    return;
+  }
+  const tone = SKIN_TONES[state.tone];
+  const character = {
+    name,
+    skinTone: { index: state.tone + 1, id: tone.id, hex: tone.hex },
+    createdAt: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(character));
+  } catch { /* storage may be unavailable; the event below still carries the data */ }
+  window.dispatchEvent(new CustomEvent('character-confirmed', { detail: character }));
+  status(`Saved ${name} with skin tone ${state.tone + 1}.`);
+}
+
+function restore() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!saved) return;
+    $('name').value = saved.name ?? '';
+    const i = (saved.skinTone?.index ?? 0) - 1;
+    if (i >= 0 && i < SKIN_TONES.length) state.tone = i;
+  } catch { /* ignore unreadable storage */ }
+}
+
+// ---------------------------------------------------------------- start
+
+function resize() {
+  const { clientWidth: w, clientHeight: h } = canvas.parentElement;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  for (const ch of Object.values(characters)) ch.mixer.update(dt);
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+restore();
+buildSwatches();
+setTone(state.tone);
+resize();
+
+document.querySelectorAll('[data-model]').forEach((b) =>
+  b.addEventListener('click', () => setModel(b.dataset.model)));
+$('weights').addEventListener('change', (e) => {
+  state.weights = e.target.checked;
+  applyWeightView();
+});
+$('random').addEventListener('click', randomize);
+$('confirm').addEventListener('click', confirmCharacter);
+
+loadModel('smooth').then((ch) => {
+  buildAnimationList(ch.clips);
+  applyAnimation();
+  $('loading').classList.add('hidden');
+}).catch((err) => {
+  console.error(err);
+  $('loading').textContent = 'Could not load the character. Serve this folder over HTTP (see README).';
+});
+
+// Lets tests and other pages read the current selection.
+window.characterCreation = { state, setTone, SKIN_TONES, characters, camera, controls };
