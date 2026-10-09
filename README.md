@@ -1,7 +1,7 @@
 # Character creation
 
 A browser character creation menu for the base character model: enter a name,
-pick one of 10 real-world skin tones, set a facial expression, preview any of
+pick one of 10 real-world skin tones, style and colour the hair, set a facial expression, preview any of
 the model's 178 animations and confirm.
 
 ## Run it
@@ -20,7 +20,9 @@ Confirm saves the character to `localStorage` under
 
 ```json
 { "name": "Mali", "skinTone": { "index": 8, "id": "MST-8", "hex": "#604134" },
-  "expression": "smile", "mouth": { "open": 0, "smile": 1, "round": 0 }, "createdAt": "…" }
+  "expression": "smile", "mouth": { "open": 0, "smile": 1, "round": 0 },
+  "hair": { "color": "#4b2e1d", "size": 1, "up": 0, "forward": 0, "side": 0, "tilt": 0,
+            "weight": 1, "stiffness": 0.5, "bounce": 0.5 }, "createdAt": "…" }
 ```
 
 ## Skin tones
@@ -90,6 +92,29 @@ Surprised, Sad and Talking (an animated jaw), plus sliders for mouth open,
 frown/smile and round lips. The open mouth shows the inside of the head,
 which the menu draws as a dark mouth interior (back faces of the skin
 material). Another engine needs the same treatment or a mouth cavity mesh.
+
+## Hair
+
+`models/source/hair.fbx` is converted once to `models/source/hair.glb`
+(`npm i three@0.170.0 && node tools/fbx_to_glb.mjs models/source/hair.fbx models/source/hair.glb`),
+then `tools/hair.py` (run by `process_character.py`):
+
+- **Fits it to the head.** The inside of the hair cap is matched to the head
+  by ray casting, then pushed out so the scalp never pokes through.
+- **Attaches it to the Head bone.** A `HairRoot` bone at the centre of the
+  head holds the whole hairstyle; the menu's Size, Up/down, Back/forward,
+  Left/right and Tilt sliders move that bone, so the hair stays on the head
+  in every animation.
+- **Rigs the ponytail.** Eight bones (`HairTail1`…`HairTail8`, plus
+  `HairTailEnd`) run from the hair tie to the tip, and the tail is weighted
+  along them. Where the tail is fused to the long hair on the back of the
+  head, the weights are blended across the seam so nothing tears.
+
+In the menu (`src/hair.js`) the ponytail is a spring-bone simulation: each
+bone is pulled back towards its rest direction (Stiffness), pulled down
+(Weight), and slowed by drag (Bounce), and it collides with spheres on the
+head, neck, chest, waist and hips. Colours: Black, Brown, Blonde, Red or any
+custom colour.
 
 ## Hands
 

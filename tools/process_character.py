@@ -19,6 +19,7 @@ This script:
   source's hard bone borders crease and wrinkle when the arms are raised,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
+* fits the ponytail hair to the head and rigs it (see hair.py),
 * makes the head 15% smaller (HEAD_SCALE), blending through the upper neck,
 * scales the scene to metres and drops the "_RT" suffix from clip names.
 
@@ -35,6 +36,7 @@ import numpy as np
 from scipy.sparse import coo_matrix, diags
 
 import face
+import hair
 from glb import GlbWriter, read_accessor, read_glb
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +48,7 @@ FINGER_Y = {"Index": 18.4, "Middle": 20.1, "Ring": 21.7, "Pinky": 23.2}
 HEAD_SCALE = 0.85
 HEAD_PIVOT = np.array([0.0, 16.4, 135.5])
 HEAD_BLEND = (131.5, 135.5)                       # z range of the neck blend (cm)
+HEAD_CENTRE = np.array([0.0, 14.4, 149.6])        # centre of the (scaled) head
 PALM_NORMAL = np.array([0.0, 0.0, -1.0])          # palms face down in the T-pose
 # Thumb curl direction per bone, found by searching for the axes and angles that
 # put the thumb tip on the curled index and middle fingers without bending the
@@ -194,6 +197,7 @@ def smooth_rows(weights, avg, mask, iterations, alpha=0.5):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="src", default=ROOT / "models/source/retargeted_animations.glb")
+    ap.add_argument("--hair", default=ROOT / "models/source/hair.glb")
     ap.add_argument("--out", default=ROOT / "models/character.glb")
     args = ap.parse_args()
 
@@ -315,6 +319,44 @@ def main():
     morphs = {k: d * factor[:, None] for k, d in morphs.items()}
     print(f"head: scaled to {HEAD_SCALE:.0%}")
 
+    # ---- hair: fit to the head, HairRoot under Head, a bone chain down the ponytail
+    hair_src, hair_faces = hair.load(args.hair)
+    head_faces = faces[(verts[faces][:, :, 2] > 133).all(1)]
+    hair_verts = hair.fit(hair_src, hair_faces, verts, head_faces, HEAD_CENTRE)
+    hair_root, tail_joints, hair_w = hair.rig(hair_src, hair_verts, hair_faces, HEAD_CENTRE)
+    head = bone["Head"]
+    hair_cols = []
+    parent, parent_ibm = skin["joints"][head], ibm[head]
+    chain = [("HairRoot", hair_root, None)] + [
+        (f"HairTail{k + 1}", tail_joints[k], tail_joints[k + 1]) for k in range(len(tail_joints) - 1)
+    ] + [("HairTailEnd", tail_joints[-1], None)]
+    for name, origin, toward in chain:
+        f = np.eye(4)
+        if toward is not None:
+            f = frame(origin, toward, np.array([1.0, 0.0, 0.0]))
+        f[:3, 3] = origin
+        gltf["nodes"].append({"name": name, "matrix": (parent_ibm @ f).T.ravel().tolist()})
+        idx = len(gltf["nodes"]) - 1
+        gltf["nodes"][parent].setdefault("children", []).append(idx)
+        skin["joints"].append(idx)
+        new_ibm.append(np.linalg.inv(f))
+        names.append(name)
+        hair_cols.append(len(names) - 1)
+        parent, parent_ibm = idx, np.linalg.inv(f)
+        if name == "HairRoot":
+            parent_root = idx
+    hair_order = np.argsort(-hair_w, axis=1)[:, :4]
+    hair_top = np.take_along_axis(hair_w, hair_order, axis=1)
+    hair_top[hair_top < 0.01] = 0
+    hair_top /= hair_top.sum(1, keepdims=True)
+    hair_joints = np.array(hair_cols[:1 + hair.TAIL_BONES])[hair_order]
+    # Same transform as the body's node, so both meshes are bound in the same space.
+    body_node = {k: gltf["nodes"][1][k] for k in ("translation", "rotation", "scale") if k in gltf["nodes"][1]}
+    gltf["nodes"].append({"name": "Hair", "mesh": 1, "skin": 0, **body_node})
+    gltf["nodes"][0]["children"].append(len(gltf["nodes"]) - 1)
+    print(f"hair: {len(hair_verts)} vertices, ponytail {np.linalg.norm(np.diff(tail_joints, axis=0), axis=1).sum():.0f} cm "
+          f"on {hair.TAIL_BONES} bones (HairRoot node {parent_root})")
+
     # ---- keep the 4 strongest influences
     order = np.argsort(-dense, axis=1)[:, :4]
     top = np.take_along_axis(dense, order, axis=1)
@@ -371,6 +413,16 @@ def main():
             "material": len(g["materials"]) - 1,
             "targets": targets,
         })
+    hair_n = vertex_normals(hair_verts, hair_faces)
+    g["materials"].append({"name": "Hair", "pbrMetallicRoughness": {
+        "baseColorFactor": [0.23, 0.12, 0.06, 1], "metallicFactor": 0, "roughnessFactor": 0.5}})
+    g["meshes"].append({"name": "Hair", "primitives": [{
+        "attributes": {"POSITION": out.append(hair_verts.astype(np.float32), 34962),
+                       "NORMAL": out.append(hair_n.astype(np.float32), 34962),
+                       "JOINTS_0": out.append(hair_joints.astype(np.uint16), 34962),
+                       "WEIGHTS_0": out.append(hair_top.astype(np.float32), 34962)},
+        "indices": out.append(hair_faces.astype(np.uint32).reshape(-1, 1), 34963),
+        "material": len(g["materials"]) - 1}]})
     g["meshes"][0]["weights"] = [0] * len(face.MORPHS)
     g["meshes"][0]["extras"] = {"targetNames": face.MORPHS}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"
@@ -380,7 +432,7 @@ def main():
         anim["name"] = anim["name"].removesuffix("_RT")
     g["asset"]["generator"] = "Character-creation tools/process_character.py"
     out.write(args.out)
-    print(f"bones: {len(names)} ({len(names) - len(ibm)} finger bones added)")
+    print(f"bones: {len(names)} ({len(names) - len(ibm)} added: fingers and hair)")
     print(f"wrote {args.out} ({Path(args.out).stat().st_size / 1e6:.1f} MB)")
 
 

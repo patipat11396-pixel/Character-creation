@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
+import { HAIR_COLORS, HAIR_DEFAULTS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const MODELS = {
   fixed: 'models/character.glb',
@@ -43,6 +44,7 @@ const state = {
   hands: 'auto',
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
+  hair: { ...HAIR_DEFAULTS },
 };
 let grip = RELAXED_GRIP;
 
@@ -109,6 +111,7 @@ skin.onBeforeCompile = (shader) => {
     '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+const hairMat = hairMaterial(HAIR_DEFAULTS.color);
 
 // ---------------------------------------------------------------- models
 
@@ -120,11 +123,12 @@ async function loadModel(kind) {
   if (characters[kind]) return characters[kind];
   const gltf = await loader.loadAsync(MODELS[kind]);
   const root = gltf.scene;
-  let mesh;
+  let mesh, hairMesh;
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (o.material.name === 'Hair') hairMesh = o;
+      else if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -139,9 +143,15 @@ async function loadModel(kind) {
     const m = bone.name.match(/Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
     if (m) fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[1]][m[2] - 1]) });
   }
+  let hair = null;
+  if (hairMesh) {
+    hairMesh.material = hairMat;
+    root.updateMatrixWorld(true);
+    hair = new HairRig(hairMesh, mesh);
+  }
   const mixer = new THREE.AnimationMixer(root);
   const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
-  const character = { root, mesh, mixer, clips, fingers, faceMeshes, action: null };
+  const character = { root, mesh, mixer, clips, fingers, faceMeshes, hair, action: null };
   characters[kind] = character;
   scene.add(root);
   return character;
@@ -231,6 +241,39 @@ function setExpression(name) {
   $('mouth-round').value = state.mouth.round;
 }
 
+function buildHairControls() {
+  const box = $('hair-colors');
+  for (const c of HAIR_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch hair-swatch';
+    b.style.background = c.hex;
+    b.dataset.color = c.hex;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c.name);
+    b.title = c.name;
+    b.addEventListener('click', () => setHair({ color: c.hex }));
+    box.appendChild(b);
+  }
+  $('hair-custom').addEventListener('input', (e) => setHair({ color: e.target.value }));
+  document.querySelectorAll('[data-hair]').forEach((input) =>
+    input.addEventListener('input', () => setHair({ [input.dataset.hair]: Number(input.value) })));
+  $('hair-reset').addEventListener('click', () => {
+    setHair({ ...HAIR_DEFAULTS, color: state.hair.color });
+    for (const ch of Object.values(characters)) ch.hair?.reset();
+  });
+  setHair({});
+}
+
+function setHair(change) {
+  Object.assign(state.hair, change);
+  setHairColor(hairMat, state.hair.color);
+  document.querySelectorAll('.hair-swatch').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
+  $('hair-custom').value = state.hair.color;
+  document.querySelectorAll('[data-hair]').forEach((input) => { input.value = state.hair[input.dataset.hair]; });
+}
+
 function syncTime(from, to) {
   if (from?.action && to.action) to.action.time = from.action.time;
 }
@@ -293,6 +336,7 @@ function buildAnimationList(clips) {
 
 function applyAnimation() {
   for (const ch of Object.values(characters)) {
+    ch.hair?.reset();
     if (state.anim) {
       playAnimation(ch, state.anim);
     } else {
@@ -344,6 +388,7 @@ function confirmCharacter() {
     skinTone: { index: state.tone + 1, id: tone.id, hex: tone.hex },
     expression: state.expression,
     mouth: { ...state.mouth },
+    hair: { ...state.hair },
     createdAt: new Date().toISOString(),
   };
   try {
@@ -378,6 +423,11 @@ renderer.setAnimationLoop(() => {
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseHands(dt);
   poseMouth(dt);
+  for (const ch of Object.values(characters)) {
+    if (!ch.hair) continue;
+    ch.root.updateMatrixWorld(true); // the physics reads this frame's head and spine
+    ch.hair.update(dt, state.hair);
+  }
   controls.update();
   renderer.render(scene, camera);
 });
@@ -399,6 +449,7 @@ for (const [id, key] of [['mouth-open', 'open'], ['mouth-smile', 'smile'], ['mou
   });
 }
 setExpression(state.expression);
+buildHairControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;

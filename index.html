@@ -60,6 +60,24 @@
     </div>
 
     <div class="field">
+      <span class="label">Hair</span>
+      <div class="hair-colors">
+        <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
+        <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
+      </div>
+      <label class="slider"><span>Size</span><input data-hair="size" type="range" min="0.85" max="1.15" step="0.005"></label>
+      <label class="slider"><span>Up / down</span><input data-hair="up" type="range" min="-4" max="4" step="0.1"></label>
+      <label class="slider"><span>Back / forward</span><input data-hair="forward" type="range" min="-4" max="4" step="0.1"></label>
+      <label class="slider"><span>Left / right</span><input data-hair="side" type="range" min="-3" max="3" step="0.1"></label>
+      <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-15" max="15" step="0.5"></label>
+      <span class="sublabel">Ponytail</span>
+      <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
+      <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
+      <label class="slider"><span>Bounce</span><input data-hair="bounce" type="range" min="0" max="1" step="0.01"></label>
+      <button type="button" id="hair-reset" class="link">Reset hair fit and physics</button>
+    </div>
+
+    <div class="field">
       <span class="label">Hands</span>
       <div class="segmented" role="radiogroup" aria-label="Hands">
         <button type="button" data-hands="auto" class="on">Auto</button>
