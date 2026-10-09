@@ -125,7 +125,7 @@ gizmo.addEventListener('objectChange', () => {
   const rig = characters[state.model]?.hair;
   if (!rig) return;
   if (uniformDrag.active) {
-    const size = THREE.MathUtils.clamp(uniformDrag.size * Math.exp((uniformDrag.y - pointerY) / 250), 0.6, 1.6);
+    const size = THREE.MathUtils.clamp(uniformDrag.size * Math.exp((uniformDrag.y - pointerY) / 250), 0.3, 3);
     setHair({ size });
     rig.fit(state.hair); // undo three.js's own scaling for this frame
     return;

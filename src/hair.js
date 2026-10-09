@@ -148,7 +148,7 @@ export class HairRig {
     const limits = { side: [-8, 8], forward: [-10, 10], up: [-10, 20], tilt: [-45, 45], roll: [-45, 45], turn: [-45, 45] };
     for (const [k, v] of Object.entries(out)) {
       if (!Number.isFinite(v)) { out[k] = s[k]; continue; }
-      out[k] = k in limits ? THREE.MathUtils.clamp(v, ...limits[k]) : THREE.MathUtils.clamp(v, 0.6, 1.6);
+      out[k] = k in limits ? THREE.MathUtils.clamp(v, ...limits[k]) : THREE.MathUtils.clamp(v, 0.3, 3);
     }
     return out;
   }
