@@ -37,7 +37,7 @@ const _q = new THREE.Quaternion();
 const _pq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
 const _tilt = new THREE.Quaternion();
-const X_AXIS = new THREE.Vector3(1, 0, 0);
+const TILT_AXIS = new THREE.Vector3(1, 0, 0);
 
 /**
  * Drives the hair of one character: the HairRoot bone (size, position, tilt
@@ -77,7 +77,7 @@ export class HairRig {
   fit(s) {
     _v.set(s.side, -s.forward, s.up).applyQuaternion(this.rest.quaternion);
     this.root.position.copy(this.rest.position).add(_v);
-    this.root.quaternion.copy(this.rest.quaternion).multiply(_tilt.setFromAxisAngle(X_AXIS, THREE.MathUtils.degToRad(-s.tilt)));
+    this.root.quaternion.copy(this.rest.quaternion).multiply(_tilt.setFromAxisAngle(TILT_AXIS, THREE.MathUtils.degToRad(-s.tilt)));
     this.root.scale.copy(this.rest.scale).multiplyScalar(s.size);
   }
 
