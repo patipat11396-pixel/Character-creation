@@ -5,6 +5,8 @@ All coordinates are the source mesh's: centimetres, Z up, front = -Y.
 * The eye recesses are covered by a few long, thin triangles (up to 3.6 cm
   against 0.85 cm elsewhere), which read as bumps. `refine_long_edges` splits
   them down to the face's normal size and `smooth_eye_area` relaxes the patch.
+* The mouth corners have tiny folded triangles that show as white spots;
+  `mouth_corner_normals` evens out their shading.
 * The mouth is sculpted shut: the lips fold about 2 cm inwards and meet along
   one line. `cut_mouth` splits the mesh along that line so the lips can part,
   `mouth_morphs` builds the shape keys and `mouth_parts` adds teeth and a
@@ -101,6 +103,27 @@ def smooth_eye_area(verts, faces, avg):
 
 
 # ---------------------------------------------------------------- mouth
+
+def mouth_corner_normals(verts, normals, avg, crease, iterations=8):
+    """Even out the shading at both mouth corners without moving anything.
+
+    The source has tiny triangles folded back on themselves where the lips
+    meet at each corner (edges bending 120-165 degrees). Their normals point
+    the wrong way and catch the light as white spots. Moving the vertices
+    breaks the lip line, so only the normals there are blended with their
+    neighbours'.
+    """
+    x, y, z = verts.T
+    box = (np.abs(np.abs(x) - 3.0) < 1.1) & (np.abs(z - MOUTH_Z) < 1.0) & (y > -1.5) & (y < 2.5)
+    fix = box & (crease > 60)
+    for _ in range(2):
+        fix = fix | ((avg @ fix.astype(float) > 0) & box)
+    out = normals.copy()
+    for _ in range(iterations):
+        out[fix] = (avg @ out)[fix]
+        out[fix] /= np.linalg.norm(out[fix], axis=1, keepdims=True)
+    return out, fix
+
 
 def lip_line(verts, faces):
     """Vertex path along the bottom of the lip fold, corner to corner."""

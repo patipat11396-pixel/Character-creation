@@ -71,6 +71,10 @@ few long, flat triangles. `tools/face.py` fixes both:
 - **Eye area:** triangles longer than 0.9 cm are split down to the size used
   on the rest of the face, then the patch is relaxed so the recesses have
   soft edges instead of facets.
+- **Mouth corners:** the source has tiny triangles folded back on themselves
+  at both corners, which showed as white spots. Their shading normals are
+  blended with the surrounding skin; the shape is not moved, so the lip line
+  stays intact.
 - **Mouth:** the mesh is cut along the line where the lips meet, so the lips
   can part. Four shape keys (morph targets) are added: `jawOpen` (the lower
   jaw rotates about a hinge in front of the ears), `smile`, `frown` and

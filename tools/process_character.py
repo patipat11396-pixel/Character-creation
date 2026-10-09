@@ -290,6 +290,8 @@ def main():
     moved |= eye_moved
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
+    normals, corners = face.mouth_corner_normals(verts, normals, avg, crease_angles(verts, faces))
+    print(f"mouth corners: shading evened out on {corners.sum()} vertices")
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
