@@ -1,0 +1,52 @@
+[
+  {
+    "id": "ponytail",
+    "name": "High ponytail",
+    "file": "models/hair/ponytail.glb"
+  },
+  {
+    "id": "wavy",
+    "name": "Wavy",
+    "file": "models/hair/wavy.glb"
+  },
+  {
+    "id": "bob",
+    "name": "Bob",
+    "file": "models/hair/bob.glb"
+  },
+  {
+    "id": "braid",
+    "name": "Braid",
+    "file": "models/hair/braid.glb"
+  },
+  {
+    "id": "long_fringe",
+    "name": "Long with fringe",
+    "file": "models/hair/long_fringe.glb"
+  },
+  {
+    "id": "twin_tails",
+    "name": "Twin tails",
+    "file": "models/hair/twin_tails.glb"
+  },
+  {
+    "id": "long_centre",
+    "name": "Long, centre part",
+    "file": "models/hair/long_centre.glb"
+  },
+  {
+    "id": "low_ponytail",
+    "name": "Low ponytail",
+    "file": "models/hair/low_ponytail.glb"
+  },
+  {
+    "id": "short_shaggy",
+    "name": "Short shaggy",
+    "file": "models/hair/short_shaggy.glb"
+  },
+  {
+    "id": "space_buns",
+    "name": "Space buns",
+    "file": "models/hair/space_buns.glb"
+  }
+]

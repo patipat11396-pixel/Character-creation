@@ -70,6 +70,7 @@
 
     <div class="field">
       <span class="label">Hair</span>
+      <select id="hair-style" aria-label="Hairstyle"></select>
       <div class="hair-colors">
         <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
         <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
@@ -93,7 +94,7 @@
       <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-30" max="30" step="0.5"></label>
       <label class="slider"><span>Turn</span><input data-hair="turn" type="range" min="-30" max="30" step="0.5"></label>
       <label class="slider"><span>Roll</span><input data-hair="roll" type="range" min="-30" max="30" step="0.5"></label>
-      <span class="sublabel">Ponytail</span>
+      <span class="sublabel">Swinging parts (ponytail, braid, twin tails)</span>
       <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
       <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
       <label class="slider"><span>Bounce</span><input data-hair="bounce" type="range" min="0" max="1" step="0.01"></label>
@@ -126,6 +127,7 @@
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
     <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
+    <button type="button" id="download-setup" class="link">Download setup with all hair fits (JSON)</button>
     <p class="status" id="status" role="status"></p>
   </aside>
 </main>

@@ -115,31 +115,48 @@ Natural, Nude, Pink, Rose, Coral, Red, Berry, or any custom colour.
 
 ## Hair
 
-`models/source/hair.fbx` is converted once to `models/source/hair.glb`
-(`npm i three@0.170.0 && node tools/fbx_to_glb.mjs models/source/hair.fbx models/source/hair.glb`),
-then `tools/hair.py` (run by `process_character.py`):
+Ten hairstyles, each its own file in `models/hair/` loaded when it is
+picked: High ponytail, Wavy, Bob, Braid, Long with fringe, Twin tails,
+Long centre part, Low ponytail, Short shaggy, Space buns.
 
-- **Fits it to the head.** The inside of the hair cap is matched to the head
-  by ray casting, then pushed out so the scalp never pokes through.
-- **Attaches it to the Head bone.** A `HairRoot` bone at the centre of the
-  head holds the whole hairstyle, so it stays on the head in every
-  animation. The menu adjusts that bone two ways:
-  - **In the view:** "Adjust in view" puts move / rotate / scale handles on
-    the hair (keys W, E, R; Esc to hide). The scale handle's axis cubes
-    stretch width, height or depth; its centre cube changes the overall size
-    (drag up to grow, down to shrink).
-  - **Sliders:** Size, Width, Height, Depth, Up/down, Back/forward,
-    Left/right, Tilt, Turn and Roll, kept in step with the handles.
-- **Rigs the ponytail.** Eight bones (`HairTail1`…`HairTail8`, plus
-  `HairTailEnd`) run from the hair tie to the tip, and the tail is weighted
-  along them. Where the tail is fused to the long hair on the back of the
-  head, the weights are blended across the seam so nothing tears.
+**Building them.** Sources are in `models/source/hair/` (the FBX as given,
+plus a GLB converted with `node tools/fbx_to_glb.mjs <in.fbx> <out.glb>`,
+which needs `npm i three@0.170.0`). `tools/hairstyles.json` lists the styles
+and which parts swing. Then:
 
-In the menu (`src/hair.js`) the ponytail is a spring-bone simulation: each
-bone is pulled back towards its rest direction (Stiffness), pulled down
-(Weight), and slowed by drag (Bounce), and it collides with spheres on the
-head, neck, chest, waist and hips. Colours: Black, Brown, Blonde, Red or any
-custom colour.
+```
+python3 tools/process_character.py   # the body, if it changed
+python3 tools/build_hair.py           # every style, or: build_hair.py braid bob
+```
+
+`tools/hair.py` finds the head-sized hollow inside each hairstyle, scales and
+moves the hair onto the head (ray casting, then pushed out so the scalp
+never pokes through), and builds a bone chain for every swinging part with
+weights blended across its seam with the rest of the hair. Each output file
+holds a `HairRoot` bone, chains `Chain<n>_1 … Chain<n>_End`, and the skinned
+mesh, in the character's bind pose.
+
+**In the menu** (`src/hair.js`) `HairRoot` is moved under the character's
+Head bone, so the hair follows the head in every animation. Every style keeps
+its own fit:
+
+- **In the view:** "Adjust in view" puts move / rotate / scale handles on
+  the hair (keys W, E, R; Esc to hide). The scale handle's axis cubes
+  stretch width, height or depth; its centre cube changes the overall size
+  (drag up to grow, down to shrink).
+- **Sliders:** Size, Width, Height, Depth, Up/down, Back/forward,
+  Left/right, Tilt, Turn and Roll, kept in step with the handles.
+
+The swinging parts are spring-bone simulations: each bone is pulled back
+towards its rest direction (Stiffness), pulled down (Weight), slowed by drag
+(Bounce), and collides with spheres on the head, neck, chest, waist and hips.
+Bones near the tie are stiffer and bend less, as real hair is held there.
+Colours: Black, Brown, Blonde, Red or any custom colour.
+
+**Keeping your fits.** "Download setup with all hair fits (JSON)" saves a
+`defaults.json` with the fit of every style (on the published page through
+the page's download prompt). Put it in `models/` to make it the starting
+setup, or give it to Claude to build the fits into the hair files.
 
 ## Hands
 

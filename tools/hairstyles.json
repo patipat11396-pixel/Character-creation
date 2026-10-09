@@ -1,0 +1,12 @@
+[
+  {"id": "ponytail", "name": "High ponytail", "chains": [{"bones": 8, "tie": [0, 0.07, 0.83], "region": {"include": [{"min": [null, 0.02, null]}], "exclude": [{"max": [null, 0.17, 0.74]}]}, "blend": 25}]},
+  {"id": "wavy", "name": "Wavy"},
+  {"id": "bob", "name": "Bob"},
+  {"id": "braid", "name": "Braid", "chains": [{"bones": 6, "region": {"include": [{"min": [-0.12, 0.0, null], "max": [0.12, null, 0.74]}]}, "blend": 8}]},
+  {"id": "long_fringe", "name": "Long with fringe"},
+  {"id": "twin_tails", "name": "Twin tails", "chains": [{"bones": 6, "region": {"include": [{"min": [0.21, -0.06, null], "max": [null, null, 0.95]}]}}, {"bones": 6, "region": {"include": [{"min": [null, -0.06, null], "max": [-0.21, null, 0.95]}]}}]},
+  {"id": "long_centre", "name": "Long, centre part"},
+  {"id": "low_ponytail", "name": "Low ponytail", "chains": [{"bones": 5, "region": {"include": [{"min": [null, 0.0, null], "max": [null, null, 0.62]}]}}]},
+  {"id": "short_shaggy", "name": "Short shaggy"},
+  {"id": "space_buns", "name": "Space buns"}
+]

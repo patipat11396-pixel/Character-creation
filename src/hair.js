@@ -7,12 +7,19 @@ export const HAIR_COLORS = [
   { id: 'red', name: 'Red', hex: '#8f3a1c' },
 ];
 
-export const HAIR_DEFAULTS = {
-  color: '#4b2e1d',
-  size: 1, width: 1, height: 1, depth: 1,            // fit: overall and per-axis scale
+// How one hairstyle sits on the head. Each style keeps its own fit.
+export const FIT_DEFAULTS = {
+  size: 1, width: 1, height: 1, depth: 1,            // overall and per-axis scale
   up: 0, forward: 0, side: 0,                         // cm along the head's axes
   tilt: 0, turn: 0, roll: 0,                          // degrees
-  weight: 1, stiffness: 0.5, bounce: 0.5,             // ponytail physics
+};
+export const FIT_KEYS = Object.keys(FIT_DEFAULTS);
+
+export const HAIR_DEFAULTS = {
+  style: 'ponytail',
+  color: '#4b2e1d',
+  ...FIT_DEFAULTS,                                    // the current style's fit
+  weight: 1, stiffness: 0.5, bounce: 0.5,             // physics of the swinging parts
 };
 
 // Spheres the ponytail cannot pass through, in the body's mesh space (cm),
@@ -43,22 +50,48 @@ const _inv = new THREE.Quaternion();
 const DEG = THREE.MathUtils.RAD2DEG;
 
 /**
- * Drives the hair of one character: the HairRoot bone (size, position, tilt
- * relative to the head) and a spring simulation of the ponytail bone chain.
+ * Drives one hairstyle on one character. A hairstyle file (tools/build_hair.py)
+ * holds a HairRoot bone and chains Chain<c>_1 … Chain<c>_End for the parts that
+ * swing, all in the character's bind pose. HairRoot is moved under the
+ * character's Head bone so the hair follows the head; the fit settings move
+ * HairRoot, and each chain is a spring simulation.
  */
 export class HairRig {
-  constructor(hairMesh, bodyMesh) {
-    const bones = hairMesh.skeleton.bones;
+  /**
+   * @param gltfScene     the loaded hairstyle file's scene
+   * @param bodyMesh      the character's body (for colliders)
+   * @param headBone      the character's Head bone
+   * @param headBindWorld the Head bone's world matrix in the bind pose
+   */
+  constructor(gltfScene, bodyMesh, headBone, headBindWorld) {
+    gltfScene.updateMatrixWorld(true);
+    let mesh = null;
+    gltfScene.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
+    this.mesh = mesh;
+    mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    const bones = mesh.skeleton.bones;
     const byName = (n) => bones.find((b) => b.name === n);
     this.root = byName('HairRoot');
+    // Same place in the world, now as a child of the head.
+    const local = headBindWorld.clone().invert().multiply(this.root.matrixWorld);
+    this.head = headBone;
+    headBone.add(this.root);
+    local.decompose(this.root.position, this.root.quaternion, this.root.scale);
     this.rest = { position: this.root.position.clone(), quaternion: this.root.quaternion.clone(), scale: this.root.scale.clone() };
-    const chain = [];
-    for (let i = 1; byName(`HairTail${i}`); i++) chain.push(byName(`HairTail${i}`));
-    chain.push(byName('HairTailEnd'));
-    this.links = chain.slice(0, -1).map((bone, i) => ({
-      bone, rest: bone.quaternion.clone(), child: chain[i + 1].position.clone(),
-      p: new THREE.Vector3(), prev: new THREE.Vector3(),
-    }));
+    this.links = [];
+    for (let c = 1; byName(`Chain${c}_1`); c++) {
+      const chain = [];
+      for (let k = 1; byName(`Chain${c}_${k}`); k++) chain.push(byName(`Chain${c}_${k}`));
+      chain.push(byName(`Chain${c}_End`));
+      // Hair is held near the tie: the first bones are stiffer and bend less.
+      chain.slice(0, -1).forEach((bone, i) => this.links.push({
+        bone, rest: bone.quaternion.clone(), child: chain[i + 1].position.clone(),
+        stiffness: [4, 2.2, 1.4][i] ?? 1,
+        maxBend: THREE.MathUtils.degToRad([15, 30, 45][i] ?? 60),
+        p: new THREE.Vector3(), prev: new THREE.Vector3(),
+      }));
+    }
     this.settled = false;
 
     // Colliders: mesh space -> each bone's local space through its inverse
@@ -74,6 +107,19 @@ export class HairRig {
 
   reset() {
     this.settled = false;
+  }
+
+  /** Put this hairstyle on the character (its mesh goes into `scene`). */
+  attach(scene) {
+    this.head.add(this.root);
+    scene.add(this.mesh);
+    this.settled = false;
+  }
+
+  /** Take this hairstyle off the character. */
+  detach() {
+    this.root.removeFromParent();
+    this.mesh.removeFromParent();
   }
 
   /**
@@ -119,6 +165,7 @@ export class HairRig {
     const drag = 0.5 - 0.42 * s.bounce;
     const stiff = (0.4 + 3.6 * s.stiffness) * STEP;
     const gravity = 0.45 * s.weight * STEP;
+    if (!this.links.length) return;
     if (!this.settled) {
       this.solve(0, 0, 0, true);
       this.settled = true;
@@ -141,13 +188,18 @@ export class HairRig {
       if (snap || l.p.distanceTo(_target) > 1) {
         l.p.copy(_target);
         l.prev.copy(_target);
+        // Spheres this bone starts in or reaches into at rest (a low ponytail
+        // at the nape, twin tails tied at the sides of the head): colliding
+        // with them would throw it out sideways.
+        l.skip = new Set(this.colliders.filter((c) =>
+          Math.min(_target.distanceTo(c.world), _head.distanceTo(c.world)) < c.worldRadius + TAIL_RADIUS));
       } else {
         _rest.copy(_target).sub(_head).normalize();
         _next.copy(l.p).sub(l.prev).multiplyScalar(1 - drag).add(l.p)
-          .addScaledVector(_rest, stiff)
+          .addScaledVector(_rest, stiff * l.stiffness)
           .addScaledVector(DOWN, gravity);
-        this.constrain(_next, _head, length);
-        this.limit(_next, _head, _rest, length);
+        this.constrain(_next, _head, length, l.skip);
+        this.limit(_next, _head, _rest, length, l.maxBend);
         l.prev.copy(l.p);
         l.p.copy(_next);
       }
@@ -162,22 +214,23 @@ export class HairRig {
     }
   }
 
-  /** Keep the bone within MAX_BEND of its rest direction. */
-  limit(p, head, rest, length) {
+  /** Keep the bone within maxBend of its rest direction. */
+  limit(p, head, rest, length, maxBend = MAX_BEND) {
     _v.copy(p).sub(head).normalize();
     _q.setFromUnitVectors(rest, _v);
     const angle = 2 * Math.acos(Math.min(1, Math.abs(_q.w)));
-    if (angle > MAX_BEND) {
-      _q.copy(_id.identity().slerp(_q, MAX_BEND / angle));
+    if (angle > maxBend) {
+      _q.copy(_id.identity().slerp(_q, maxBend / angle));
       p.copy(rest).applyQuaternion(_q).multiplyScalar(length).add(head);
     }
   }
 
-  constrain(p, head, length) {
+  constrain(p, head, length, skip) {
     p.sub(head).setLength(length).add(head);
     for (const c of this.colliders) {
-      _v.copy(p).sub(c.world);
+      if (skip?.has(c)) continue;
       const min = c.worldRadius + TAIL_RADIUS;
+      _v.copy(p).sub(c.world);
       if (_v.lengthSq() < min * min) {
         p.copy(c.world).add(_v.setLength(min));
         p.sub(head).setLength(length).add(head);

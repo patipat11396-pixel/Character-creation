@@ -4,9 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
-import { HAIR_COLORS, HAIR_DEFAULTS, HairRig, hairMaterial, setHairColor } from './hair.js';
+import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
+const HAIR_INDEX_URL = 'models/hair/index.json';
+// Filled in by the single-file artifact build: model URL -> base64 text parts.
+const PACKED = null;
 const MODELS = {
   fixed: 'models/character.glb',
   original: 'models/source/retargeted_animations.glb',
@@ -58,6 +61,7 @@ const state = {
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
   hair: { ...HAIR_DEFAULTS },
+  hairFits: {}, // style id -> fit, for every style that has been fitted
   lips: { ...LIP_DEFAULTS },
 };
 let grip = RELAXED_GRIP;
@@ -171,16 +175,27 @@ const loader = new GLTFLoader();
 const characters = {}; // model key -> { root, mesh, mixer, clips, action }
 const clock = new THREE.Clock();
 
+async function loadGLB(url) {
+  const parts = PACKED?.[url];
+  if (!parts) return loader.loadAsync(url);
+  const texts = await Promise.all(parts.map(async (part) => {
+    const res = await fetch(part);
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${part}`);
+    return res.text();
+  }));
+  const bytes = Uint8Array.from(atob(texts.join('')), (c) => c.charCodeAt(0));
+  return loader.parseAsync(bytes.buffer, '');
+}
+
 async function loadModel(kind) {
   if (characters[kind]) return characters[kind];
-  const gltf = await loader.loadAsync(MODELS[kind]);
+  const gltf = await loadGLB(MODELS[kind]);
   const root = gltf.scene;
-  let mesh, hairMesh;
+  let mesh;
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (o.material.name === 'Hair') hairMesh = o;
-      else if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -195,15 +210,15 @@ async function loadModel(kind) {
     const m = bone.name.match(/Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
     if (m) fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[1]][m[2] - 1]) });
   }
-  let hair = null;
-  if (hairMesh) {
-    hairMesh.material = hairMat;
-    root.updateMatrixWorld(true);
-    hair = new HairRig(hairMesh, mesh);
-  }
+  // The Head bone's world matrix in the bind pose, where hairstyles are built.
+  mesh.skeleton.pose();
+  root.updateMatrixWorld(true);
+  const headBone = mesh.skeleton.bones.find((b) => b.name === 'Head');
+  const headBindWorld = headBone.matrixWorld.clone();
+  const hair = null;
   const mixer = new THREE.AnimationMixer(root);
   const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
-  const character = { root, mesh, mixer, clips, fingers, faceMeshes, hair, action: null };
+  const character = { root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null };
   characters[kind] = character;
   scene.add(root);
   return character;
@@ -318,7 +333,11 @@ function buildHairControls() {
     if (mode) setGizmo(mode);
   });
   $('hair-reset').addEventListener('click', () => {
-    setHair({ ...HAIR_DEFAULTS, ...(defaults?.hair ?? {}), color: state.hair.color });
+    const style = state.hair.style;
+    const physics = { weight: HAIR_DEFAULTS.weight, stiffness: HAIR_DEFAULTS.stiffness, bounce: HAIR_DEFAULTS.bounce };
+    for (const k of Object.keys(physics)) if (defaults?.hair?.[k] !== undefined) physics[k] = defaults.hair[k];
+    const fit = defaults?.hairFits?.[style] ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
+    setHair({ ...FIT_DEFAULTS, ...fit, ...physics });
     for (const ch of Object.values(characters)) ch.hair?.reset();
   });
   setHair({});
@@ -353,6 +372,62 @@ function setLips(change) {
   $('lip-amount').value = state.lips.amount;
 }
 
+// ---------------------------------------------------------------- hairstyles
+
+let hairStyles = [];
+const hairFiles = {};       // style id -> Promise of the loaded file
+let hairRequest = 0;
+let shownStyle = null;
+
+async function loadHairIndex() {
+  try {
+    hairStyles = await (await fetch(HAIR_INDEX_URL)).json();
+  } catch {
+    hairStyles = [];
+  }
+  const select = $('hair-style');
+  for (const s of hairStyles) select.appendChild(new Option(s.name, s.id));
+  select.value = state.hair.style;
+  select.addEventListener('change', () => setHair({ style: select.value }));
+}
+
+/** Put hairstyle `id` on the character, loading it the first time. */
+async function showHairstyle(id) {
+  const request = ++hairRequest;
+  const ch = await characterReady;
+  const style = hairStyles.find((s) => s.id === id);
+  if (!style) return;
+  if (!ch.hairRigs[id]) {
+    status(`Loading ${style.name}…`);
+    hairFiles[id] ??= loadGLB(style.file);
+    let gltf;
+    try {
+      gltf = await hairFiles[id];
+    } catch {
+      delete hairFiles[id];
+      status(`Could not load ${style.name}.`);
+      return;
+    }
+    if (!ch.hairRigs[id]) {
+      ch.hairRigs[id] = new HairRig(gltf.scene, ch.mesh, ch.headBone, ch.headBindWorld);
+      ch.hairRigs[id].mesh.material = hairMat;
+      ch.hairRigs[id].detach();
+    }
+    status('');
+  }
+  if (request !== hairRequest) return;      // a newer choice came in meanwhile
+  const following = gizmo.object && gizmo.object === ch.hair?.root;
+  ch.hair?.detach();
+  ch.hair = ch.hairRigs[id];
+  ch.hair.attach(scene);
+  shownStyle = id;
+  if (following) gizmo.attach(ch.hair.root);
+}
+
+function pickFit(source) {
+  return Object.fromEntries(FIT_KEYS.map((k) => [k, source[k] ?? FIT_DEFAULTS[k]]));
+}
+
 function setGizmo(mode) {
   const rig = characters[state.model]?.hair;
   document.querySelectorAll('[data-gizmo]').forEach((b) => b.classList.toggle('on', b.dataset.gizmo === mode));
@@ -365,7 +440,15 @@ function setGizmo(mode) {
 }
 
 function setHair(change) {
+  if (change.style && change.style !== state.hair.style) {
+    // Each style keeps its own fit: park this one's, bring the next one's back.
+    state.hairFits[state.hair.style] = pickFit(state.hair);
+    const fit = state.hairFits[change.style] ?? defaults?.hairFits?.[change.style] ?? FIT_DEFAULTS;
+    Object.assign(state.hair, FIT_DEFAULTS, fit);
+  }
   Object.assign(state.hair, change);
+  if ($('hair-style').value !== state.hair.style) $('hair-style').value = state.hair.style;
+  if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
   setHairColor(hairMat, state.hair.color);
   document.querySelectorAll('.hair-swatch').forEach((b) =>
     b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
@@ -486,6 +569,7 @@ function snapshot() {
     mouth: { ...state.mouth },
     hands: state.hands,
     hair: { ...state.hair },
+    hairFits: { ...state.hairFits, [state.hair.style]: pickFit(state.hair) },
     lips: { ...state.lips },
     savedAt: new Date().toISOString(),
   };
@@ -497,7 +581,12 @@ function applySetup(setup, { withName = false } = {}) {
   if (withName) $('name').value = setup.name ?? '';
   const i = (setup.skinTone?.index ?? 0) - 1;
   if (i >= 0 && i < SKIN_TONES.length) setTone(i);
-  if (setup.hair) setHair({ ...HAIR_DEFAULTS, ...setup.hair });
+  if (setup.hairFits) state.hairFits = { ...state.hairFits, ...setup.hairFits };
+  if (setup.hair) {
+    const style = setup.hair.style ?? HAIR_DEFAULTS.style;
+    state.hair.style = style;                 // switch without parking the old fit
+    setHair({ ...HAIR_DEFAULTS, ...(setup.hairFits?.[style] ?? {}), ...setup.hair, style });
+  }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
   if (setup.hands) {
     state.hands = setup.hands;
@@ -571,6 +660,36 @@ async function loadDefaults() {
   } catch { /* shared store unavailable: keep the file's defaults */ }
 }
 
+/** Offer `data` as a JSON file: the artifact's download prompt, or a plain browser download. */
+async function saveJson(filename, data) {
+  const text = JSON.stringify(data, null, 2);
+  const downloads = window.claude?.use ? await window.claude.use('downloads') : null;
+  if (downloads) {
+    try {
+      await downloads.save({ filename, data: text });
+      return true;
+    } catch (e) {
+      if (e?.code === 'declined') return false;
+      status(`Could not save the file (${e?.code ?? 'error'}).`);
+      return false;
+    }
+  }
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([text], { type: 'application/json' })), download: filename,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return true;
+}
+
+async function downloadSetup() {
+  const setup = snapshot();
+  delete setup.name;
+  if (await saveJson('defaults.json', setup)) {
+    status('Saved defaults.json with every hairstyle fit. Send it to Claude, or put it in models/ and commit it.');
+  }
+}
+
 async function setAsDefault() {
   const setup = snapshot();
   delete setup.name;
@@ -585,12 +704,10 @@ async function setAsDefault() {
     return;
   }
   // Running from the repo: hand over the file to commit as models/defaults.json.
-  const blob = new Blob([JSON.stringify(setup, null, 2)], { type: 'application/json' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'defaults.json' });
-  a.click();
-  URL.revokeObjectURL(a.href);
-  defaults = setup;
-  status('Downloaded defaults.json. Put it in the models folder (models/defaults.json) and commit it.');
+  if (await saveJson('defaults.json', setup)) {
+    defaults = setup;
+    status('Downloaded defaults.json. Put it in the models folder (models/defaults.json) and commit it.');
+  }
 }
 
 // ---------------------------------------------------------------- start
@@ -660,19 +777,22 @@ $('random').addEventListener('click', randomize);
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
 $('set-default').addEventListener('click', setAsDefault);
+$('download-setup').addEventListener('click', downloadSetup);
 
 // Start from the defaults, then this browser's own save if there is one.
 const savedCharacter = readSaved();
-loadDefaults().then(() => {
+Promise.all([loadDefaults(), loadHairIndex()]).then(() => {
   if (savedCharacter) {
     applySetup(savedCharacter, { withName: true });
     status(`Loaded your saved character${savedCharacter.name ? `, ${savedCharacter.name}` : ''}.`);
   } else {
     applySetup(defaults);
   }
+  if (!shownStyle) showHairstyle(state.hair.style);
 });
 
-loadModel('fixed').then((ch) => {
+const characterReady = loadModel('fixed');
+characterReady.then((ch) => {
   buildAnimationList(ch.clips);
   applyAnimation();
   $('loading').classList.add('hidden');
