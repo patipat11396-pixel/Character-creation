@@ -7,12 +7,16 @@ the thigh bones, so they fold into spikes whenever a leg lifts.
 
 This script:
 
-* welds the triangle soup into an indexed mesh (shape and normals unchanged),
+* welds the triangle soup into an indexed mesh,
+* flattens the raised seams a removed tank top and bikini left on the body
+  (neckline, armholes, bikini line); the rest of the shape is unchanged,
 * adds 15 finger bones per hand (Thumb, Index, Middle, Ring, Pinky, 3 each),
   placed on the measured finger centrelines, and splits each hand's weight
   between the palm and those bones by distance to each bone,
 * moves the buttocks' weight from the thigh bones to Hips down to the gluteal
   fold, then smooths the weights around the pelvis,
+* smooths the weights over the shoulders, upper back and neck, where the
+  source's hard bone borders crease and wrinkle when the arms are raised,
 * scales the scene to metres and drops the "_RT" suffix from clip names.
 
 Finger bones point along the finger (+Y) and curl towards the palm when
@@ -112,6 +116,59 @@ def adjacency(n, faces):
     return diags(1 / np.asarray(a.sum(1)).ravel()) @ a
 
 
+def crease_angles(verts, faces):
+    """Largest dihedral angle (degrees) across any edge at each vertex."""
+    fn = np.cross(verts[faces[:, 1]] - verts[faces[:, 0]], verts[faces[:, 2]] - verts[faces[:, 0]])
+    fn /= np.linalg.norm(fn, axis=1, keepdims=True) + 1e-12
+    edges = np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)
+    owner = np.tile(np.arange(len(faces)), 3)
+    order = np.lexsort((edges[:, 1], edges[:, 0]))
+    edges, owner = edges[order], owner[order]
+    pair = np.flatnonzero((edges[1:] == edges[:-1]).all(1))
+    angle = np.degrees(np.arccos(np.clip((fn[owner[pair]] * fn[owner[pair + 1]]).sum(1), -1, 1)))
+    score = np.zeros(len(verts))
+    for c in (0, 1):
+        np.maximum.at(score, edges[pair, c], angle)
+    return score
+
+
+def smooth_seams(verts, faces, avg):
+    """Flatten the ridges left by a removed tank top and bikini.
+
+    The source mesh has raised edge loops around the neckline, the armholes
+    and the bikini line. They show as hard lines that get worse in motion.
+    Only vertices on those ridges (and three rings around them) move; Taubin
+    smoothing keeps the surrounding volume. Below the waist the midline is left alone so
+    the buttock crease and the crotch keep their shape.
+    """
+    torso = (verts[:, 2] > 60) & (verts[:, 2] < 135) & (np.abs(verts[:, 0]) < 30)
+    torso &= (np.abs(verts[:, 0]) > 1.2) | (verts[:, 2] > 95)   # keep the crease and crotch
+    seam = (crease_angles(verts, faces) > 22) & torso
+    grow = seam.astype(float)
+    for _ in range(3):
+        grow = np.maximum(grow, (avg @ grow > 0) * 1.0)
+    mask = (grow > 0) & torso
+    out = verts.copy()
+    # The neckline is a small step (the top sat above the skin), which Taubin
+    # smoothing keeps, so the ridge line itself and one ring around it get a
+    # plain Laplacian pass first.
+    core = (seam | (avg @ seam.astype(float) > 0)) & mask
+    for _ in range(8):
+        out[core] = 0.5 * out[core] + 0.5 * (avg @ out)[core]
+    for _ in range(20):
+        for factor in (0.5, -0.53):
+            out[mask] += factor * (avg @ out - out)[mask]
+    return out, mask
+
+
+def vertex_normals(verts, faces):
+    fn = np.cross(verts[faces[:, 1]] - verts[faces[:, 0]], verts[faces[:, 2]] - verts[faces[:, 0]])
+    normals = np.zeros_like(verts)
+    for k in range(3):
+        np.add.at(normals, faces[:, k], fn)
+    return normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+
+
 def smooth_rows(weights, avg, mask, iterations, alpha=0.5):
     for _ in range(iterations):
         blurred = avg @ weights
@@ -205,6 +262,18 @@ def main():
         dense[:, hips] += moved
     pelvis = (verts[:, 2] > 70) & (verts[:, 2] < 106) & (np.abs(verts[:, 0]) < 26)
     dense = smooth_rows(dense, avg, pelvis, iterations=12)
+
+    # ---- shoulders, upper back and neck: the source hands off between Spine2,
+    # the shoulders, the upper arms and the neck along hard lines, which crease
+    # and wrinkle when the arms go up. Stop below the jaw and above the elbows.
+    shoulders = (verts[:, 2] > 104) & (verts[:, 2] < 136) & (np.abs(verts[:, 0]) < 30)
+    dense = smooth_rows(dense, avg, shoulders, iterations=25)
+
+    # ---- flatten the leftover clothing seams; recompute normals around them
+    verts, moved = smooth_seams(verts, faces, avg)
+    near = moved | (avg @ moved.astype(float) > 0)
+    normals[near] = vertex_normals(verts, faces)[near]
+    print(f"seams: smoothed {moved.sum()} vertices")
 
     # ---- keep the 4 strongest influences
     order = np.argsort(-dense, axis=1)[:, :4]

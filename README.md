@@ -38,7 +38,7 @@ pip install -r tools/requirements.txt
 python3 tools/process_character.py
 ```
 
-`tools/process_character.py` fixes three things in the export:
+`tools/process_character.py` fixes four things in the export:
 
 1. **Hands could not close.** The skeleton had one bone per hand. The script
    adds 15 finger bones per hand (`LeftHandThumb1`…`LeftHandPinky3`, Mixamo
@@ -49,8 +49,14 @@ python3 tools/process_character.py
    folded whenever a leg lifted. Their weight now goes to `Hips` down to the
    gluteal fold, fading into the thighs over about 12 cm, and the weights
    around the pelvis are smoothed.
-3. **Units and layout.** The mesh is welded into an indexed mesh (shape and
-   normals unchanged), scaled from centimetres to metres, and the `_RT`
+3. **Leftover clothing seams.** The mesh had raised edge loops where a
+   tank top and bikini were removed: around the neckline, both armholes and
+   the bikini line. They showed as hard lines, worst with the arms raised.
+   The script finds them by their sharp crease angle and smooths only those
+   vertices (about 13% of the mesh); the buttock crease and crotch are left
+   alone. The weights over the shoulders, upper back and neck are smoothed
+   too, which removes the crumpling there when the arms go up.
+4. **Units and layout.** The mesh is welded into an indexed mesh , scaled from centimetres to metres, and the `_RT`
    suffix is dropped from clip names.
 
 The skeleton's other bones, the bind pose and all 178 animations are
