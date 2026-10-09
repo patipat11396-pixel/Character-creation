@@ -45,6 +45,21 @@
     </label>
 
     <div class="field">
+      <span class="label">Expression</span>
+      <div class="chips" role="radiogroup" aria-label="Expression">
+        <button type="button" role="radio" data-expression="neutral">Neutral</button>
+        <button type="button" role="radio" data-expression="smile">Smile</button>
+        <button type="button" role="radio" data-expression="laugh">Laugh</button>
+        <button type="button" role="radio" data-expression="surprised">Surprised</button>
+        <button type="button" role="radio" data-expression="sad">Sad</button>
+        <button type="button" role="radio" data-expression="talking">Talking</button>
+      </div>
+      <label class="slider"><span>Mouth open</span><input id="mouth-open" type="range" min="0" max="1" step="0.01" value="0"></label>
+      <label class="slider"><span>Frown / smile</span><input id="mouth-smile" type="range" min="-1" max="1" step="0.01" value="0"></label>
+      <label class="slider"><span>Round lips</span><input id="mouth-round" type="range" min="0" max="1" step="0.01" value="0"></label>
+    </div>
+
+    <div class="field">
       <span class="label">Hands</span>
       <div class="segmented" role="radiogroup" aria-label="Hands">
         <button type="button" data-hands="auto" class="on">Auto</button>

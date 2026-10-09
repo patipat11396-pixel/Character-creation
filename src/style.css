@@ -96,6 +96,17 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 }
 .swatch.dark span { color: rgba(255,255,255,.7); }
 
+.chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.chips button {
+  padding: 8px 4px; border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer;
+}
+.chips button[aria-checked="true"] { border-color: var(--accent); color: var(--text); background: var(--line); }
+.chips button:focus-visible, .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.slider { display: grid; grid-template-columns: 7.5em 1fr; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.slider input { width: 100%; accent-color: var(--accent); }
+
 .debug summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .debug[open] summary { margin-bottom: 10px; }
 

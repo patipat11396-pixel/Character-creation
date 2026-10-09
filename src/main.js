@@ -15,6 +15,15 @@ const FIST = {
   Index: [75, 95, 60], Middle: [75, 95, 60], Ring: [75, 95, 60], Pinky: [75, 95, 60],
 };
 const RELAXED_GRIP = 0.15;
+// Mouth shape keys built by tools/process_character.py, mixed per expression.
+const EXPRESSIONS = {
+  neutral: {},
+  smile: { smile: 1 },
+  laugh: { jawOpen: 0.65, smile: 1 },
+  surprised: { jawOpen: 0.75, mouthRound: 1 },
+  sad: { frown: 1 },
+  talking: {},
+};
 // Clips where the character holds something or fights get a fist in "Auto".
 const GRIP_CLIPS = /Punch|Fight|Melee|Hook|Kick|Sword|Pistol|Shield|Torch|Lantern|Climb|Ladder|Pipe|Ledge|Bow|Golf|Fishing|Chop|Carry|Driving|Rail|Ground_Pound/;
 // Shown first in the animation list; every other clip follows.
@@ -32,6 +41,8 @@ const state = {
   model: 'fixed',
   weights: false,
   hands: 'auto',
+  expression: 'neutral',
+  mouth: { open: 0, smile: 0, round: 0 },
 };
 let grip = RELAXED_GRIP;
 
@@ -89,7 +100,14 @@ const skin = new THREE.MeshPhysicalMaterial({
   roughness: 0.55,
   sheen: 0.4,
   sheenRoughness: 0.6,
+  side: THREE.DoubleSide,
 });
+// Looking into the open mouth shows the inside of the head; draw those back
+// faces as a dark mouth interior instead of lit skin.
+skin.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
+    '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
+};
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 
 // ---------------------------------------------------------------- models
@@ -103,9 +121,11 @@ async function loadModel(kind) {
   const gltf = await loader.loadAsync(MODELS[kind]);
   const root = gltf.scene;
   let mesh;
+  const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      mesh = o;
+      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
     }
@@ -121,7 +141,7 @@ async function loadModel(kind) {
   }
   const mixer = new THREE.AnimationMixer(root);
   const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
-  const character = { root, mesh, mixer, clips, fingers, action: null };
+  const character = { root, mesh, mixer, clips, fingers, faceMeshes, action: null };
   characters[kind] = character;
   scene.add(root);
   return character;
@@ -173,6 +193,42 @@ function poseHands(dt) {
       f.bone.quaternion.copy(f.rest).multiply(curl.setFromAxisAngle(X_AXIS, f.angle * grip));
     }
   }
+}
+
+// Current mouth values ease towards the sliders; "talking" adds a jaw flap.
+const mouthNow = { jawOpen: 0, smile: 0, frown: 0, mouthRound: 0 };
+let talkTime = 0;
+
+function poseMouth(dt) {
+  const { open, smile, round } = state.mouth;
+  const target = { jawOpen: open, smile: Math.max(smile, 0), frown: Math.max(-smile, 0), mouthRound: round };
+  if (state.expression === 'talking') {
+    talkTime += dt;
+    const t = talkTime * 9;
+    target.jawOpen = Math.min(1, open + 0.3 * Math.max(0, Math.sin(t) + 0.5 * Math.sin(t * 2.3 + 1)));
+    target.mouthRound = Math.min(1, round + 0.3 * Math.max(0, Math.sin(t * 0.7 + 2)));
+  }
+  const k = Math.min(1, dt * (state.expression === 'talking' ? 20 : 10));
+  for (const key in mouthNow) mouthNow[key] += (target[key] - mouthNow[key]) * k;
+  for (const ch of Object.values(characters)) {
+    for (const m of ch.faceMeshes) {
+      for (const key in mouthNow) {
+        const i = m.morphTargetDictionary[key];
+        if (i !== undefined) m.morphTargetInfluences[i] = mouthNow[key];
+      }
+    }
+  }
+}
+
+function setExpression(name) {
+  state.expression = name;
+  const e = EXPRESSIONS[name];
+  state.mouth = { open: e.jawOpen ?? 0, smile: (e.smile ?? 0) - (e.frown ?? 0), round: e.mouthRound ?? 0 };
+  document.querySelectorAll('[data-expression]').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.expression === name)));
+  $('mouth-open').value = state.mouth.open;
+  $('mouth-smile').value = state.mouth.smile;
+  $('mouth-round').value = state.mouth.round;
 }
 
 function syncTime(from, to) {
@@ -286,6 +342,8 @@ function confirmCharacter() {
   const character = {
     name,
     skinTone: { index: state.tone + 1, id: tone.id, hex: tone.hex },
+    expression: state.expression,
+    mouth: { ...state.mouth },
     createdAt: new Date().toISOString(),
   };
   try {
@@ -319,6 +377,7 @@ renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseHands(dt);
+  poseMouth(dt);
   controls.update();
   renderer.render(scene, camera);
 });
@@ -328,6 +387,18 @@ buildSwatches();
 setTone(state.tone);
 resize();
 
+document.querySelectorAll('[data-expression]').forEach((b) =>
+  b.addEventListener('click', () => setExpression(b.dataset.expression)));
+for (const [id, key] of [['mouth-open', 'open'], ['mouth-smile', 'smile'], ['mouth-round', 'round']]) {
+  $(id).addEventListener('input', (e) => {
+    state.mouth[key] = Number(e.target.value);
+    if (state.expression !== 'talking') {
+      state.expression = 'custom';
+      document.querySelectorAll('[data-expression]').forEach((b) => b.setAttribute('aria-checked', 'false'));
+    }
+  });
+}
+setExpression(state.expression);
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;

@@ -17,6 +17,8 @@ This script:
   fold, then smooths the weights around the pelvis,
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
+* smooths the eye area (see face.py), cuts the lips apart and adds mouth
+  shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
 * scales the scene to metres and drops the "_RT" suffix from clip names.
 
 Finger bones point along the finger (+Y) and curl towards the palm when
@@ -31,6 +33,7 @@ from pathlib import Path
 import numpy as np
 from scipy.sparse import coo_matrix, diags
 
+import face
 from glb import GlbWriter, read_accessor, read_glb
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -198,8 +201,20 @@ def main():
     verts, first, inverse = np.unique(np.round(pos, 5), axis=0, return_index=True, return_inverse=True)
     faces = inverse.ravel().reshape(-1, 3)
     normals = nrm[first]
+    source_weights = np.zeros((len(verts), len(names)))
+    np.add.at(source_weights, (np.repeat(np.arange(len(verts)), 4), jnt[first].ravel()), wgt[first].ravel())
+    print(f"source: {len(pos)} corners -> {len(verts)} vertices, {len(faces)} triangles")
+
+    # ---- face: refine and relax the eye area, then cut the lips apart
+    before = len(verts)
+    verts, faces, (normals, source_weights) = face.refine_long_edges(verts, faces, [normals, source_weights])
+    verts, eye_moved = face.smooth_eye_area(verts, faces, adjacency(len(verts), faces))
+    print(f"eye area: {len(verts) - before} vertices added, {eye_moved.sum()} relaxed")
+    verts, faces, (normals, source_weights), upper_lip, lower_lip = face.cut_mouth(
+        verts, faces, [normals, source_weights])
+    print(f"mouth: lip line of {len(upper_lip)} vertices cut")
     n = len(verts)
-    print(f"source: {len(pos)} corners -> {n} vertices, {len(faces)} triangles")
+    eye_moved = np.r_[eye_moved, np.zeros(n - len(eye_moved), bool)]
 
     # ---- finger bones
     new_ibm = list(ibm)
@@ -228,7 +243,7 @@ def main():
         hand_bones[side] = (hand, bone[f"{prefix}Hand_end"], segments)
 
     dense = np.zeros((n, len(names)))
-    np.add.at(dense, (np.repeat(np.arange(n), 4), jnt[first].ravel()), wgt[first].ravel())
+    dense[:, :source_weights.shape[1]] = source_weights
     avg = adjacency(n, faces)
 
     # Split each hand's weight between the palm and the finger bones.
@@ -271,9 +286,15 @@ def main():
 
     # ---- flatten the leftover clothing seams; recompute normals around them
     verts, moved = smooth_seams(verts, faces, avg)
+    print(f"seams: smoothed {moved.sum()} vertices")
+    moved |= eye_moved
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
-    print(f"seams: smoothed {moved.sum()} vertices")
+
+    # ---- mouth shape keys
+    morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
+    base_n = vertex_normals(verts, faces)
+    morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
 
     # ---- keep the 4 strongest influences
     order = np.argsort(-dense, axis=1)[:, :4]
@@ -289,7 +310,48 @@ def main():
     out.replace(attr["WEIGHTS_0"], top.astype(np.float32), 34962)
     out.replace(skin["inverseBindMatrices"],
                 np.array([m.T.ravel() for m in new_ibm], np.float32))
-    g["meshes"][0]["primitives"][0]["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
+    body = g["meshes"][0]["primitives"][0]
+    body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
+    body["targets"] = [{"POSITION": out.append(morphs[k].astype(np.float32)),
+                        "NORMAL": out.append(morph_normals[k].astype(np.float32))} for k in face.MORPHS]
+
+    # ---- teeth and tongue: extra primitives on the same mesh, bound to Head
+    head = bone["Head"]
+    for name, color, roughness, parts in (
+            ("Teeth", [0.92, 0.9, 0.84, 1], 0.35, [p for p in face.mouth_parts() if "Teeth" in p[0]]),
+            ("Tongue", [0.62, 0.24, 0.26, 1], 0.6, [p for p in face.mouth_parts() if p[0] == "Tongue"])):
+        pv, pf, jw = [], [], []
+        for _, v_, f_, w_ in parts:
+            pf.append(f_ + sum(len(x) for x in pv))
+            pv.append(v_)
+            jw.append(np.full(len(v_), w_))
+        pv, pf, jw = np.vstack(pv), np.vstack(pf), np.concatenate(jw)
+        pn = vertex_normals(pv, pf)
+        jaw = (face.rotate_jaw(pv) - pv) * jw[:, None]
+        jaw_n = vertex_normals(pv + jaw, pf) - pn
+        zero = np.zeros_like(pv, dtype=np.float32)
+        joints = np.zeros((len(pv), 4), np.uint16)
+        joints[:, 0] = head
+        weights = np.zeros((len(pv), 4), np.float32)
+        weights[:, 0] = 1
+        g["materials"].append({"name": name, "pbrMetallicRoughness": {
+            "baseColorFactor": color, "metallicFactor": 0, "roughnessFactor": roughness}})
+        targets = []
+        for k in face.MORPHS:
+            d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
+            targets.append({"POSITION": out.append(np.asarray(d, np.float32)),
+                            "NORMAL": out.append(np.asarray(dn, np.float32))})
+        g["meshes"][0]["primitives"].append({
+            "attributes": {"POSITION": out.append(pv.astype(np.float32), 34962),
+                           "NORMAL": out.append(pn.astype(np.float32), 34962),
+                           "JOINTS_0": out.append(joints, 34962),
+                           "WEIGHTS_0": out.append(weights, 34962)},
+            "indices": out.append(pf.astype(np.uint32).reshape(-1, 1), 34963),
+            "material": len(g["materials"]) - 1,
+            "targets": targets,
+        })
+    g["meshes"][0]["weights"] = [0] * len(face.MORPHS)
+    g["meshes"][0]["extras"] = {"targetNames": face.MORPHS}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"
     g["materials"][0]["name"] = "Skin"
     g["nodes"][0]["scale"] = [0.01, 0.01, 0.01]  # centimetres -> metres

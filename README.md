@@ -1,8 +1,8 @@
 # Character creation
 
 A browser character creation menu for the base character model: enter a name,
-pick one of 10 real-world skin tones, preview any of the model's 178
-animations and confirm.
+pick one of 10 real-world skin tones, set a facial expression, preview any of
+the model's 178 animations and confirm.
 
 ## Run it
 
@@ -19,7 +19,8 @@ Confirm saves the character to `localStorage` under
 `window` with the same data:
 
 ```json
-{ "name": "Mali", "skinTone": { "index": 8, "id": "MST-8", "hex": "#604134" }, "createdAt": "…" }
+{ "name": "Mali", "skinTone": { "index": 8, "id": "MST-8", "hex": "#604134" },
+  "expression": "smile", "mouth": { "open": 0, "smile": 1, "round": 0 }, "createdAt": "…" }
 ```
 
 ## Skin tones
@@ -38,7 +39,7 @@ pip install -r tools/requirements.txt
 python3 tools/process_character.py
 ```
 
-`tools/process_character.py` fixes four things in the export:
+`tools/process_character.py` fixes four things in the export (and the face, see below):
 
 1. **Hands could not close.** The skeleton had one bone per hand. The script
    adds 15 finger bones per hand (`LeftHandThumb1`…`LeftHandPinky3`, Mixamo
@@ -61,6 +62,27 @@ python3 tools/process_character.py
 
 The skeleton's other bones, the bind pose and all 178 animations are
 unchanged.
+
+## Face and expressions
+
+The source face had the mouth sculpted shut and the eye recesses covered in a
+few long, flat triangles. `tools/face.py` fixes both:
+
+- **Eye area:** triangles longer than 0.9 cm are split down to the size used
+  on the rest of the face, then the patch is relaxed so the recesses have
+  soft edges instead of facets.
+- **Mouth:** the mesh is cut along the line where the lips meet, so the lips
+  can part. Four shape keys (morph targets) are added: `jawOpen` (the lower
+  jaw rotates about a hinge in front of the ears), `smile`, `frown` and
+  `mouthRound`. Teeth and a tongue are added as extra parts of the same mesh,
+  bound to the `Head` bone, with the lower teeth and tongue following
+  `jawOpen`.
+
+The menu's Expression control mixes those shape keys: Neutral, Smile, Laugh,
+Surprised, Sad and Talking (an animated jaw), plus sliders for mouth open,
+frown/smile and round lips. The open mouth shows the inside of the head,
+which the menu draws as a dark mouth interior (back faces of the skin
+material). Another engine needs the same treatment or a mouth cavity mesh.
 
 ## Hands
 
