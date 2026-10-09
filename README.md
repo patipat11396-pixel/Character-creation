@@ -14,6 +14,10 @@ python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
 
+**Camera.** Drag to rotate, scroll or pinch to zoom, right-drag (or two
+fingers) to move the view up and down; the **Head** and **Full body**
+buttons jump to those views.
+
 **Starting setup.** Everyone starts from the built-in values, overridden by
 `models/defaults.json`, overridden (on the published page) by the default
 saved with **Set this as the default for everyone**. On the published page

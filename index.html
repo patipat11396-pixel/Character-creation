@@ -19,7 +19,11 @@
   <section class="stage">
     <canvas id="view"></canvas>
     <div class="loading" id="loading">Loading character…</div>
-    <p class="hint">Drag to rotate · scroll to zoom</p>
+    <div class="view-buttons" role="group" aria-label="Camera">
+      <button type="button" data-view="head">Head</button>
+      <button type="button" data-view="body">Full body</button>
+    </div>
+    <p class="hint">Drag to rotate · right-drag or two fingers to move up and down · scroll to zoom</p>
   </section>
 
   <aside class="panel">

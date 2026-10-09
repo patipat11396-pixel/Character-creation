@@ -86,8 +86,21 @@ camera.position.set(0.9, 1.3, 4.6);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 0.88, 0);
 controls.enableDamping = true;
-controls.enablePan = false;
-controls.minDistance = 1.2;
+// Panning moves the view up and down only (right-drag, or two fingers):
+// the point it orbits stays on the character's centre line.
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+const PAN_RANGE = [0.05, 1.75]; // metres, how low and high the view can go
+const _panFix = new THREE.Vector3();
+controls.addEventListener('change', () => {
+  const t = controls.target;
+  _panFix.set(-t.x, THREE.MathUtils.clamp(t.y, ...PAN_RANGE) - t.y, -t.z);
+  if (_panFix.lengthSq() > 1e-12) {
+    t.add(_panFix);
+    camera.position.add(_panFix);
+  }
+});
+controls.minDistance = 0.45;
 controls.maxDistance = 7;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = Math.PI / 2 + 0.05;
@@ -120,6 +133,34 @@ gizmo.addEventListener('objectChange', () => {
   setHair(rig.readFit(state.hair));
 });
 scene.add(gizmo.getHelper());
+
+// Camera presets: keep the viewing direction, change height and distance.
+const VIEWS = {
+  head: { target: 1.45, distance: 1.1 },
+  body: { target: 0.88, distance: 4.7 },
+};
+const view = { from: null, to: null, t: 1 };
+
+function setView(name) {
+  const v = VIEWS[name];
+  // Drop any glide left over from the last drag, which would pull the view off.
+  controls.enableDamping = false;
+  controls.update();
+  controls.enableDamping = true;
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const target = new THREE.Vector3(0, v.target, 0);
+  view.from = { target: controls.target.clone(), position: camera.position.clone() };
+  view.to = { target, position: target.clone().addScaledVector(dir, v.distance) };
+  view.t = 0;
+}
+
+function stepView(dt) {
+  if (view.t >= 1) return;
+  view.t = Math.min(1, view.t + dt * 3);
+  const k = view.t * view.t * (3 - 2 * view.t);
+  controls.target.lerpVectors(view.from.target, view.to.target, k);
+  camera.position.lerpVectors(view.from.position, view.to.position, k);
+}
 
 const key = new THREE.DirectionalLight(0xffffff, 2.2);
 key.position.set(1.5, 3, 2);
@@ -731,6 +772,7 @@ renderer.setAnimationLoop(() => {
     ch.hair.update(dt, state.hair);
   }
   controls.update();
+  stepView(dt);
   renderer.render(scene, camera);
 });
 
@@ -777,6 +819,7 @@ $('random').addEventListener('click', randomize);
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
 $('set-default').addEventListener('click', setAsDefault);
+document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 $('download-setup').addEventListener('click', downloadSetup);
 
 // Start from the defaults, then this browser's own save if there is one.
