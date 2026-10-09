@@ -157,6 +157,14 @@ towards its rest direction (Stiffness), pulled down (Weight), slowed by drag
 Bones near the tie are stiffer and bend less, as real hair is held there.
 Colours: Black, Brown, Blonde, Red or any custom colour.
 
+**Under hair (buzz cut).** `tools/face.py` stores a scalp mask on the body
+(`_SCALPMASK`) following a short crop's hairline: forehead, temples and
+sideburns, over the ears, down to a tapered nape; ears stay bare. The menu
+paints it in the hair colour with a fine stubble speckle and a broken-up
+hairline, so gaps in any hairstyle show hair instead of skin. The "Under
+hair" slider sets how strong it is, and the **Buzz cut** style shows it on
+its own with no hair mesh.
+
 **Keeping your fits.** "Download setup with all hair fits (JSON)" saves a
 `defaults.json` with the fit of every style (on the published page through
 the page's download prompt). Put it in `models/` to make it the starting

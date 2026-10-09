@@ -195,15 +195,31 @@ const skin = new THREE.MeshPhysicalMaterial({
 // Looking into the open mouth shows the inside of the head; draw those back
 // faces as a dark mouth interior instead of lit skin.
 // Lip colour: the model marks the lips with a 0..1 vertex attribute.
-const lipUniforms = { lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount } };
+const lipUniforms = {
+  lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount },
+  // Buzz cut under the hair: the scalp (_SCALPMASK) takes the hair colour.
+  scalpColor: { value: new THREE.Color(HAIR_DEFAULTS.color) }, scalpAmount: { value: HAIR_DEFAULTS.under },
+};
 skin.onBeforeCompile = (shader) => {
   Object.assign(shader.uniforms, lipUniforms);
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nvarying float vLip;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;');
+    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nattribute float _scalpmask;\nvarying float vLip;\nvarying float vScalp;\nvarying vec3 vSkinPos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vScalp = _scalpmask;\n  vSkinPos = position;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform vec3 lipColor;\nuniform float lipAmount;\nvarying float vLip;')
-    .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, lipColor, clamp(vLip, 0.0, 1.0) * lipAmount);')
+    .replace('#include <common>', `#include <common>
+uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
+uniform vec3 scalpColor; uniform float scalpAmount; varying float vScalp; varying vec3 vSkinPos;
+float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+  diffuseColor.rgb = mix(diffuseColor.rgb, lipColor, clamp(vLip, 0.0, 1.0) * lipAmount);
+  {
+    // Stubble: fine per-hair speckle, and a hairline broken up by it.
+    float n = stubbleHash(floor(vSkinPos * 7.0));
+    float n2 = stubbleHash(floor(vSkinPos * 19.0) + 3.1);
+    float cover = clamp((vScalp - 0.5) * 2.5 + 0.5 + (n - 0.5) * 0.6, 0.0, 1.0) * scalpAmount;
+    vec3 stubble = scalpColor * (0.75 + 0.45 * n2);
+    diffuseColor.rgb = mix(diffuseColor.rgb, stubble, cover * (0.82 + 0.18 * n));
+  }`)
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
@@ -438,6 +454,14 @@ async function showHairstyle(id) {
   const ch = await characterReady;
   const style = hairStyles.find((s) => s.id === id);
   if (!style) return;
+  if (!style.file) {                        // buzz cut: only the scalp layer
+    if (request !== hairRequest) return;
+    if (gizmo.object === ch.hair?.root) gizmo.detach();
+    ch.hair?.detach();
+    ch.hair = null;
+    shownStyle = id;
+    return;
+  }
   if (!ch.hairRigs[id]) {
     status(`Loading ${style.name}…`);
     hairFiles[id] ??= loadGLB(style.file);
@@ -491,6 +515,8 @@ function setHair(change) {
   if ($('hair-style').value !== state.hair.style) $('hair-style').value = state.hair.style;
   if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
   setHairColor(hairMat, state.hair.color);
+  lipUniforms.scalpColor.value.set(state.hair.color);
+  lipUniforms.scalpAmount.value = state.hair.under;
   document.querySelectorAll('.hair-swatch').forEach((b) =>
     b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
   $('hair-custom').value = state.hair.color;

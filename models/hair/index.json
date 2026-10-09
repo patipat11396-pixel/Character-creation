@@ -1,5 +1,10 @@
 [
   {
+    "id": "buzz",
+    "name": "Buzz cut",
+    "file": null
+  },
+  {
     "id": "ponytail",
     "name": "High ponytail",
     "file": "models/hair/ponytail.glb"

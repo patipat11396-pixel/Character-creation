@@ -265,6 +265,29 @@ def lip_mask(verts):
     return mask.astype(np.float32)
 
 
+def scalp_mask(verts):
+    """0..1 per vertex: the buzz-cut area under the hair, on the final (scaled) head.
+
+    The hairline follows a short women's crop: the forehead line at the
+    front, down past the temples to short sideburns, up and over the ears,
+    then down behind them to a tapered nape. Ears stay bare.
+    """
+    x, y, z = verts.T
+    # Hairline height (cm) by depth from front (-y) to back (+y).
+    ys = [-5, 2, 5, 9, 12, 15, 19, 22, 25, 40]
+    hs = [158.5, 158.5, 156.5, 151.5, 147.5, 151, 152, 145, 140.5, 139.5]
+    line = np.interp(y, ys, hs)
+    mask = smoothstep(line - 0.6, line + 0.6, z)
+    ears = (smoothstep(10.6, 11.6, np.abs(x)) * smoothstep(140, 141.5, z) * smoothstep(154, 152.5, z)
+            * smoothstep(8, 10, y) * smoothstep(23, 21, y))
+    mask *= 1 - ears
+    # The nape tapers: narrower as it goes down the neck.
+    nape = smoothstep(144, 141, z)
+    mask *= 1 - nape * smoothstep(5.5, 7.5, np.abs(x))
+    mask *= z > 134
+    return mask.astype(np.float32)
+
+
 # ---------------------------------------------------------------- teeth and tongue
 
 def _arch(z0, z1, inset, n=24):

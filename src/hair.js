@@ -18,6 +18,7 @@ export const FIT_KEYS = Object.keys(FIT_DEFAULTS);
 export const HAIR_DEFAULTS = {
   style: 'ponytail',
   color: '#4b2e1d',
+  under: 1,                                           // buzz cut on the scalp, 0..1
   ...FIT_DEFAULTS,                                    // the current style's fit
   weight: 1, stiffness: 0.5, bounce: 0.5,             // physics of the swinging parts
 };

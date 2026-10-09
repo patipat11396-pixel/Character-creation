@@ -17,7 +17,7 @@ This script:
   fold, then smooths the weights around the pelvis,
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
-* stores a lip mask (_LIPMASK) for lip colour in the menu,
+* stores a lip mask (_LIPMASK) and a buzz-cut scalp mask (_SCALPMASK) for the menu,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
 * makes the head 15% smaller (HEAD_SCALE), blending through the upper neck,
@@ -334,6 +334,7 @@ def main():
     body = g["meshes"][0]["primitives"][0]
     body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
     body["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
+    body["attributes"]["_SCALPMASK"] = out.append(face.scalp_mask(verts).reshape(-1, 1), 34962)
     body["targets"] = [{"POSITION": out.append(morphs[k].astype(np.float32)),
                         "NORMAL": out.append(morph_normals[k].astype(np.float32))} for k in face.MORPHS]
 

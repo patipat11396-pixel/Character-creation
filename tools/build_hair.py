@@ -176,9 +176,12 @@ def main():
     head_faces = faces[(verts[faces][:, :, 2] > 133).all(1)]
     (ROOT / "models/hair").mkdir(exist_ok=True)
     for style in styles:
+        if style.get("mesh") is False:
+            continue                      # scalp only (the body's buzz cut)
         if not wanted or style["id"] in wanted:
             build(style, verts, head_faces)
-    index = [{"id": s["id"], "name": s["name"], "file": f"models/hair/{s['id']}.glb"} for s in styles]
+    index = [{"id": s["id"], "name": s["name"],
+              "file": None if s.get("mesh") is False else f"models/hair/{s['id']}.glb"} for s in styles]
     (ROOT / "models/hair/index.json").write_text(json.dumps(index, indent=2) + "\n")
 
 
