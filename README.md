@@ -39,7 +39,7 @@ pip install -r tools/requirements.txt
 python3 tools/process_character.py
 ```
 
-`tools/process_character.py` fixes four things in the export (and the face, see below):
+`tools/process_character.py` fixes five things in the export (and the face, see below):
 
 1. **Hands could not close.** The skeleton had one bone per hand. The script
    adds 15 finger bones per hand (`LeftHandThumb1`…`LeftHandPinky3`, Mixamo
@@ -57,7 +57,10 @@ python3 tools/process_character.py
    vertices (about 13% of the mesh); the buttock crease and crotch are left
    alone. The weights over the shoulders, upper back and neck are smoothed
    too, which removes the crumpling there when the arms go up.
-4. **Units and layout.** The mesh is welded into an indexed mesh, scaled from centimetres to metres, and the `_RT`
+4. **Head size.** The head is 15% smaller than the source (`HEAD_SCALE`),
+   shrunk towards the top of the neck and blended over the upper neck so
+   there is no step. The mouth shape keys, teeth and tongue scale with it.
+5. **Units and layout.** The mesh is welded into an indexed mesh, scaled from centimetres to metres, and the `_RT`
    suffix is dropped from clip names.
 
 The skeleton's other bones, the bind pose and all 178 animations are

@@ -19,6 +19,7 @@ This script:
   source's hard bone borders crease and wrinkle when the arms are raised,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
+* makes the head 15% smaller (HEAD_SCALE), blending through the upper neck,
 * scales the scene to metres and drops the "_RT" suffix from clip names.
 
 Finger bones point along the finger (+Y) and curl towards the palm when
@@ -40,6 +41,11 @@ ROOT = Path(__file__).resolve().parent.parent
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
 # Lateral (Y) centre of each finger, measured from the mesh's fingertip outline.
 FINGER_Y = {"Index": 18.4, "Middle": 20.1, "Ring": 21.7, "Pinky": 23.2}
+# The head is made 15% smaller around the top of the neck, blending to full
+# size over the upper neck so there is no step.
+HEAD_SCALE = 0.85
+HEAD_PIVOT = np.array([0.0, 16.4, 135.5])
+HEAD_BLEND = (131.5, 135.5)                       # z range of the neck blend (cm)
 PALM_NORMAL = np.array([0.0, 0.0, -1.0])          # palms face down in the T-pose
 # Thumb curl direction per bone, found by searching for the axes and angles that
 # put the thumb tip on the curled index and middle fingers without bending the
@@ -50,6 +56,12 @@ THUMB_CURL = [np.array([0.0, 0.9, -0.45]), np.array([0.0, 0.37, -0.93]), np.arra
 def smoothstep(a, b, x):
     t = np.clip((x - a) / (b - a), 0, 1)
     return t * t * (3 - 2 * t)
+
+
+def head_scale(points):
+    """Per-point scale factor and the points shrunk towards HEAD_PIVOT."""
+    factor = 1 - (1 - HEAD_SCALE) * smoothstep(*HEAD_BLEND, points[:, 2])
+    return factor, HEAD_PIVOT + (points - HEAD_PIVOT) * factor[:, None]
 
 
 def matrix(acc_rows):
@@ -298,6 +310,11 @@ def main():
     base_n = vertex_normals(verts, faces)
     morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
 
+    # ---- smaller head: shrink the head (and its shape keys) towards the neck
+    factor, verts = head_scale(verts)
+    morphs = {k: d * factor[:, None] for k, d in morphs.items()}
+    print(f"head: scaled to {HEAD_SCALE:.0%}")
+
     # ---- keep the 4 strongest influences
     order = np.argsort(-dense, axis=1)[:, :4]
     top = np.take_along_axis(dense, order, axis=1)
@@ -331,6 +348,8 @@ def main():
         pn = vertex_normals(pv, pf)
         jaw = (face.rotate_jaw(pv) - pv) * jw[:, None]
         jaw_n = vertex_normals(pv + jaw, pf) - pn
+        factor, pv = head_scale(pv)
+        jaw = jaw * factor[:, None]
         zero = np.zeros_like(pv, dtype=np.float32)
         joints = np.zeros((len(pv), 4), np.uint16)
         joints[:, 0] = head
