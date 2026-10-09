@@ -65,11 +65,25 @@
         <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
         <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
       </div>
+      <div class="gizmo-row">
+        <span class="sublabel">Adjust in view</span>
+        <div class="segmented" role="group" aria-label="Hair handles">
+          <button type="button" data-gizmo="off" class="on">Off</button>
+          <button type="button" data-gizmo="translate" title="Move (W)">Move</button>
+          <button type="button" data-gizmo="rotate" title="Rotate (E)">Rotate</button>
+          <button type="button" data-gizmo="scale" title="Scale (R)">Scale</button>
+        </div>
+      </div>
       <label class="slider"><span>Size</span><input data-hair="size" type="range" min="0.85" max="1.15" step="0.005"></label>
+      <label class="slider"><span>Width</span><input data-hair="width" type="range" min="0.8" max="1.25" step="0.005"></label>
+      <label class="slider"><span>Height</span><input data-hair="height" type="range" min="0.8" max="1.25" step="0.005"></label>
+      <label class="slider"><span>Depth</span><input data-hair="depth" type="range" min="0.8" max="1.25" step="0.005"></label>
       <label class="slider"><span>Up / down</span><input data-hair="up" type="range" min="-4" max="4" step="0.1"></label>
       <label class="slider"><span>Back / forward</span><input data-hair="forward" type="range" min="-4" max="4" step="0.1"></label>
       <label class="slider"><span>Left / right</span><input data-hair="side" type="range" min="-3" max="3" step="0.1"></label>
-      <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-15" max="15" step="0.5"></label>
+      <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-30" max="30" step="0.5"></label>
+      <label class="slider"><span>Turn</span><input data-hair="turn" type="range" min="-30" max="30" step="0.5"></label>
+      <label class="slider"><span>Roll</span><input data-hair="roll" type="range" min="-30" max="30" step="0.5"></label>
       <span class="sublabel">Ponytail</span>
       <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
       <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
@@ -94,10 +108,12 @@
         <button type="button" data-model="original">Original</button>
       </div>
       <label class="check"><input type="checkbox" id="weights"> Show bone weights</label>
+      <label class="check"><input type="checkbox" id="bones"> Show bones</label>
     </details>
 
     <div class="actions">
       <button type="button" id="random" class="secondary">Randomize</button>
+      <button type="button" id="save" class="secondary">Save</button>
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
     <p class="status" id="status" role="status"></p>

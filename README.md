@@ -14,15 +14,19 @@ python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
 
-Confirm saves the character to `localStorage` under
-`character-creation:character` and fires a `character-confirmed` event on
-`window` with the same data:
+**Save** stores the whole setup (name, skin tone, expression, hands, hair
+colour, fit and ponytail settings) in the browser's `localStorage` under
+`character-creation:character`; it is loaded again the next time the page
+opens. **Confirm** does the same (a name is required) and also fires a
+`character-confirmed` event on `window` with the data:
 
 ```json
 { "name": "Mali", "skinTone": { "index": 8, "id": "MST-8", "hex": "#604134" },
   "expression": "smile", "mouth": { "open": 0, "smile": 1, "round": 0 },
-  "hair": { "color": "#4b2e1d", "size": 1, "up": 0, "forward": 0, "side": 0, "tilt": 0,
-            "weight": 1, "stiffness": 0.5, "bounce": 0.5 }, "createdAt": "…" }
+  "hands": "auto",
+  "hair": { "color": "#4b2e1d", "size": 1, "width": 1, "height": 1, "depth": 1,
+            "up": 0, "forward": 0, "side": 0, "tilt": 0, "turn": 0, "roll": 0,
+            "weight": 1, "stiffness": 0.5, "bounce": 0.5 }, "savedAt": "…" }
 ```
 
 ## Skin tones
@@ -102,9 +106,14 @@ then `tools/hair.py` (run by `process_character.py`):
 - **Fits it to the head.** The inside of the hair cap is matched to the head
   by ray casting, then pushed out so the scalp never pokes through.
 - **Attaches it to the Head bone.** A `HairRoot` bone at the centre of the
-  head holds the whole hairstyle; the menu's Size, Up/down, Back/forward,
-  Left/right and Tilt sliders move that bone, so the hair stays on the head
-  in every animation.
+  head holds the whole hairstyle, so it stays on the head in every
+  animation. The menu adjusts that bone two ways:
+  - **In the view:** "Adjust in view" puts move / rotate / scale handles on
+    the hair (keys W, E, R; Esc to hide). The scale handle's axis cubes
+    stretch width, height or depth; its centre cube changes the overall size
+    (drag up to grow, down to shrink).
+  - **Sliders:** Size, Width, Height, Depth, Up/down, Back/forward,
+    Left/right, Tilt, Turn and Roll, kept in step with the handles.
 - **Rigs the ponytail.** Eight bones (`HairTail1`…`HairTail8`, plus
   `HairTailEnd`) run from the hair tie to the tip, and the tail is weighted
   along them. Where the tail is fused to the long hair on the back of the
@@ -125,5 +134,5 @@ frame (`FIST` in `src/main.js`). The Hands control offers:
   (`GRIP_CLIPS`), a relaxed hand otherwise.
 - **Open** and **Fist**: forced either way.
 
-Open "Model check" to compare with the original export or to colour the body
-by bone weights.
+Open "Model check" to compare with the original export, colour the body by
+bone weights, or show the skeleton.

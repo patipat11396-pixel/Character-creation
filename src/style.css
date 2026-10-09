@@ -113,6 +113,7 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 .custom-color input { width: 2.4rem; height: 2.4rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: none; cursor: pointer; }
 .custom-color input::-webkit-color-swatch-wrapper { padding: 0; }
 .custom-color input::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.gizmo-row { display: flex; flex-direction: column; gap: 6px; }
 .sublabel { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
 .link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
 

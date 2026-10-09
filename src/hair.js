@@ -9,7 +9,9 @@ export const HAIR_COLORS = [
 
 export const HAIR_DEFAULTS = {
   color: '#4b2e1d',
-  size: 1, up: 0, forward: 0, side: 0, tilt: 0,      // fit: scale, cm, cm, cm, degrees
+  size: 1, width: 1, height: 1, depth: 1,            // fit: overall and per-axis scale
+  up: 0, forward: 0, side: 0,                         // cm along the head's axes
+  tilt: 0, turn: 0, roll: 0,                          // degrees
   weight: 1, stiffness: 0.5, bounce: 0.5,             // ponytail physics
 };
 
@@ -36,8 +38,9 @@ const _id = new THREE.Quaternion();
 const _q = new THREE.Quaternion();
 const _pq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
-const _tilt = new THREE.Quaternion();
-const TILT_AXIS = new THREE.Vector3(1, 0, 0);
+const _euler = new THREE.Euler();
+const _inv = new THREE.Quaternion();
+const DEG = THREE.MathUtils.RAD2DEG;
 
 /**
  * Drives the hair of one character: the HairRoot bone (size, position, tilt
@@ -73,12 +76,35 @@ export class HairRig {
     this.settled = false;
   }
 
-  /** Place HairRoot from the fit settings: offsets in cm along the head's axes. */
+  /**
+   * Place HairRoot from the fit settings. HairRoot's own axes are the head's
+   * in the bind pose: +X the character's left, -Y forward, +Z up.
+   */
   fit(s) {
     _v.set(s.side, -s.forward, s.up).applyQuaternion(this.rest.quaternion);
     this.root.position.copy(this.rest.position).add(_v);
-    this.root.quaternion.copy(this.rest.quaternion).multiply(_tilt.setFromAxisAngle(TILT_AXIS, THREE.MathUtils.degToRad(-s.tilt)));
-    this.root.scale.copy(this.rest.scale).multiplyScalar(s.size);
+    _euler.set(-s.tilt / DEG, s.roll / DEG, s.turn / DEG, 'XYZ');
+    this.root.quaternion.copy(this.rest.quaternion).multiply(_q.setFromEuler(_euler));
+    this.root.scale.copy(this.rest.scale).multiply(_v.set(s.width, s.depth, s.height)).multiplyScalar(s.size);
+  }
+
+  /** The fit settings that reproduce HairRoot's current transform (after a gizmo drag). */
+  readFit(s) {
+    _inv.copy(this.rest.quaternion).invert();
+    _v.copy(this.root.position).sub(this.rest.position).applyQuaternion(_inv);
+    const out = { side: _v.x, forward: -_v.y, up: _v.z };
+    _euler.setFromQuaternion(_q.copy(_inv).multiply(this.root.quaternion), 'XYZ');
+    Object.assign(out, { tilt: -_euler.x * DEG, roll: _euler.y * DEG, turn: _euler.z * DEG });
+    _v.copy(this.root.scale).divide(this.rest.scale).divideScalar(s.size);
+    Object.assign(out, { width: _v.x, depth: _v.y, height: _v.z });
+    // A drag that starts right on the scale handle's centre can produce wild
+    // values; keep everything finite and within sensible limits.
+    const limits = { side: 6, forward: 6, up: 6, tilt: 45, roll: 45, turn: 45 };
+    for (const [k, v] of Object.entries(out)) {
+      if (!Number.isFinite(v)) { out[k] = s[k]; continue; }
+      out[k] = k in limits ? THREE.MathUtils.clamp(v, -limits[k], limits[k]) : THREE.MathUtils.clamp(v, 0.6, 1.6);
+    }
+    return out;
   }
 
   update(dt, s) {
