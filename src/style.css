@@ -109,6 +109,8 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 
 .hair-colors { display: flex; align-items: center; gap: 12px; }
 .swatches.hair { grid-template-columns: repeat(4, 2.4rem); gap: 10px; }
+.swatches.lips { grid-template-columns: repeat(7, 1.75rem); gap: 7px; }
+.hair-colors { flex-wrap: wrap; }
 .custom-color { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
 .custom-color input { width: 2.4rem; height: 2.4rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: none; cursor: pointer; }
 .custom-color input::-webkit-color-swatch-wrapper { padding: 0; }

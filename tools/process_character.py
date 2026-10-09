@@ -17,6 +17,7 @@ This script:
   fold, then smooths the weights around the pelvis,
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
+* stores a lip mask (_LIPMASK) for lip colour in the menu,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
 * fits the ponytail hair to the head and rigs it (see hair.py),
@@ -231,6 +232,7 @@ def main():
     print(f"mouth: lip line of {len(upper_lip)} vertices cut")
     n = len(verts)
     eye_moved = np.r_[eye_moved, np.zeros(n - len(eye_moved), bool)]
+    lips = face.lip_mask(verts)
 
     # ---- finger bones
     new_ibm = list(ibm)
@@ -373,6 +375,7 @@ def main():
                 np.array([m.T.ravel() for m in new_ibm], np.float32))
     body = g["meshes"][0]["primitives"][0]
     body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
+    body["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
     body["targets"] = [{"POSITION": out.append(morphs[k].astype(np.float32)),
                         "NORMAL": out.append(morph_normals[k].astype(np.float32))} for k in face.MORPHS]
 

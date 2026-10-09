@@ -60,6 +60,15 @@
     </div>
 
     <div class="field">
+      <span class="label">Lips</span>
+      <div class="hair-colors">
+        <div class="swatches lips" id="lip-colors" role="radiogroup" aria-label="Lip colour"></div>
+        <label class="custom-color" title="Custom colour"><input id="lip-custom" type="color" value="#b8676d"><span>Custom</span></label>
+      </div>
+      <label class="slider"><span>Intensity</span><input id="lip-amount" type="range" min="0" max="1" step="0.01"></label>
+    </div>
+
+    <div class="field">
       <span class="label">Hair</span>
       <div class="hair-colors">
         <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
@@ -116,6 +125,7 @@
       <button type="button" id="save" class="secondary">Save</button>
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
+    <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
     <p class="status" id="status" role="status"></p>
   </aside>
 </main>

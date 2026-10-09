@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
+const DEFAULTS_URL = 'models/defaults.json';
 const MODELS = {
   fixed: 'models/character.glb',
   original: 'models/source/retargeted_animations.glb',
@@ -32,6 +33,17 @@ const GRIP_CLIPS = /Punch|Fight|Melee|Hook|Kick|Sword|Pistol|Shield|Torch|Lanter
 const FEATURED = ['Idle_A', 'Walk', 'Jog', 'Sprint', 'Dance_Simple', 'Greeting',
   'Sword_Regular_Combo', 'Sitting_Idle', 'Crouch_Idle', 'Pushup'];
 const STORAGE_KEY = 'character-creation:character';
+// Lip colours, mixed over the lip area (the model's _LIPMASK) by `amount`.
+const LIP_COLORS = [
+  { name: 'Natural', hex: '#b8676d' },
+  { name: 'Nude', hex: '#a8705f' },
+  { name: 'Pink', hex: '#d9798a' },
+  { name: 'Rose', hex: '#b5596a' },
+  { name: 'Coral', hex: '#e0705a' },
+  { name: 'Red', hex: '#b3202e' },
+  { name: 'Berry', hex: '#7a2541' },
+];
+const LIP_DEFAULTS = { color: '#b8676d', amount: 0.35 };
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -46,6 +58,7 @@ const state = {
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
   hair: { ...HAIR_DEFAULTS },
+  lips: { ...LIP_DEFAULTS },
 };
 let grip = RELAXED_GRIP;
 
@@ -136,9 +149,18 @@ const skin = new THREE.MeshPhysicalMaterial({
 });
 // Looking into the open mouth shows the inside of the head; draw those back
 // faces as a dark mouth interior instead of lit skin.
+// Lip colour: the model marks the lips with a 0..1 vertex attribute.
+const lipUniforms = { lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount } };
 skin.onBeforeCompile = (shader) => {
-  shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
-    '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
+  Object.assign(shader.uniforms, lipUniforms);
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nvarying float vLip;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform vec3 lipColor;\nuniform float lipAmount;\nvarying float vLip;')
+    .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, lipColor, clamp(vLip, 0.0, 1.0) * lipAmount);')
+    .replace('#include <dithering_fragment>',
+      '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const hairMat = hairMaterial(HAIR_DEFAULTS.color);
@@ -296,10 +318,39 @@ function buildHairControls() {
     if (mode) setGizmo(mode);
   });
   $('hair-reset').addEventListener('click', () => {
-    setHair({ ...HAIR_DEFAULTS, color: state.hair.color });
+    setHair({ ...HAIR_DEFAULTS, ...(defaults?.hair ?? {}), color: state.hair.color });
     for (const ch of Object.values(characters)) ch.hair?.reset();
   });
   setHair({});
+}
+
+function buildLipControls() {
+  const box = $('lip-colors');
+  for (const c of LIP_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch lip-swatch';
+    b.style.background = c.hex;
+    b.dataset.color = c.hex;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c.name);
+    b.title = c.name;
+    b.addEventListener('click', () => setLips({ color: c.hex, amount: Math.max(state.lips.amount, 0.35) }));
+    box.appendChild(b);
+  }
+  $('lip-custom').addEventListener('input', (e) => setLips({ color: e.target.value }));
+  $('lip-amount').addEventListener('input', (e) => setLips({ amount: Number(e.target.value) }));
+  setLips({});
+}
+
+function setLips(change) {
+  Object.assign(state.lips, change);
+  lipUniforms.lipColor.value.set(state.lips.color);
+  lipUniforms.lipAmount.value = state.lips.amount;
+  document.querySelectorAll('.lip-swatch').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.color === state.lips.color)));
+  $('lip-custom').value = state.lips.color;
+  $('lip-amount').value = state.lips.amount;
 }
 
 function setGizmo(mode) {
@@ -425,6 +476,7 @@ function randomize() {
   setTone(Math.floor(Math.random() * SKIN_TONES.length));
 }
 
+// What a saved character or a default holds.
 function snapshot() {
   const tone = SKIN_TONES[state.tone];
   return {
@@ -434,8 +486,39 @@ function snapshot() {
     mouth: { ...state.mouth },
     hands: state.hands,
     hair: { ...state.hair },
+    lips: { ...state.lips },
     savedAt: new Date().toISOString(),
   };
+}
+
+/** Put a saved character or a default on screen. Defaults leave the name alone. */
+function applySetup(setup, { withName = false } = {}) {
+  if (!setup) return;
+  if (withName) $('name').value = setup.name ?? '';
+  const i = (setup.skinTone?.index ?? 0) - 1;
+  if (i >= 0 && i < SKIN_TONES.length) setTone(i);
+  if (setup.hair) setHair({ ...HAIR_DEFAULTS, ...setup.hair });
+  if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
+  if (setup.hands) {
+    state.hands = setup.hands;
+    document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
+  }
+  if (setup.expression && setup.expression in EXPRESSIONS) setExpression(setup.expression);
+  if (setup.mouth) {
+    Object.assign(state.mouth, setup.mouth);
+    $('mouth-open').value = state.mouth.open;
+    $('mouth-smile').value = state.mouth.smile;
+    $('mouth-round').value = state.mouth.round;
+  }
+  for (const ch of Object.values(characters)) ch.hair?.reset();
+}
+
+function readSaved() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return null;
+  }
 }
 
 function save() {
@@ -461,32 +544,53 @@ function confirmCharacter() {
   status(`Saved ${character.name} with skin tone ${character.skinTone.index}.`);
 }
 
-// Saved settings, read before the page is built and applied once it is.
-let saved = null;
+// ---------------------------------------------------------------- defaults for everyone
+//
+// Where everyone's starting setup comes from, later ones winning:
+//   1. the built-in values in this file and hair.js,
+//   2. models/defaults.json next to the page (committed to the repo),
+//   3. the published artifact's shared store, set with "Set as default".
+// A person's own Save still wins over all of them in their browser.
 
-function restore() {
+const DEFAULT_DOC = 'settings/default';
+let defaults = null;
+let sharedDb = null;
+
+async function loadDefaults() {
   try {
-    saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-  } catch { saved = null; }
-  if (!saved) return;
-  $('name').value = saved.name ?? '';
-  const i = (saved.skinTone?.index ?? 0) - 1;
-  if (i >= 0 && i < SKIN_TONES.length) state.tone = i;
-  if (saved.hair) Object.assign(state.hair, saved.hair);
-  if (saved.hands) state.hands = saved.hands;
+    const res = await fetch(DEFAULTS_URL);
+    if (res.ok) defaults = await res.json();
+  } catch { /* no defaults file */ }
+  const runtime = window.claude;
+  if (!runtime?.use) return;
+  sharedDb = await runtime.use('db');
+  if (!sharedDb) return;
+  try {
+    const snap = await sharedDb.doc(DEFAULT_DOC).get();
+    if (snap.exists) defaults = { ...defaults, ...snap.data() };
+  } catch { /* shared store unavailable: keep the file's defaults */ }
 }
 
-function applySaved() {
-  if (!saved) return;
-  if (saved.expression && saved.expression in EXPRESSIONS) setExpression(saved.expression);
-  if (saved.mouth) {
-    Object.assign(state.mouth, saved.mouth);
-    $('mouth-open').value = state.mouth.open;
-    $('mouth-smile').value = state.mouth.smile;
-    $('mouth-round').value = state.mouth.round;
+async function setAsDefault() {
+  const setup = snapshot();
+  delete setup.name;
+  if (sharedDb) {
+    try {
+      await sharedDb.doc(DEFAULT_DOC).set(setup);
+      defaults = setup;
+      status('Set as the default for everyone who opens this page.');
+    } catch {
+      status('Only the owner or an editor of this page can set the default.');
+    }
+    return;
   }
-  document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
-  status(`Loaded your saved character${saved.name ? `, ${saved.name}` : ''}.`);
+  // Running from the repo: hand over the file to commit as models/defaults.json.
+  const blob = new Blob([JSON.stringify(setup, null, 2)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'defaults.json' });
+  a.click();
+  URL.revokeObjectURL(a.href);
+  defaults = setup;
+  status('Downloaded defaults.json. Put it in the models folder (models/defaults.json) and commit it.');
 }
 
 // ---------------------------------------------------------------- start
@@ -513,7 +617,6 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
-restore();
 buildSwatches();
 setTone(state.tone);
 resize();
@@ -531,7 +634,7 @@ for (const [id, key] of [['mouth-open', 'open'], ['mouth-smile', 'smile'], ['mou
 }
 setExpression(state.expression);
 buildHairControls();
-applySaved();
+buildLipControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;
@@ -556,6 +659,18 @@ $('weights').addEventListener('change', (e) => {
 $('random').addEventListener('click', randomize);
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
+$('set-default').addEventListener('click', setAsDefault);
+
+// Start from the defaults, then this browser's own save if there is one.
+const savedCharacter = readSaved();
+loadDefaults().then(() => {
+  if (savedCharacter) {
+    applySetup(savedCharacter, { withName: true });
+    status(`Loaded your saved character${savedCharacter.name ? `, ${savedCharacter.name}` : ''}.`);
+  } else {
+    applySetup(defaults);
+  }
+});
 
 loadModel('fixed').then((ch) => {
   buildAnimationList(ch.clips);

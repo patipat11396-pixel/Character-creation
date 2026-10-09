@@ -245,6 +245,26 @@ def mouth_morphs(verts, faces, upper, lower):
     return {"jawOpen": jaw, "smile": smile, "frown": frown, "mouthRound": rnd}, w_jaw
 
 
+def lip_mask(verts):
+    """0..1 per vertex: how much of the lip colour each vertex takes.
+
+    A soft lens shape around the lip line, measured on this face: the upper
+    lip reaches about 0.85 cm above the line and the lower lip about 1.7 cm
+    below it, both narrowing towards the corners. The inside of the lip fold
+    is included so the colour carries into the open mouth.
+    """
+    x, y, z = verts.T
+    up = z >= MOUTH_Z
+    half = np.where(up, 3.0, 2.9)                       # half width of each lip
+    across = np.clip(1 - (x / half) ** 2, 0, 1)
+    reach = np.where(up, 0.85 * np.sqrt(across), 1.7 * across ** 0.7)
+    t = np.abs(z - MOUTH_Z) / np.maximum(reach, 1e-3)
+    mask = 1 - smoothstep(0.75, 1.15, t)
+    mask *= smoothstep(half, half - 0.45, np.abs(x))    # soft corners
+    mask *= smoothstep(3.5, 2.5, y)                     # front of the face only
+    return mask.astype(np.float32)
+
+
 # ---------------------------------------------------------------- teeth and tongue
 
 def _arch(z0, z1, inset, n=24):

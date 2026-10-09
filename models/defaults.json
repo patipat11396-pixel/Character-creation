@@ -1,0 +1,10 @@
+{
+  "skinTone": { "index": 5, "id": "MST-5", "hex": "#d7bd96" },
+  "expression": "neutral",
+  "mouth": { "open": 0, "smile": 0, "round": 0 },
+  "hands": "auto",
+  "hair": { "color": "#4b2e1d", "size": 1, "width": 1, "height": 1, "depth": 1,
+            "up": 0, "forward": 0, "side": 0, "tilt": 0, "turn": 0, "roll": 0,
+            "weight": 1, "stiffness": 0.5, "bounce": 0.5 },
+  "lips": { "color": "#b8676d", "amount": 0.35 }
+}

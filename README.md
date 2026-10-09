@@ -1,7 +1,7 @@
 # Character creation
 
 A browser character creation menu for the base character model: enter a name,
-pick one of 10 real-world skin tones, style and colour the hair, set a facial expression, preview any of
+pick one of 10 real-world skin tones, style and colour the hair, colour the lips, set a facial expression, preview any of
 the model's 178 animations and confirm.
 
 ## Run it
@@ -13,6 +13,13 @@ than opening the file directly:
 python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
+
+**Starting setup.** Everyone starts from the built-in values, overridden by
+`models/defaults.json`, overridden (on the published page) by the default
+saved with **Set this as the default for everyone**. On the published page
+that button writes to the page's shared store, and only the owner or an
+editor can use it; run from the repo it downloads a `defaults.json` to put
+in `models/` and commit. A person's own Save still wins in their browser.
 
 **Save** stores the whole setup (name, skin tone, expression, hands, hair
 colour, fit and ponytail settings) in the browser's `localStorage` under
@@ -26,7 +33,8 @@ opens. **Confirm** does the same (a name is required) and also fires a
   "hands": "auto",
   "hair": { "color": "#4b2e1d", "size": 1, "width": 1, "height": 1, "depth": 1,
             "up": 0, "forward": 0, "side": 0, "tilt": 0, "turn": 0, "roll": 0,
-            "weight": 1, "stiffness": 0.5, "bounce": 0.5 }, "savedAt": "…" }
+            "weight": 1, "stiffness": 0.5, "bounce": 0.5 },
+  "lips": { "color": "#b8676d", "amount": 0.35 }, "savedAt": "…" }
 ```
 
 ## Skin tones
@@ -96,6 +104,14 @@ Surprised, Sad and Talking (an animated jaw), plus sliders for mouth open,
 frown/smile and round lips. The open mouth shows the inside of the head,
 which the menu draws as a dark mouth interior (back faces of the skin
 material). Another engine needs the same treatment or a mouth cavity mesh.
+
+## Lips
+
+`tools/face.py` stores a 0..1 lip mask on every body vertex (`_LIPMASK`): a
+soft lens shape around the lip line that covers the upper and lower lip and
+the inside of the lip fold. The menu mixes the chosen lip colour over the
+skin by that mask times Intensity (`src/main.js`, skin shader). Presets:
+Natural, Nude, Pink, Rose, Coral, Red, Berry, or any custom colour.
 
 ## Hair
 
