@@ -30,27 +30,40 @@ skin. They live in `src/skinTones.js`.
 
 ## The model
 
-- `models/base_character.glb` is the original export, unchanged.
+- `models/source/retargeted_animations.glb` is the original export, unchanged.
 - `models/character.glb` is what the menu loads. Rebuild it with:
 
 ```
 pip install -r tools/requirements.txt
-python3 tools/process_model.py            # --iterations 2 for an even denser mesh
+python3 tools/process_character.py
 ```
 
-`tools/process_model.py` fixes the two problems in the export:
+`tools/process_character.py` fixes three things in the export:
 
-1. **Faceted mesh.** Every triangle had its own three vertices (26,508
-   corners for 4,418 points). The script welds them, applies one pass of Loop
-   subdivision (17,684 vertices, 35,344 triangles) and recomputes smooth
-   normals.
-2. **No weight blending.** Every vertex was bound 100% to one bone, so
-   elbows, knees, shoulders and hips tore when animated. The script keeps the
-   bone each area was assigned to, cleans the ragged borders between areas,
-   then fades each bone's weight across the border over a distance measured
-   along the surface (8 mm on fingers up to 5 cm on thighs, see `BLEND`).
-   Each vertex gets up to 4 bones.
+1. **Hands could not close.** The skeleton had one bone per hand. The script
+   adds 15 finger bones per hand (`LeftHandThumb1`…`LeftHandPinky3`, Mixamo
+   naming) on the measured finger centrelines and shares each hand's weight
+   between the palm and those bones. Each finger bone curls towards the palm
+   when rotated about its local X axis.
+2. **Spiky buttocks.** The buttocks were weighted to the thigh bones, so they
+   folded whenever a leg lifted. Their weight now goes to `Hips` down to the
+   gluteal fold, fading into the thighs over about 12 cm, and the weights
+   around the pelvis are smoothed.
+3. **Units and layout.** The mesh is welded into an indexed mesh (shape and
+   normals unchanged), scaled from centimetres to metres, and the `_RT`
+   suffix is dropped from clip names.
 
-The skeleton, bind pose and all animations are copied unchanged. Open
-"Model check" in the menu to switch to the original model or show the bone
-weights as colours.
+The skeleton's other bones, the bind pose and all 178 animations are
+unchanged.
+
+## Hands
+
+The animations have no finger tracks, so the menu poses the fingers every
+frame (`FIST` in `src/main.js`). The Hands control offers:
+
+- **Auto**: a fist for fighting, weapon, climbing and carrying clips
+  (`GRIP_CLIPS`), a relaxed hand otherwise.
+- **Open** and **Fist**: forced either way.
+
+Open "Model check" to compare with the original export or to colour the body
+by bone weights.

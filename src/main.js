@@ -5,9 +5,18 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
 
 const MODELS = {
-  smooth: 'models/character.glb',
-  original: 'models/base_character.glb',
+  fixed: 'models/character.glb',
+  original: 'models/source/retargeted_animations.glb',
 };
+// Finger curl for a full fist, in degrees per joint (knuckle, middle, tip).
+// The finger bones curl towards the palm when rotated about their local X.
+const FIST = {
+  Thumb: [0, 25, 55],
+  Index: [75, 95, 60], Middle: [75, 95, 60], Ring: [75, 95, 60], Pinky: [75, 95, 60],
+};
+const RELAXED_GRIP = 0.15;
+// Clips where the character holds something or fights get a fist in "Auto".
+const GRIP_CLIPS = /Punch|Fight|Melee|Hook|Kick|Sword|Pistol|Shield|Torch|Lantern|Climb|Ladder|Pipe|Ledge|Bow|Golf|Fishing|Chop|Carry|Driving|Rail|Ground_Pound/;
 // Shown first in the animation list; every other clip follows.
 const FEATURED = ['Idle_A', 'Walk', 'Jog', 'Sprint', 'Dance_Simple', 'Greeting',
   'Sword_Regular_Combo', 'Sitting_Idle', 'Crouch_Idle', 'Pushup'];
@@ -20,9 +29,11 @@ const state = {
   name: '',
   tone: DEFAULT_TONE,
   anim: 'Idle_A',
-  model: 'smooth',
+  model: 'fixed',
   weights: false,
+  hands: 'auto',
 };
+let grip = RELAXED_GRIP;
 
 // ---------------------------------------------------------------- scene
 
@@ -39,14 +50,14 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.6;
 
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
-camera.position.set(0.6, 0.95, 3.2);
+camera.position.set(0.9, 1.3, 4.6);
 
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 0.62, 0);
+controls.target.set(0, 0.88, 0);
 controls.enableDamping = true;
 controls.enablePan = false;
-controls.minDistance = 1.0;
-controls.maxDistance = 5;
+controls.minDistance = 1.2;
+controls.maxDistance = 7;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = Math.PI / 2 + 0.05;
 
@@ -54,8 +65,8 @@ const key = new THREE.DirectionalLight(0xffffff, 2.2);
 key.position.set(1.5, 3, 2);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.left = key.shadow.camera.bottom = -1.2;
-key.shadow.camera.right = key.shadow.camera.top = 1.2;
+key.shadow.camera.left = key.shadow.camera.bottom = -1.6;
+key.shadow.camera.right = key.shadow.camera.top = 1.6;
 key.shadow.bias = -0.0005;
 key.shadow.normalBias = 0.02;
 scene.add(key);
@@ -65,7 +76,7 @@ scene.add(rim);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2d35, 0.5));
 
 const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(1.4, 64),
+  new THREE.CircleGeometry(1.8, 64),
   new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.95 }),
 );
 floor.rotation.x = -Math.PI / 2;
@@ -99,11 +110,18 @@ async function loadModel(kind) {
       o.frustumCulled = false; // animated bounds differ from the bind pose
     }
   });
+  // The unprocessed source is in centimetres.
+  if (new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y > 10) root.scale.multiplyScalar(0.01);
   mesh.material = skin;
   addWeightColors(mesh.geometry);
+  const fingers = [];
+  for (const bone of mesh.skeleton.bones) {
+    const m = bone.name.match(/Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
+    if (m) fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[1]][m[2] - 1]) });
+  }
   const mixer = new THREE.AnimationMixer(root);
-  const clips = new Map(gltf.animations.map((c) => [c.name, c]));
-  const character = { root, mesh, mixer, clips, action: null };
+  const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
+  const character = { root, mesh, mixer, clips, fingers, action: null };
   characters[kind] = character;
   scene.add(root);
   return character;
@@ -136,6 +154,25 @@ function playAnimation(character, name) {
   next.reset().play();
   if (character.action) next.crossFadeFrom(character.action, 0.25, false);
   character.action = next;
+}
+
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const curl = new THREE.Quaternion();
+
+function targetGrip() {
+  if (state.hands === 'fist') return 1;
+  if (state.hands === 'open') return 0;
+  return GRIP_CLIPS.test(state.anim) ? 1 : RELAXED_GRIP;
+}
+
+// The animations have no finger tracks, so the hands are posed here every frame.
+function poseHands(dt) {
+  grip += (targetGrip() - grip) * Math.min(1, dt * 10);
+  for (const ch of Object.values(characters)) {
+    for (const f of ch.fingers) {
+      f.bone.quaternion.copy(f.rest).multiply(curl.setFromAxisAngle(X_AXIS, f.angle * grip));
+    }
+  }
 }
 
 function syncTime(from, to) {
@@ -281,6 +318,7 @@ window.addEventListener('resize', resize);
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
+  poseHands(dt);
   controls.update();
   renderer.render(scene, camera);
 });
@@ -290,6 +328,11 @@ buildSwatches();
 setTone(state.tone);
 resize();
 
+document.querySelectorAll('[data-hands]').forEach((b) =>
+  b.addEventListener('click', () => {
+    state.hands = b.dataset.hands;
+    document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o === b));
+  }));
 document.querySelectorAll('[data-model]').forEach((b) =>
   b.addEventListener('click', () => setModel(b.dataset.model)));
 $('weights').addEventListener('change', (e) => {
@@ -299,7 +342,7 @@ $('weights').addEventListener('change', (e) => {
 $('random').addEventListener('click', randomize);
 $('confirm').addEventListener('click', confirmCharacter);
 
-loadModel('smooth').then((ch) => {
+loadModel('fixed').then((ch) => {
   buildAnimationList(ch.clips);
   applyAnimation();
   $('loading').classList.add('hidden');

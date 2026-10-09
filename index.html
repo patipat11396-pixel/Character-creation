@@ -44,10 +44,20 @@
       <select id="anim"></select>
     </label>
 
+    <div class="field">
+      <span class="label">Hands</span>
+      <div class="segmented" role="radiogroup" aria-label="Hands">
+        <button type="button" data-hands="auto" class="on">Auto</button>
+        <button type="button" data-hands="open">Open</button>
+        <button type="button" data-hands="fist">Fist</button>
+      </div>
+      <p class="note">Auto makes a fist for fighting, weapons and climbing.</p>
+    </div>
+
     <details class="field debug">
       <summary>Model check</summary>
       <div class="segmented" role="radiogroup" aria-label="Model version">
-        <button type="button" data-model="smooth" class="on">Smoothed</button>
+        <button type="button" data-model="fixed" class="on">Fixed</button>
         <button type="button" data-model="original">Original</button>
       </div>
       <label class="check"><input type="checkbox" id="weights"> Show bone weights</label>
