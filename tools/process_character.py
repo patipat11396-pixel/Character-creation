@@ -37,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.sparse import coo_matrix, diags
+from scipy.spatial import cKDTree
 
 import face
 import skin as paint
@@ -251,54 +252,70 @@ def clean_body(verts, faces, avg, body, bone_at):
     return out, moved
 
 
-def shape_breasts(verts, avg, body):
-    """Give the breasts a set shape (body["breasts"]): round, full underneath.
+def shape_breasts(verts, faces, avg, body):
+    """Give the breasts a set shape (body["breasts"]): a round volume set on
+    the chest, as in a side view of a real breast.
 
-    The chest wall under them is found by relaxing the chest with its edge
-    held (a membrane over the breasts' base); each breast is then a dome on
-    that wall shaped like a teardrop: one smooth dome, rounded at its fullest
-    point, rounding off underneath and sloping long and flat into the chest
-    above and to the sides; the ellipse reaches further up than down. Points move forward or back only; the ellipse's rim
-    fades into the original surface.
+    The chest wall under them is found by relaxing the chest with a ring
+    around it held. Each breast is an ellipsoid (half widths rx across,
+    `depth` front to back, `up` above and `down` below its centre) whose
+    front reaches `depth` cm in front of the wall; the surface takes
+    whichever is further forward, wall or ellipsoid, joined with a smooth
+    minimum so there is a soft fold underneath and a gentle slope above.
+    Points move forward or back only.
     """
     b = body["breasts"]
     x, y, z = verts.T
-    dx = (np.sqrt(x ** 2 + 1.0) - b["x"]) / b["rx"]           # smooth |x|: no ridge on the midline
-    # Vertical reach changes smoothly from `down` to `up` (a hard switch at the
-    # centre left a crease across the breast).
+    sx = np.sqrt(x ** 2 + 1.0)                                   # smooth |x|
     reach = b["down"] + (b["up"] - b["down"]) * smoothstep(-3.0, 3.0, z - b["z"])
-    dz = (z - b["z"]) / reach
+    dx, dz = (sx - b["x"]) / b["rx"], (z - b["z"]) / reach
     u = np.hypot(dx, dz)
-    front = y < body["nose_tip"][0] + 10
-    # Chest wall: the breast area relaxed with a ring around it held.
-    region = (u < 2.0) & front
+    # Front of the chest only: surface facing forward (the sides and back of
+    # the ribcage stay as they are).
+    smooth = verts.copy()
+    for _ in range(10):
+        smooth = 0.5 * smooth + 0.5 * (avg @ smooth)
+    fn = vertex_normals(smooth, faces)
+    facing = smoothstep(0.25, 0.6, -fn[:, 1])
+    region = (u < 1.7) & (facing > 0)
     wall = verts.copy()
     for _ in range(300):
         wall[region] = (avg @ wall)[region]
-    # Teardrop: one smooth dome, (1 - u^2)^p, rounded at the fullest point.
-    # Underneath p is small, so the breast rounds off into a soft fold; up and
-    # to the sides p grows, so the slope runs long and flat into the chest.
-    dirz = dz / np.maximum(u, 1e-6)
-    p = 0.75 + 0.3 * smoothstep(-0.2, 0.8, dirz)
-    # Towards the middle the slope runs down gently into the cleavage instead of
-    # dropping off (which read as a point from the side).
-    p = p + 0.6 * smoothstep(-0.1, -0.8, dx / np.maximum(u, 1e-6))
-    height = b["depth"] * np.clip(1 - u ** 2, 0, 1) ** p
-    # The whole old breast (out to 1.45) is replaced by wall + dome, so none of
-    # its creases survive; past that it fades back to the original surface.
-    offset = (wall[:, 1] - height - y) * smoothstep(1.85, 1.45, u) * region
-    edge = region & (u > 1.0)
-    for _ in range(30):
-        offset[edge] = 0.5 * offset[edge] + 0.5 * (avg @ offset)[edge]
-    # Even out the facets over the whole breast.
-    for _ in range(4):
-        offset[region] = 0.7 * offset[region] + 0.3 * (avg @ offset)[region]
+    wy = wall[:, 1]
+    centre = region & (u < 0.15)
+    cy = np.median(wy[centre])                                    # ellipsoid centre on the wall
+    q2 = dx ** 2 + dz ** 2
+    qn = np.sqrt(q2) + 1e-6
+    ell = np.where(q2 < 1, cy - b["depth"] * np.sqrt(np.clip(1 - q2, 0, 1)), np.inf)
+    # Softness of the join (cm): a tight fold underneath, a long soft blend
+    # above and towards the middle, so there is no crease there.
+    k = b.get("fold", 0.5) + 2.2 * np.clip(smoothstep(-0.2, 0.7, dz / qn) + smoothstep(0.0, -0.7, dx / qn), 0, 1)
+    base = y + (wy - y) * smoothstep(1.35, 1.0, u)               # old breast down to the wall
+    def smin(p, q, kk):
+        a_, c_ = -p / kk, -q / kk
+        m = np.maximum(a_, c_)
+        return -kk * (m + np.log(np.exp(a_ - m) + np.exp(c_ - m)))
+
+    new_y = smin(base, np.where(np.isfinite(ell), ell, 1e6), k)
+    # Upper slope: from the fullest point a near-straight line runs up and
+    # back into the upper chest (`slope` cm back per cm up), instead of the
+    # chest dropping away above the breast.
+    top = cy - b["depth"]
+    rise = np.clip(z - b["z"], 0, None)
+    ramp = top + b.get("slope", 0.75) * rise + 0.02 * rise ** 2
+    across = np.clip(1 - dx ** 2, 0, 1)
+    ramp = ramp + (1 - np.sqrt(across)) * 12 + np.where(z < b["z"], 30, 0)
+    new_y = smin(new_y, ramp, 1.2)
+    offset = (new_y - y) * facing * smoothstep(1.7, 1.4, u) * region
+    # Smooth the change itself (not the surface), so the coarse mesh takes it
+    # without facets.
+    spread = region | (avg @ region.astype(float) > 0)
+    for _ in range(25):
+        offset[spread] = 0.5 * offset[spread] + 0.5 * (avg @ offset)[spread]
     out = verts.copy()
     out[:, 1] += offset
-    # A final volume-keeping smoothing over the whole area takes out the
-    # facets and creases left from the old shape.
-    area = region & (u < 1.9)
-    for _ in range(12):
+    area = region & (u < 1.5)
+    for _ in range(6):
         for factor in (0.5, -0.53):
             out[area] += factor * (avg @ out - out)[area]
     moved = (np.abs(offset) > 1e-4) | area
@@ -313,9 +330,11 @@ def flatten_brows(verts, avg, body):
     ax = np.abs(x)
     w = (smoothstep(x0 - 1, x0, ax) * smoothstep(x1 + 1, x1, ax) * smoothstep(z0 - 1, z0, z)
          * smoothstep(z1 + 1, z1, z) * (y < body["nose_tip"][0] + 8))
+    # Only forward/back: sliding the points sideways folded triangles at the
+    # box's edge (a dark line between the eye and the nose).
     out = verts.copy()
     for _ in range(30):
-        out += (0.5 * w)[:, None] * (avg @ out - out)
+        out[:, 1] += 0.5 * w * (avg @ out - out)[:, 1]
     return out, w > 0
 
 
@@ -444,14 +463,18 @@ def build(body):
         b = np.linalg.inv(ibm[knee])[:3, 3]
         down = (b - a) / np.linalg.norm(b - a)
         t = (verts - a) @ down                       # cm down the thigh
-        back = smoothstep(*body["hip_back_y"], verts[:, 1])   # 0 at the front, 1 behind the hip joint
-        h = back * (1 - smoothstep(6, 18, t))
+        lo, hi = body["hip_back_y"]
+        back = smoothstep(lo - 3, hi, verts[:, 1])   # 0 at the front, 1 behind the hip joint
+        # The whole buttock follows the pelvis down to below the gluteal fold,
+        # handing over to the thigh gradually (a sharp hand-over folded it to
+        # a point when sitting).
+        h = back * (1 - smoothstep(4, 26, t))
         moved = dense[:, up] * h
         dense[:, up] -= moved
         dense[:, hips] += moved
     z0, z1 = body["pelvis_z"]
-    pelvis = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 26)
-    dense = smooth_rows(dense, avg, pelvis, iterations=12)
+    pelvis = (verts[:, 2] > z0 - 12) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 26)
+    dense = smooth_rows(dense, avg, pelvis, iterations=40)
 
     # ---- shoulders, upper back and neck: the source hands off between Spine2,
     # the shoulders, the upper arms and the neck along hard lines, which crease
@@ -459,6 +482,21 @@ def build(body):
     z0, z1 = body["shoulders_z"]
     shoulders = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 30)
     dense = smooth_rows(dense, avg, shoulders, iterations=25)
+
+    # ---- breasts: one rigid piece on the chest bone. Spread over Hips, Spine,
+    # Spine1 and Spine2 they were sheared into a point whenever the spine bent.
+    if "breasts" in body:
+        b = body["breasts"]
+        x_, y_, z_ = verts.T
+        reach = b["down"] + (b["up"] - b["down"]) * smoothstep(-3.0, 3.0, z_ - b["z"])
+        u_ = np.hypot((np.sqrt(x_ ** 2 + 1.0) - b["x"]) / b["rx"], (z_ - b["z"]) / reach)
+        w_ = 0.7 * smoothstep(1.8, 0.9, u_) * (y_ < body["nose_tip"][0] + 10)
+        chest = np.zeros(dense.shape[1])
+        chest[bone["Spine2"]] = 1
+        dense = dense * (1 - w_[:, None]) + np.outer(w_, chest)
+        # Smooth the hand-over to the ribs and sides, so they do not crumple.
+        around = (u_ < 2.6) & (u_ > 0.9) & (np.abs(x_) < b["x"] + 2.6 * b["rx"])
+        dense = smooth_rows(dense, avg, around, iterations=30)
 
     # ---- smooth the body; recompute normals where it moved
     bind = {nm: np.linalg.inv(ibm[i])[:3, 3] for nm, i in bone.items() if i < len(ibm)}
@@ -468,8 +506,8 @@ def build(body):
     normals[near] = vertex_normals(verts, faces)[near]
 
     # ---- breasts: a set shape where the body defines one
-    if "breasts" in body:
-        verts, shaped = shape_breasts(verts, avg, body)
+    if body.get("breasts", {}).get("shape"):
+        verts, shaped = shape_breasts(verts, faces, avg, body)
         print(f"breasts: shaped {shaped.sum()} vertices")
         near = shaped | (avg @ shaped.astype(float) > 0)
         normals[near] = vertex_normals(verts, faces)[near]
@@ -531,6 +569,7 @@ def build(body):
         pn = vertex_normals(pv, pf)
         jaw = (face.rotate_jaw(pv) - pv) * jw[:, None]
         jaw_n = vertex_normals(pv + jaw, pf) - pn
+        _, nearest = cKDTree(verts).query(pv)
         zero = np.zeros_like(pv, dtype=np.float32)
         joints = np.zeros((len(pv), 4), np.uint16)
         joints[:, 0] = head
@@ -541,6 +580,8 @@ def build(body):
         targets = []
         for k in MORPH_NAMES:
             d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
+            if k == "jawForward":                  # teeth and tongue go with the lower face
+                d = (morphs[k][nearest] * jw[:, None]).astype(np.float32)
             targets.append({"POSITION": out.append_sparse(np.asarray(d, np.float32)),
                             "NORMAL": out.append_sparse(np.asarray(dn, np.float32))})
         g["meshes"][0]["primitives"].append({

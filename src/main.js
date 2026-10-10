@@ -70,7 +70,7 @@ const FACE_GROUPS = [
   ['Lips', [['lipsFull', 'Fullness'], ['lipsWidth', 'Width']]],
   ['Forehead', [['foreheadFull', 'Fullness'], ['foreheadSlope', 'Slope']]],
   ['Chin', [['chinLength', 'Length'], ['chinForward', 'Forward'], ['chinWidth', 'Width']]],
-  ['Jaw', [['jawWidth', 'Width'], ['jawSquare', 'Angle']]],
+  ['Jaw', [['jawWidth', 'Width'], ['jawSquare', 'Angle'], ['jawForward', 'Forward / back']]],
   ['Eyes', [['eyeSize', 'Size'], ['eyeSpacing', 'Spacing'], ['eyeHeight', 'Height'], ['eyeTilt', 'Tilt']]],
 ];
 const FACE_KEYS = FACE_GROUPS.flatMap(([, items]) => items.map(([k]) => k));

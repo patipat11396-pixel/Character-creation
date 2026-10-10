@@ -24,10 +24,10 @@ BODIES = {
         "shoulders_z": (100, 129),     # stops below the jaw
         "nipples": True,               # flattened by clean_body
         "breast_z": 111.0,
-        # Breast shape (shape_breasts): a round dome on the chest wall, centred at
-        # (x, z), reaching rx to the sides, `up` above and `down` below, standing
-        # `depth` cm forward of the chest wall at its fullest (about a C cup).
-        "breasts": {"x": 7.4, "z": 110.5, "rx": 7.0, "up": 9.0, "down": 6.6, "depth": 7.6},
+        # Breast area (x, z centre; rx across, up / down): held rigidly by the
+        # chest bone. "shape": True would replace the sculpted shape with
+        # shape_breasts (needs depth); the sculpted shape is kept.
+        "breasts": {"x": 7.6, "z": 111.5, "rx": 6.2, "up": 8.5, "down": 5.2, "shape": False},
         # ---- face
         "nose_tip": (-7.45, 136.3),    # (y, z)
         "nose_width": 1.6,
@@ -44,6 +44,8 @@ BODIES = {
         # Painted steps above the eyes (two UV islands meet): blended across
         # in a band (x0, x1, z, half height), both sides.
         "seam_bands": [[2.5, 8.8, 143.95, 0.35]],
+        # Thin painted strokes to remove (left side, mirrored): x0, z0, x1, z1.
+        "paint_out": [[0.6, 140.4, 4.4, 144.4]],
         "depth": 0.81,                 # head depth against the old reference head
     },
     "male": {

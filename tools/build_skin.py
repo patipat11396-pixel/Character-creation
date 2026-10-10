@@ -330,6 +330,79 @@ def smooth_bands(color, covered, pos, nrm, pv, uv, pf, body):
     return out
 
 
+def paint_out(color, covered, pos, nrm, pv, uv, pf, eye, body):
+    """Paint out thin painted strokes in body["paint_out"] boxes (left side,
+    mirrored): texels darker than their close surroundings, not on the eye."""
+    out = color.copy()
+    x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
+    for x0, z0, x1, z1 in body.get("paint_out", []):
+        for side in (1, -1):
+            lo, hi = (x0, x1) if side > 0 else (-x1, -x0)
+            view, hit = front_view(color, pv, uv, pf, lo, hi, z0, z1, body["nose_tip"][0] - 20, BROW_PPC)
+            lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
+            around = cv2.GaussianBlur(np.where(hit, lum, 0).astype(np.float32), (0, 0), 8)
+            around /= cv2.GaussianBlur(hit.astype(np.float32), (0, 0), 8) + 1e-6
+            line = ((around - lum) > 0.012).astype(np.uint8)
+            hole = cv2.dilate(line, np.ones((5, 5), np.uint8))
+            clean = cv2.inpaint(np.clip(view * 255, 0, 255).astype(np.uint8), hole, 6,
+                                cv2.INPAINT_TELEA).astype(np.float32) / 255
+            fill = cv2.GaussianBlur(hole.astype(np.float32), (0, 0), 1.5)
+            sel = covered & (nrm[..., 1] < 0.1) & (y < body["nose_tip"][0] + 8)
+            sel &= (x > lo) & (x < hi) & (z > z0) & (z < z1) & (eye < 0.2)
+            col, row = (x[sel] - lo) * BROW_PPC, (z1 - z[sel]) * BROW_PPC
+            w = bilinear(fill, col, row)
+            out[sel] = out[sel] * (1 - w) + bilinear(clean, col, row) * w
+    return out
+
+
+def blend_seams(color, pv, uv, pf, body, radius=4):
+    """Match the colour on both sides of every UV seam on the head.
+
+    The painting's islands do not quite agree where they meet, which showed
+    as thin lines across the face. Along each seam edge both sides are
+    sampled, and each side is pulled towards their average, fading over
+    `radius` texels into its island.
+    """
+    _, pid = np.unique(np.round(pv, 4), axis=0, return_inverse=True)
+    pid = pid.ravel()
+    edges = {}
+    for f in pf:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            key = (pid[f[a]], pid[f[b]]) if pid[f[a]] < pid[f[b]] else (pid[f[b]], pid[f[a]])
+            edges.setdefault(key, []).append((f[a], f[b]) if pid[f[a]] < pid[f[b]] else (f[b], f[a]))
+    acc = np.zeros_like(color)
+    wsum = np.zeros(color.shape[:2], np.float32)
+    head = body["chin_z"] - 1
+    for pair in edges.values():
+        if len(pair) != 2:
+            continue
+        (a1, b1), (a2, b2) = pair
+        if np.allclose(uv[a1], uv[a2]) and np.allclose(uv[b1], uv[b2]):
+            continue
+        if min(pv[a1, 2], pv[b1, 2]) < head:
+            continue
+        p1a, p1b, p2a, p2b = (uv[i] * SIZE - 0.5 for i in (a1, b1, a2, b2))
+        n = int(max(np.linalg.norm(p1b - p1a), np.linalg.norm(p2b - p2a)) * 2) + 2
+        t = np.linspace(0, 1, n)[:, None]
+        s1, s2 = p1a + (p1b - p1a) * t, p2a + (p2b - p2a) * t
+        c1, c2 = bilinear(color, s1[:, 0], s1[:, 1]), bilinear(color, s2[:, 0], s2[:, 1])
+        avg = (c1 + c2) / 2
+        for pts, c in ((s1, c1), (s2, c2)):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    w = max(0.0, 1 - np.hypot(dx, dy) / (radius + 0.5))
+                    if w <= 0:
+                        continue
+                    cx = np.clip(np.round(pts[:, 0]).astype(int) + dx, 0, SIZE - 1)
+                    cy = np.clip(np.round(pts[:, 1]).astype(int) + dy, 0, SIZE - 1)
+                    np.add.at(acc, (cy, cx), w * (avg - c))
+                    np.add.at(wsum, (cy, cx), w)
+    # Each texel moves by the weighted mean correction of the seams near it.
+    move = acc / np.maximum(wsum, 1e-6)[..., None]
+    strength = np.clip(wsum, 0, 1)[..., None]
+    return color + move * strength
+
+
 def save(img, path, quality=90):
     Image.fromarray(np.clip(img * 255 + 0.5, 0, 255).astype(np.uint8)).save(path, quality=quality)
 
@@ -376,6 +449,8 @@ def build(key):
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)
     mask[..., 2] = eye_area(color, covered, pos, mask[..., 0], body)
+    color = paint_out(color, covered, pos, nrm, pv, uv, pf, mask[..., 2], body)
+    color = blend_seams(color, pv, uv, pf, body)
 
     # Island borders hold texels blended with the painting's background; drop
     # one texel ring and grow the islands back out from their insides.

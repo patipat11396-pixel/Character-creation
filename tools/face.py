@@ -268,7 +268,7 @@ FACE_SHAPES = {
     "lipsFull": "Lip fullness", "lipsWidth": "Lip width",
     "foreheadFull": "Forehead fullness", "foreheadSlope": "Forehead slope",
     "chinLength": "Chin length", "chinForward": "Chin forward", "chinWidth": "Chin width",
-    "jawWidth": "Jaw width", "jawSquare": "Jaw angle",
+    "jawWidth": "Jaw width", "jawSquare": "Jaw angle", "jawForward": "Jaw forward",
     "eyeSize": "Eye size", "eyeSpacing": "Eye spacing", "eyeHeight": "Eye height", "eyeTilt": "Eye tilt",
 }
 
@@ -276,6 +276,21 @@ FACE_SHAPES = {
 def _blob(verts, centre, sigma):
     d = (verts - np.asarray(centre)) / np.asarray(sigma)
     return np.exp(-0.5 * np.sum(d * d, axis=1))
+
+
+def _soft_lips(verts):
+    """The lip area for the lip sliders: full on the lips, fading out over
+    the skin around them (about the lips' own height)."""
+    x, y, z = verts.T
+    m = B["mouth"]
+    line = lip_z(x)
+    up = z >= line
+    half = m["half"] + 0.4
+    across = np.clip(1 - (x / (half + 0.8)) ** 2, 0, 1)
+    reach = np.where(up, m["up"] * 1.9, m["down"] * 1.7) * np.sqrt(across) + 0.05
+    t = np.abs(z - line) / reach
+    out = smoothstep(1.0, 0.0, t) * smoothstep(half + 0.9, half - 0.6, np.abs(x))
+    return out * smoothstep(m["y"] + 3.2, m["y"] + 1.8, y)
 
 
 def face_shapes(verts):
@@ -302,9 +317,11 @@ def face_shapes(verts):
     out["noseBridge"] = delta(dy=-0.9 * bridge)
 
     # Lips: the lip area, pushed out and apart (fuller) or stretched sideways.
-    lips = lip_mask(verts).astype(float)
+    # A soft version of the lip mask: the hard lip outline pushed out as a
+    # cliff that stretched the skin texture into cracks.
+    lips = _soft_lips(verts)
     # Spread away from the lip line smoothly (zero on the line, so the lips stay closed).
-    out["lipsFull"] = delta(dy=-0.5 * lips, dz=0.3 * np.clip((z - lip_z(x)) / 1.2, -1, 1) * lips)
+    out["lipsFull"] = delta(dy=-0.35 * lips, dz=0.2 * np.clip((z - lip_z(x)) / 1.2, -1, 1) * lips)
     out["lipsWidth"] = delta(dx=0.16 * x * lips)
 
     # Forehead: between the brows and the top of the head, front only.
@@ -325,6 +342,12 @@ def face_shapes(verts):
     jaw = (smoothstep(m["z"] + 1, m["z"] - 3, z) * smoothstep(2.5, 5.0, np.abs(x))
            * smoothstep(jy + 6, jy + 2, y) * neck_guard)
     out["jawWidth"] = delta(dx=0.16 * x * jaw)
+    # The whole lower face (chin, jaw line and lower lip area) forward or back,
+    # pivoting from under the ears.
+    hy, hz = B["jaw_hinge"]
+    lower = (smoothstep(m["z"] + 0.5, m["z"] - 1.5, z) * smoothstep(hy + 4, hy - 1, y) * neck_guard
+             * smoothstep(chin_z - 3.5, chin_z - 1.0, z))
+    out["jawForward"] = delta(dy=-1.0 * lower * np.clip((hy - y) / (hy - ny), 0, 1))
     corner = sum(_blob(verts, (s_ * jx, jy, jz), (2.0, 3.0, 2.0)) for s_ in (-1, 1)) * neck_guard
     out["jawSquare"] = delta(dx=0.7 * np.sign(x) * corner, dz=-0.3 * corner)
 
