@@ -314,13 +314,13 @@ async function paintedSkin(body) {
     t.anisotropy = 4;
     return t;
   };
-  const [map, normalMap, roughnessMap, info] = await Promise.all([
-    load('color', true), load('normal', false), load('rough', false),
+  const [map, roughnessMap, info] = await Promise.all([
+    load('color', true), load('rough', false),
     fetch(`models/skin/${body}.json`).then((r) => r.json()),
   ]);
   const m = skin.clone();
   m.onBeforeCompile = skin.onBeforeCompile;
-  Object.assign(m, { map, normalMap, roughnessMap, roughness: 1, sheen: 0.25 });
+  Object.assign(m, { map, roughnessMap, roughness: 1, sheen: 0.25 });
   m.userData.reference = new THREE.Color(info.reference);
   return m;
 }
@@ -736,7 +736,15 @@ async function setCharacter(body = state.body, model = state.model) {
   setGizmo('off');
   applyAnimation();
   syncTime(previous, ch);
-  for (const [key, c] of Object.entries(characters)) c.root.visible = key === k;
+  for (const [key, c] of Object.entries(characters)) {
+    c.root.visible = key === k;
+    // Hair meshes live in the scene, not under the character: take them off
+    // the hidden ones (showHairstyle puts the style on the shown one).
+    if (key !== k && c.hair) {
+      c.hair.detach();
+      c.hair = null;
+    }
+  }
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
   applyTone(SKIN_TONES[state.tone]);
   applyWeightView();

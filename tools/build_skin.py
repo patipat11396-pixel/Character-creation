@@ -5,10 +5,12 @@ only the head, arms, hands and feet show painted skin. For each body this:
 
 * paints everything below the chin (the suit and the bare skin) in one flat
   skin colour measured on the painted face, fading into the painted head
-  over the neck, with a flat normal map and skin roughness there,
+  over the neck, with skin roughness there,
 * grows every UV island a few texels outwards so filtering never pulls in
   the background (that showed as a thin light line across the face),
-* writes models/skin/<body>_color.jpg, _normal.jpg and _rough.jpg (glTF
+* leaves the painted normal map out: its tangent frames break at every UV
+  seam, which lit up as a line across the eyes,
+* writes models/skin/<body>_color.jpg and _rough.jpg (glTF
   metallic-roughness: G roughness, B metal) at SIZE x SIZE, and
   models/skin/<body>.json with the reference skin colour (the menu tints
   the texture by skin tone / reference).
@@ -99,7 +101,7 @@ def build(key):
     gltf, binary = read_glb(ROOT / body["src"])
     src = read_accessor(gltf, binary, gltf["meshes"][0]["primitives"][0]["attributes"]["POSITION"])
     pv, uv, pf, pg, pb = load_painted(ROOT / body["painted"], src)
-    normal, color, rough = images(pg, pb)
+    _, color, rough = images(pg, pb)
     covered, pos = rasterize(pv, uv, pf)
     x, z = pos[..., 0], pos[..., 2]
 
@@ -117,10 +119,9 @@ def build(key):
     # Below the chin everything becomes the measured skin colour, flat (the
     # scene's lights do the shading): baked shade differs from one UV island
     # to the next and shows as lines along their borders. It fades into the
-    # painted head over the neck. The normal map and roughness go flat there too.
+    # painted head over the neck. Roughness goes flat there too.
     w = (smoothstep(body["chin_z"] - 0.5, body["chin_z"] - 4.0, z) * covered)[..., None].astype(np.float32)
     color = color * (1 - w) + skin_rgb * w
-    normal = normal * (1 - w) + np.array([0.5, 0.5, 1.0], np.float32) * w
     rough = rough * (1 - w) + skin_rough * w
 
     # Island borders hold texels blended with the painting's background; drop
@@ -129,7 +130,6 @@ def build(key):
     out = ROOT / "models/skin"
     out.mkdir(parents=True, exist_ok=True)
     save(grow(color, covered), out / f"{key}_color.jpg")
-    save(grow(normal, covered), out / f"{key}_normal.jpg", 92)
     save(grow(rough, covered), out / f"{key}_rough.jpg", 85)
     (out / f"{key}.json").write_text(json.dumps({"reference": "#%02x%02x%02x" % tuple(np.round(skin_rgb * 255).astype(int))}) + "\n")
     print(f"wrote models/skin/{key}_*.jpg and {key}.json")
