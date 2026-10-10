@@ -1,8 +1,7 @@
 {
   "skinTone": {
-    "index": 5,
-    "id": "MST-5",
-    "hex": "#d7bd96"
+    "id": "painted",
+    "hex": null
   },
   "expression": "neutral",
   "mouth": {
