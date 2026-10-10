@@ -343,33 +343,120 @@ def face_shapes(verts):
 
 # ---------------------------------------------------------------- teeth and tongue
 
-def _arch(z0, z1, inset, n=24):
-    """A curved band of teeth following the lip line, set `inset` cm behind it."""
-    h = B["mouth"]["half"] * 0.65
-    xs = np.linspace(-h, h, n)
-    ys = lip_y(xs) + inset
-    front = np.c_[xs, ys]
-    back = np.c_[xs * 0.92, ys + 0.3]
-    verts, faces = [], []
-    for ring in (front, back):
-        for zz in (z0, z1):
-            verts += [[p[0], p[1], zz] for p in ring]
-    verts = np.array(verts, float)
-    def idx(r, k, i):  # ring (0 front, 1 back), level (0 bottom, 1 top), column
-        return (r * 2 + k) * n + i
+def _sphere(n=12):
+    """Unit sphere grid: (points, faces), poles at -z and +z."""
+    u, v = np.meshgrid(np.linspace(0, np.pi, n), np.linspace(0, 2 * np.pi, n, endpoint=False), indexing="ij")
+    pts = np.c_[np.sin(u).ravel() * np.cos(v).ravel(), np.sin(u).ravel() * np.sin(v).ravel(), -np.cos(u).ravel()]
+    faces = []
     for i in range(n - 1):
-        quads = [
-            (idx(0, 0, i), idx(0, 0, i + 1), idx(0, 1, i + 1), idx(0, 1, i)),   # front face
-            (idx(1, 0, i + 1), idx(1, 0, i), idx(1, 1, i), idx(1, 1, i + 1)),   # back face
-            (idx(0, 1, i), idx(0, 1, i + 1), idx(1, 1, i + 1), idx(1, 1, i)),   # top
-            (idx(1, 0, i), idx(1, 0, i + 1), idx(0, 0, i + 1), idx(0, 0, i)),   # bottom
-        ]
-        for a, b, c, d in quads:
+        for j in range(n):
+            a, b = i * n + j, i * n + (j + 1) % n
+            c, d = (i + 1) * n + (j + 1) % n, (i + 1) * n + j
             faces += [(a, b, c), (a, c, d)]
-    for i, s in ((0, 1), (n - 1, -1)):          # end caps
-        a, b, c, d = idx(0, 0, i), idx(1, 0, i), idx(1, 1, i), idx(0, 1, i)
-        faces += [(a, c, b), (a, d, c)] if s > 0 else [(a, b, c), (a, c, d)]
-    return verts, np.array(faces)
+    return pts, np.array(faces)
+
+
+# Teeth from the middle outwards (one side): relative width, height, and how
+# pointed the biting edge is (the canine). The molars sit where the arch turns
+# back inside the cheeks, so the row never ends in a gap.
+TEETH = [("central", 1.0, 1.0, 0.0), ("lateral", 0.8, 0.92, 0.0), ("canine", 0.84, 0.9, 0.12),
+         ("premolar", 0.8, 0.84, 0.05), ("premolar", 0.8, 0.8, 0.05),
+         ("molar", 1.05, 0.76, 0.0), ("molar", 1.0, 0.72, 0.0)]
+
+
+def _arch_path(verts, z0, z1, inset, upper):
+    """The dental arch for a row of teeth between heights z0 and z1: points
+    along it by arc length from the middle, with outward normals.
+
+    It runs `inset` cm behind the front of the face at that height; past
+    80 % of the mouth's half width it turns back (up to 75 degrees) so the back
+    teeth stay inside the cheeks.
+    """
+    m = B["mouth"]
+    x, y, z = verts.T
+    band = (z > z0 - 0.3) & (z < z1 + 0.3) & (y < m["y"] + 5)
+    xs = np.linspace(0, m["half"] + 1.5, 32)
+    ys = np.array([np.median(np.sort(y[band & (np.abs(np.abs(x) - x0) < 0.35)])[:6]) for x0 in xs])
+    turn_at = 0.8 * m["half"] * (1.0 if upper else 0.9)
+    pts, step = [np.array([0.0, ys[0] + inset])], 0.05
+    for _ in range(400):
+        px, py = pts[-1]
+        if px < turn_at:
+            slope = (np.interp(px + step, xs, ys) - np.interp(px, xs, ys)) / step
+            d = np.array([1.0, slope])
+        else:
+            prev = pts[-1] - pts[-2]
+            ang = np.arctan2(prev[1], prev[0])
+            d = np.array([np.cos(min(ang + 0.035, np.radians(75))), np.sin(min(ang + 0.035, np.radians(75)))])
+        pts.append(pts[-1] + step * d / np.linalg.norm(d))
+    pts = np.array(pts)
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    arc = np.r_[0, np.cumsum(seg)]
+    tang = np.gradient(pts, axis=0)
+    tang /= np.linalg.norm(tang, axis=1, keepdims=True)
+    normal = np.c_[tang[:, 1], -tang[:, 0]]                    # outward (towards -y at the front)
+    return arc, pts, tang, normal
+
+
+def _at(path, s, side):
+    """Position, tangent and outward normal at arc length s on one side."""
+    arc, pts, tang, normal = path
+    k = np.clip(np.searchsorted(arc, s), 0, len(arc) - 1)
+    flip = np.array([side, 1.0])
+    return pts[k] * flip, tang[k] * [1.0, side], normal[k] * flip
+
+
+def _teeth(verts, top, inset, height, upper):
+    """A row of rounded teeth hanging from (upper) or standing on (lower) z=top."""
+    m = B["mouth"]
+    z0, z1 = (top - height, top) if upper else (top, top + height)
+    path = _arch_path(verts, z0, z1, inset, upper)
+    unit = 0.82 * m["half"] / sum(t[1] for t in TEETH[:5]) * (1 if upper else 0.88)
+    pts0, f0 = _sphere()
+    verts_out, faces = [], []
+    for side in (-1, 1):
+        s = 0.0
+        for name, w, h, point in TEETH:
+            width = w * unit
+            (px, py), t, n = _at(path, s + width / 2, side)
+            s += width
+            th = height * h
+            depth = (0.3 if name != "molar" else 0.55) * height / 0.55
+            p = np.sign(pts0) * np.abs(pts0) ** 0.55                # rounded box
+            p = p * [width * 0.47, depth / 2, th / 2]
+            edge = -p[:, 2] if upper else p[:, 2]                # towards the biting edge
+            root = smoothstep(0, th / 2, -edge)
+            p[:, 0] *= 1 - 0.2 * root                            # narrower at the gum
+            p[:, 1] *= 1 - 0.3 * root
+            tip = smoothstep(0, th / 2, edge) * point * th * (1 - np.abs(p[:, 0]) / (width * 0.47))
+            p[:, 2] += -tip if upper else tip                    # canine point
+            p[:, 1] -= 0.1 * (p[:, 2] / th) ** 2                 # slight curve of the front face
+            xy = np.outer(p[:, 0], t * side) - np.outer(p[:, 1], n) + [px, py]
+            zz = top - th / 2 + p[:, 2] if upper else top + th / 2 + p[:, 2]
+            faces.append(f0 + sum(len(v_) for v_ in verts_out))
+            verts_out.append(np.c_[xy, zz])
+    return np.vstack(verts_out), np.vstack(faces), path
+
+
+def _gum(path, z, upper, height, s_end):
+    """The gum and jaw the teeth sit in: a slab along the arch from the teeth
+    up (or down) `height` cm and 1.6 cm back, with a rounded front edge, so
+    the teeth never look as if they float."""
+    arc = path[0]
+    ss = np.linspace(-s_end, s_end, 48)
+    prof = [(-0.05, 0.0), (0.05, 0.35), (0.2, 0.75), (0.6, 1.0), (1.6, 1.0), (1.6, 0.0)]   # (back, up) in cm / height
+    verts, faces = [], []
+    for s in ss:
+        (px, py), t, n = _at(path, abs(s), 1 if s >= 0 else -1)
+        for back, up in prof:
+            dz = up * height * (1 if upper else -1)
+            verts.append([px - n[0] * back, py - n[1] * back, z + dz])
+    r = len(prof)
+    for i in range(len(ss) - 1):
+        for k in range(r - 1):
+            a, b, c, d = i * r + k, i * r + k + 1, (i + 1) * r + k + 1, (i + 1) * r + k
+            faces += [(a, b, c), (a, c, d)] if upper else [(a, c, b), (a, d, c)]
+    return np.array(verts), np.array(faces)
 
 
 def _tongue(n=16):
@@ -387,12 +474,20 @@ def _tongue(n=16):
     return pts, np.array(faces)
 
 
-def mouth_parts():
-    """(name, verts, faces, jaw_weight) for the upper teeth, lower teeth and tongue."""
-    z = B["mouth"]["z"]
-    upper_v, upper_f = _arch(z + 0.05, z + 0.6, 1.0)
-    lower_v, lower_f = _arch(z - 0.6, z - 0.1, 1.1)
+def mouth_parts(verts):
+    """(name, verts, faces, jaw_weight) for the teeth, gums and tongue, inside
+    the face given by verts."""
+    m = B["mouth"]
+    z = m["z"]
+    h = 0.55 * m["half"] / 3.1                                   # tooth height for this mouth
+    ut, uf, upath = _teeth(verts, z + 0.05 + h, 0.95, h, True)
+    lt, lf, lpath = _teeth(verts, z - 0.05 - 0.85 * h, 1.1, 0.85 * h, False)
+    s_end = 0.95 * upath[0][-1]
+    ug, ugf = _gum(upath, z + 0.05 + 0.75 * h, True, 0.9, min(s_end, 0.82 * m["half"] * 1.75))
+    lg, lgf = _gum(lpath, z - 0.05 - 0.6 * 0.85 * h, False, 0.8, min(s_end, 0.82 * m["half"] * 1.6))
     tongue_v, tongue_f = _tongue()
-    return [("UpperTeeth", upper_v, upper_f, 0.0),
-            ("LowerTeeth", lower_v, lower_f, 1.0),
+    return [("UpperTeeth", ut, uf, 0.0),
+            ("LowerTeeth", lt, lf, 1.0),
+            ("UpperGum", ug, ugf, 0.0),
+            ("LowerGum", lg, lgf, 1.0),
             ("Tongue", tongue_v, tongue_f, 1.0)]

@@ -24,6 +24,10 @@ BODIES = {
         "shoulders_z": (100, 129),     # stops below the jaw
         "nipples": True,               # flattened by clean_body
         "breast_z": 111.0,
+        # Breast shape (shape_breasts): a round dome on the chest wall, centred at
+        # (x, z), reaching rx to the sides, `up` above and `down` below, standing
+        # `depth` cm forward of the chest wall at its fullest (about a C cup).
+        "breasts": {"x": 7.6, "z": 112.0, "rx": 6.0, "up": 8.0, "down": 5.2, "depth": 6.4},
         # ---- face
         "nose_tip": (-7.45, 136.3),    # (y, z)
         "nose_width": 1.6,
@@ -37,6 +41,9 @@ BODIES = {
         "eye": {"x": 5.65, "z": 141.2, "w": 5.3, "h": 4.3},
         "iris": {"x": 4.9, "z": 141.2, "rx": 1.8, "rz": 2.1},     # on the painted texture
         "brow_box": [1.0, 144.3, 9.5, 146.9],                       # left brow: x0, z0, x1, z1
+        # Painted steps above the eyes (two UV islands meet): blended across
+        # in a band (x0, x1, z, half height), both sides.
+        "seam_bands": [[2.5, 8.8, 143.95, 0.35]],
         "depth": 0.81,                 # head depth against the old reference head
     },
     "male": {
@@ -64,10 +71,15 @@ BODIES = {
         "brow_z": 160.5,
         "top_z": 171.98,
         "eye": {"x": 5.4, "z": 156.4, "w": 5.2, "h": 3.8},
-        "iris": {"x": 4.68, "z": 156.37, "rx": 1.15, "rz": 1.15},
+        # The repainted iris: large, its top fifth under the upper lid (as the female's).
+        "iris": {"x": 5.05, "z": 157.05, "rx": 1.75, "rz": 1.75},
         "brow_box": [1.0, 159.0, 9.5, 161.4],
         # The painted eyes' upper halves do not match the lower: repainted (build_skin.py).
-        "eye_repaint": {"seam_z": 156.1, "opening": {"x": 4.85, "z": 156.25, "a": 2.45, "b": 1.85}},
+        # The opening sits inside the sculpted eye socket; the iris colours are
+        # read from the painted iris (sample) below the seam.
+        "eye_repaint": {"seam_z": 156.1, "opening": {"x": 5.4, "z": 156.35, "a": 2.45, "b": 1.75},
+                        "sample": {"x": 4.68, "z": 156.37, "r": 1.15},
+                        "painted": {"x": 4.85, "z": 156.4, "a": 2.75, "b": 2.2}},   # the old eye, painted out
         "depth": 0.82,
     },
 }

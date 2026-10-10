@@ -324,7 +324,7 @@ async function buildCharacter(body, kind) {
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -680,7 +680,10 @@ async function loadHairIndex() {
     b.className = 'style-card';
     b.dataset.style = s.id;
     b.setAttribute('role', 'radio');
-    b.innerHTML = `<img src="models/hair/thumbs/${s.id}.jpg" alt="" loading="lazy"><span>${s.name}</span>`;
+    // Grey hair on transparent, tinted to the hair colour (see .style-pic in style.css).
+    // (absolute: a url() in a custom property resolves against the stylesheet)
+    const pic = `url(${new URL(`models/hair/thumbs/${s.id}.png`, document.baseURI).href})`;
+    b.innerHTML = `<span class="style-pic" style="--pic:${pic}"><img src="models/hair/thumbs/${s.id}.png" alt=""></span><span>${s.name}</span>`;
     b.addEventListener('click', () => setHair({ style: s.id }));
     grid.appendChild(b);
   }
@@ -775,6 +778,7 @@ function setHair(change) {
     b.setAttribute('aria-checked', String(b.dataset.style === state.hair.style)));
   if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
   setHairColor(hairMat, state.hair.color);
+  $('hair-styles').style.setProperty('--hair', state.hair.color);
   document.querySelectorAll('.hair-swatch').forEach((b) =>
     b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
   $('hair-custom').value = state.hair.color;
@@ -1190,4 +1194,7 @@ ready.then(() => {
 });
 
 // Lets tests and other pages read the current selection.
-window.characterCreation = { state, setTone, SKIN_TONES, characters, camera, controls };
+window.characterCreation = {
+  state, setTone, SKIN_TONES, characters, camera, controls, scene,
+  setHairColor: (hex) => setHairColor(hairMat, hex),
+};

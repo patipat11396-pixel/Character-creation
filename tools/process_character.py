@@ -11,7 +11,8 @@ For each body this script:
 * welds the triangle soup into an indexed mesh,
 * smooths the body below the chin: flattens the bodysuit's ridges, removes
   the female nipples, evens out dents and bumps, and smooths the shoulders,
-  underarms and buttocks (clean_body),
+  underarms and buttocks (clean_body), and gives the female breasts a set
+  round shape (shape_breasts),
 * adds 15 finger bones per hand (Thumb, Index, Middle, Ring, Pinky, 3 each),
   placed on the measured finger centrelines, and splits each hand's weight
   between the palm and those bones by distance to each bone,
@@ -250,6 +251,40 @@ def clean_body(verts, faces, avg, body, bone_at):
     return out, moved
 
 
+def shape_breasts(verts, avg, body):
+    """Give the breasts a set shape (body["breasts"]): round, full underneath.
+
+    The chest wall under them is found by relaxing the chest with its edge
+    held (a membrane over the breasts' base); each breast is then a dome on
+    that wall, its height (1 - u^2)^0.6 times `depth` over an ellipse that
+    reaches further up than down, so the upper slope is long and the
+    underside round. Points move forward or back only; the ellipse's rim
+    fades into the original surface.
+    """
+    b = body["breasts"]
+    x, y, z = verts.T
+    dx = (np.abs(x) - b["x"]) / b["rx"]
+    dz = (z - b["z"]) / np.where(z > b["z"], b["up"], b["down"])
+    u = np.hypot(dx, dz)
+    front = y < body["nose_tip"][0] + 10
+    # Chest wall: the breast area relaxed with a ring around it held.
+    region = (u < 1.6) & front
+    wall = verts.copy()
+    for _ in range(300):
+        wall[region] = (avg @ wall)[region]
+    height = b["depth"] * np.clip(1 - u ** 2, 0, 1) ** 0.6
+    # Forward/back offset to the new shape, fading out over the ring, then
+    # smoothed near the edge (not on the dome) so the edge leaves no crease.
+    offset = (wall[:, 1] - height - y) * smoothstep(1.5, 0.95, u) * region
+    edge = region & (u > 0.8)
+    for _ in range(25):
+        offset[edge] = 0.5 * offset[edge] + 0.5 * (avg @ offset)[edge]
+    out = verts.copy()
+    out[:, 1] += offset
+    moved = np.abs(offset) > 1e-4
+    return out, moved
+
+
 def flatten_brows(verts, avg, body):
     """Relax the brow box (body["brow_box"], mirrored for the right brow) on
     the front of the face, fading out over 1 cm around it."""
@@ -400,6 +435,13 @@ def build(body):
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
 
+    # ---- breasts: a set shape where the body defines one
+    if "breasts" in body:
+        verts, shaped = shape_breasts(verts, avg, body)
+        print(f"breasts: shaped {shaped.sum()} vertices")
+        near = shaped | (avg @ shaped.astype(float) > 0)
+        normals[near] = vertex_normals(verts, faces)[near]
+
     # ---- brows: the sculpted brow ridges stay behind when the menu moves the
     # painted brows, so the brow area is relaxed flat (both sides, front only)
     verts, flat = flatten_brows(verts, avg, body)
@@ -445,8 +487,9 @@ def build(body):
     # ---- teeth and tongue: extra primitives on the same mesh, bound to Head
     head = bone["Head"]
     for name, color, roughness, parts in (
-            ("Teeth", [0.92, 0.9, 0.84, 1], 0.35, [p for p in face.mouth_parts() if "Teeth" in p[0]]),
-            ("Tongue", [0.62, 0.24, 0.26, 1], 0.6, [p for p in face.mouth_parts() if p[0] == "Tongue"])):
+            ("Teeth", [0.95, 0.93, 0.88, 1], 0.3, [p for p in face.mouth_parts(verts) if "Teeth" in p[0]]),
+            ("Gums", [0.78, 0.4, 0.44, 1], 0.5, [p for p in face.mouth_parts(verts) if "Gum" in p[0]]),
+            ("Tongue", [0.62, 0.24, 0.26, 1], 0.6, [p for p in face.mouth_parts(verts) if p[0] == "Tongue"])):
         pv, pf, jw = [], [], []
         for _, v_, f_, w_ in parts:
             pf.append(f_ + sum(len(x) for x in pv))
@@ -466,8 +509,8 @@ def build(body):
         targets = []
         for k in MORPH_NAMES:
             d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
-            targets.append({"POSITION": out.append(np.asarray(d, np.float32)),
-                            "NORMAL": out.append(np.asarray(dn, np.float32))})
+            targets.append({"POSITION": out.append_sparse(np.asarray(d, np.float32)),
+                            "NORMAL": out.append_sparse(np.asarray(dn, np.float32))})
         g["meshes"][0]["primitives"].append({
             "attributes": {"POSITION": out.append(pv.astype(np.float32), 34962),
                            "NORMAL": out.append(pn.astype(np.float32), 34962),

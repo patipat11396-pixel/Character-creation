@@ -162,7 +162,7 @@ def repaint_eyes(color, covered, pos, nrm, body):
     centre, averaged over the lower half), two highlights and a lash shadow.
     """
     r = body["eye_repaint"]
-    o, seam = r["opening"], r["seam_z"]
+    o, seam, sm = r["opening"], r["seam_z"], r["sample"]
     i = body["iris"]
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
     front = covered & (y < body["nose_tip"][0] + 8) & (nrm[..., 1] < -0.15)
@@ -172,12 +172,14 @@ def repaint_eyes(color, covered, pos, nrm, body):
         q = np.hypot((x - ox) / o["a"], (z - o["z"]) / o["b"])
         inside = front & (q < 1.15)
         rr = np.hypot(x - ix, z - i["z"]) / i["rx"]
-        lower = inside & (z < seam - 0.1)
-        white = np.median(color[lower & (hsv[..., 1] < 0.15) & (hsv[..., 2] > 0.75) & (rr > 1.1)], 0)
+        # Colours by distance from the centre of the painted iris, lower half.
+        rs = np.hypot(x - side * sm["x"], z - sm["z"]) / sm["r"]
+        lower = front & (np.hypot((x - side * sm["x"]) / (sm["r"] * 2), (z - sm["z"]) / (sm["r"] * 2)) < 1) & (z < seam - 0.1)
+        white = np.median(color[lower & (hsv[..., 1] < 0.15) & (hsv[..., 2] > 0.75) & (rs > 1.1)], 0)
         bins = np.linspace(0, 1.05, 22)
         prof = []
         for a, b in zip(bins[:-1], bins[1:]):
-            sel = lower & (rr >= a) & (rr < b)
+            sel = lower & (rs >= a) & (rs < b)
             prof.append(np.median(color[sel], 0) if sel.sum() > 5 else (prof[-1] if prof else np.zeros(3)))
         prof = np.array(prof)
         centres = (bins[:-1] + bins[1:]) / 2
@@ -188,10 +190,17 @@ def repaint_eyes(color, covered, pos, nrm, body):
         eye = np.where((rr < 1.0)[..., None], iris, sclera)
         edge = smoothstep(1.0, 0.94, rr)[..., None]
         eye = iris * edge + sclera * (1 - edge)
-        for dx, dz, rad, k in ((-0.35, 0.45, 0.17, 0.9), (0.3, -0.35, 0.07, 0.7)):
+        for dx, dz, rad, k in ((-0.32, 0.12, 0.15, 0.9), (0.3, -0.38, 0.06, 0.7)):
             d = np.hypot(x - (ix + side * dx * i["rx"]), z - (i["z"] + dz * i["rx"])) / (rad * i["rx"])
             eye = eye + (1 - eye) * (k * smoothstep(1.0, 0.6, d))[..., None]
         eye = eye * (1 - 0.7 * smoothstep(0.4, 0.95, up))[..., None]           # lash shadow
+        # The painted eye reaches past the new opening: paint skin there first.
+        pe = r["painted"]
+        q_old = np.hypot((x - side * pe["x"]) / pe["a"], (z - pe["z"]) / pe["b"])
+        under = front & (np.abs(x - side * pe["x"]) < pe["a"] + 0.5) & (z < pe["z"] - pe["b"]) & (z > pe["z"] - pe["b"] - 0.8)
+        skin_near = np.median(color[under], 0)
+        sw = (smoothstep(1.08, 0.95, q_old) * front)[..., None]
+        out = out * (1 - sw) + skin_near * sw
         wgt = (smoothstep(1.05, 0.95, q) * inside)[..., None]
         out = out * (1 - wgt) + eye * wgt
         # Upper lash line: a dark band over the top of the opening, which also
@@ -265,28 +274,60 @@ def brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
     """
     x0, z0, x1, z1 = body["brow_box"]
     y_from = body["nose_tip"][0] - 20
-    view, hit = front_view(color, pv, uv, pf, x0, x1, z0, z1, y_from, BROW_PPC)
-    lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
-    around = cv2.GaussianBlur(np.where(hit, lum, 0).astype(np.float32), (0, 0), 25)
-    around /= cv2.GaussianBlur(hit.astype(np.float32), (0, 0), 25) + 1e-6
-    alpha = smoothstep(0.025, 0.12, around - lum) * hit
-    alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), 1.0)
-    brow = np.dstack([view, alpha])
-    # Forehead without brows: inpaint the brow area on the front view.
-    hole = (cv2.dilate((alpha > 0.01).astype(np.uint8), np.ones((17, 17), np.uint8)) > 0).astype(np.uint8)
-    clean = cv2.inpaint(np.clip(view * 255, 0, 255).astype(np.uint8), hole, 12, cv2.INPAINT_TELEA).astype(np.float32) / 255
-    fill = np.maximum(hole, cv2.GaussianBlur(hole.astype(np.float32), (0, 0), 4))
-    # Back onto the texture: texels on the front of the face inside either box.
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
-    sel = covered & (nrm[..., 1] < -0.2) & (y < body["nose_tip"][0] + 8) & (z > z0) & (z < z1)
-    sel &= (np.abs(x) > x0) & (np.abs(x) < x1)
-    col = (np.abs(x[sel]) - x0) * BROW_PPC
-    row = (z1 - z[sel]) * BROW_PPC
-    sample = bilinear(clean, col, row)
-    wgt = bilinear(fill, col, row)
     out = color.copy()
-    out[sel] = out[sel] * (1 - wgt) + sample * wgt
+    for side in (1, -1):
+        # Front view of this side's box; columns run outwards from the middle.
+        view, hit = front_view(color, pv, uv, pf, x0, x1, z0, z1, y_from, BROW_PPC) if side > 0 else \
+            [a[:, ::-1] for a in front_view(color, pv, uv, pf, -x1, -x0, z0, z1, y_from, BROW_PPC)]
+        lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
+        around = cv2.GaussianBlur(np.where(hit, lum, 0).astype(np.float32), (0, 0), 25)
+        around /= cv2.GaussianBlur(hit.astype(np.float32), (0, 0), 25) + 1e-6
+        alpha = smoothstep(0.025, 0.12, around - lum) * hit
+        alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), 1.0)
+        if side > 0:
+            # The brow image (left brow; the menu mirrors it): only the brow
+            # itself, the biggest dark shape, not the stray strokes near it.
+            keep_alpha = alpha
+            n, labels, stats, _ = cv2.connectedComponentsWithStats((alpha > 0.08).astype(np.uint8))
+            if n > 1:
+                main = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+                keep = cv2.dilate((labels == main).astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
+                keep_alpha = alpha * keep
+            brow = np.dstack([view, keep_alpha])
+        # Forehead without any of the marks: inpaint them on the front view.
+        hole = (cv2.dilate((alpha > 0.01).astype(np.uint8), np.ones((17, 17), np.uint8)) > 0).astype(np.uint8)
+        clean = cv2.inpaint(np.clip(view * 255, 0, 255).astype(np.uint8), hole, 12, cv2.INPAINT_TELEA).astype(np.float32) / 255
+        fill = np.maximum(hole, cv2.GaussianBlur(hole.astype(np.float32), (0, 0), 4))
+        # Back onto the texture: texels on the front of the face in this box.
+        sel = covered & (nrm[..., 1] < -0.2) & (y < body["nose_tip"][0] + 8) & (z > z0) & (z < z1)
+        sel &= (x * side > x0) & (x * side < x1)
+        col = (np.abs(x[sel]) - x0) * BROW_PPC
+        row = (z1 - z[sel]) * BROW_PPC
+        out[sel] = out[sel] * (1 - bilinear(fill, col, row)) + bilinear(clean, col, row) * bilinear(fill, col, row)
     return out, brow
+
+
+def smooth_bands(color, covered, pos, nrm, pv, uv, pf, body):
+    """Blend across painted steps (body["seam_bands"]): on a front view of
+    each band, blur up and down only, and write it back fading to nothing at
+    the band's top and bottom."""
+    out = color.copy()
+    x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
+    for x0, x1, zc, half in body.get("seam_bands", []):
+        for side in (1, -1):
+            lo, hi = (x0, x1) if side > 0 else (-x1, -x0)
+            view, hit = front_view(color, pv, uv, pf, lo, hi, zc - 2 * half, zc + 2 * half,
+                                   body["nose_tip"][0] - 20, BROW_PPC)
+            blur = cv2.GaussianBlur(view, (1, 0), sigmaX=0.1, sigmaY=half * BROW_PPC * 0.6)
+            sel = covered & (nrm[..., 1] < -0.2) & (y < body["nose_tip"][0] + 8)
+            sel &= (x > lo) & (x < hi) & (np.abs(z - zc) < half)
+            col = (x[sel] - lo) * BROW_PPC
+            row = (zc + 2 * half - z[sel]) * BROW_PPC
+            w = smoothstep(half, 0.3 * half, np.abs(z[sel] - zc))[:, None]
+            w *= smoothstep(0, 0.5, np.minimum(x[sel] - lo, hi - x[sel]))[:, None]
+            out[sel] = out[sel] * (1 - w) + bilinear(blur, col, row) * w
+    return out
 
 
 def save(img, path, quality=90):
@@ -330,6 +371,7 @@ def build(key):
     if "eye_repaint" in body:
         color = repaint_eyes(color, covered, pos, nrm, body)
     color, brow = brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body)
+    color = smooth_bands(color, covered, pos, nrm, pv, uv, pf, body)
     mask = np.zeros((SIZE, SIZE, 3), np.float32)
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)
