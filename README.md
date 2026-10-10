@@ -108,7 +108,7 @@ positions) is in `tools/bodies.py`. `tools/process_character.py`:
 
 ## Hair
 
-Nine hairstyles plus Bald, each style its own file in `models/hair/` loaded
+Ten hairstyles plus Bald, each style its own file in `models/hair/` loaded
 when picked; `models/hair/thumbs/` holds their pictures (made with
 `node tools/hair_thumbs.mjs`, see the file). Sources and the build
 (`tools/build_hair.py`, `tools/hair.py`) are as before: each file holds a

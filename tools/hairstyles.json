@@ -8,5 +8,6 @@
   {"id": "twin_tails", "name": "Twin tails", "chains": [{"bones": 6, "region": {"include": [{"min": [0.21, -0.06, null], "max": [null, null, 0.95]}]}}, {"bones": 6, "region": {"include": [{"min": [null, -0.06, null], "max": [-0.21, null, 0.95]}]}}]},
   {"id": "long_centre", "name": "Long, centre part"},
   {"id": "low_ponytail", "name": "Low ponytail", "chains": [{"bones": 5, "region": {"include": [{"min": [null, 0.0, null], "max": [null, null, 0.62]}]}}]},
-  {"id": "short_shaggy", "name": "Short shaggy"}
+  {"id": "short_shaggy", "name": "Short shaggy"},
+  {"id": "space_buns", "name": "Space buns"}
 ]
