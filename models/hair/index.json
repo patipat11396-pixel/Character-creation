@@ -48,10 +48,5 @@
     "id": "short_shaggy",
     "name": "Short shaggy",
     "file": "models/hair/short_shaggy.glb"
-  },
-  {
-    "id": "space_buns",
-    "name": "Space buns",
-    "file": "models/hair/space_buns.glb"
   }
 ]

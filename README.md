@@ -119,9 +119,9 @@ Natural, Nude, Pink, Rose, Coral, Red, Berry, or any custom colour.
 
 ## Hair
 
-Ten hairstyles, each its own file in `models/hair/` loaded when it is
+Nine hairstyles, each its own file in `models/hair/` loaded when it is
 picked: High ponytail, Wavy, Bob, Braid, Long with fringe, Twin tails,
-Long centre part, Low ponytail, Short shaggy, Space buns.
+Long centre part, Low ponytail, Short shaggy.
 
 **Building them.** Sources are in `models/source/hair/` (the FBX as given,
 plus a GLB converted with `node tools/fbx_to_glb.mjs <in.fbx> <out.glb>`,
