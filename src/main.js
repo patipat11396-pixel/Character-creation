@@ -74,6 +74,7 @@ const FACE_GROUPS = [
   ['Eyes', [['eyeSize', 'Size'], ['eyeSpacing', 'Spacing'], ['eyeHeight', 'Height'], ['eyeTilt', 'Tilt']]],
 ];
 const FACE_KEYS = FACE_GROUPS.flatMap(([, items]) => items.map(([k]) => k));
+const FACE_NEG_SCALE = { lipsFull: 0.5, lipsWidth: 0.6 };
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -494,7 +495,9 @@ function poseMouth(dt) {
       }
       for (const key of FACE_KEYS) {
         const i = m.morphTargetDictionary[key];
-        if (i !== undefined) m.morphTargetInfluences[i] = state.face[key];
+        const v = state.face[key];
+        // Thinner / narrower lips sink behind the skin around them; keep that end gentler.
+        if (i !== undefined) m.morphTargetInfluences[i] = v < 0 ? v * (FACE_NEG_SCALE[key] ?? 1) : v;
       }
     }
   }

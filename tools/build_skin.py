@@ -449,8 +449,6 @@ def build(key):
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)
     mask[..., 2] = eye_area(color, covered, pos, mask[..., 0], body)
-    color = paint_out(color, covered, pos, nrm, pv, uv, pf, mask[..., 2], body)
-    color = blend_seams(color, pv, uv, pf, body)
 
     # Island borders hold texels blended with the painting's background; drop
     # one texel ring and grow the islands back out from their insides.

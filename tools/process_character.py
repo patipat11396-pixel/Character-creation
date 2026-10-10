@@ -516,10 +516,7 @@ def build(body):
 
     # ---- brows: the sculpted brow ridges stay behind when the menu moves the
     # painted brows, so the brow area is relaxed flat (both sides, front only)
-    verts, flat = flatten_brows(verts, avg, body)
-    print(f"brows: relaxed {flat.sum()} vertices")
-    near = flat | (avg @ flat.astype(float) > 0)
-    normals[near] = vertex_normals(verts, faces)[near]
+    # (flatten_brows is off: the sculpted brow ridge is kept as made.)
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)

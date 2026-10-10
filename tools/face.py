@@ -287,9 +287,11 @@ def _soft_lips(verts):
     up = z >= line
     half = m["half"] + 0.4
     across = np.clip(1 - (x / (half + 0.8)) ** 2, 0, 1)
-    reach = np.where(up, m["up"] * 1.9, m["down"] * 1.7) * np.sqrt(across) + 0.05
+    reach = np.where(up, m["up"] * 1.5, m["down"] * 1.4) * np.sqrt(across) + 0.05
     t = np.abs(z - line) / reach
-    out = np.exp(-2.2 * t ** 2) * smoothstep(half + 1.2, half - 0.8, np.abs(x))
+    # Mostly the lips themselves; the skin around only follows over a short
+    # margin, so pushing the sliders to the ends does not dent the cheeks.
+    out = np.exp(-3.5 * t ** 2) * smoothstep(half + 0.5, half - 0.4, np.abs(x))
     return out * smoothstep(m["y"] + 3.2, m["y"] + 1.8, y)
 
 
