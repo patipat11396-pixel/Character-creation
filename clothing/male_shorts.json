@@ -1,0 +1,53 @@
+{
+  "task": "Create 4 reference images of plain male shorts in dark grey cotton twill: elastic waistband at the hips, hem at mid-thigh, smooth panels, no pockets, print or logo, shown on its own (no person, no mannequin, no hanger).",
+  "style": "stylised 3D animated film look matching the character, clean 3D render, soft even studio lighting, plain white background, no shadows on the floor, whole garment in frame, same scale in every view",
+  "fit": "shaped exactly to the attached outlines: the garment as if worn by an invisible body, filled out, not flat-laid and not on a hanger; follow the outline's proportions exactly",
+  "views": [
+    {
+      "name": "front",
+      "description": "straight front view, orthographic, centred",
+      "reference_image": "male_shorts_front.png"
+    },
+    {
+      "name": "side",
+      "description": "straight left side view, orthographic, front of the garment facing left",
+      "reference_image": "male_shorts_side.png"
+    },
+    {
+      "name": "top",
+      "description": "straight top-down view looking into the garment from above, orthographic",
+      "reference_image": "male_shorts_top.png"
+    },
+    {
+      "name": "bottom",
+      "description": "straight bottom-up view looking into the garment from below, orthographic",
+      "reference_image": "male_shorts_bottom.png"
+    }
+  ],
+  "measurements_cm": {
+    "waist_girth": 61.4,
+    "waist_height": 106.0,
+    "hip_girth": 92.2,
+    "hip_height": 85.5,
+    "crotch_height": 83.0,
+    "thigh_girth_at_shorts_hem": 53.5,
+    "shorts_hem_height": 74.0,
+    "torso_width_at_hip": 31.1,
+    "waistband_height": 103.0,
+    "outseam_length": 29.0,
+    "inseam_length": 9.0
+  },
+  "body_height_cm": 173.0,
+  "attach_these_images": [
+    "male_shorts_front.png",
+    "male_shorts_side.png",
+    "male_shorts_top.png",
+    "male_shorts_bottom.png"
+  ],
+  "notes": [
+    "Heights are measured from the floor.",
+    "Girths are around the body; the garment may be up to 1 cm larger for fabric thickness.",
+    "The reference images use a 1 cm grid; match the outline to the grid.",
+    "Do not draw the body, skin, head, arms or legs."
+  ]
+}

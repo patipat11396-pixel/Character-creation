@@ -1,0 +1,56 @@
+{
+  "task": "Create 4 reference images of a plain fitted female tank top (sleeveless vest) in light grey cotton jersey: scoop neckline, 3 cm straps, smooth armholes, hem on the upper hips, no print or logo, shown on its own (no person, no mannequin, no hanger).",
+  "style": "stylised 3D animated film look matching the character, clean 3D render, soft even studio lighting, plain white background, no shadows on the floor, whole garment in frame, same scale in every view",
+  "fit": "shaped exactly to the attached outlines: the garment as if worn by an invisible body, filled out, not flat-laid and not on a hanger; follow the outline's proportions exactly",
+  "views": [
+    {
+      "name": "front",
+      "description": "straight front view, orthographic, centred",
+      "reference_image": "female_tank_top_front.png"
+    },
+    {
+      "name": "side",
+      "description": "straight left side view, orthographic, front of the garment facing left",
+      "reference_image": "female_tank_top_side.png"
+    },
+    {
+      "name": "top",
+      "description": "straight top-down view looking into the garment from above, orthographic",
+      "reference_image": "female_tank_top_top.png"
+    },
+    {
+      "name": "bottom",
+      "description": "straight bottom-up view looking into the garment from below, orthographic",
+      "reference_image": "female_tank_top_bottom.png"
+    }
+  ],
+  "measurements_cm": {
+    "chest_girth": 65.7,
+    "chest_height": 111.5,
+    "waist_girth": 44.2,
+    "waist_height": 101.5,
+    "hip_girth": 86.1,
+    "hip_height": 82.0,
+    "armpit_height": 116.0,
+    "neck_base_height": 125.7,
+    "neck_base_width": 7.8,
+    "shoulder_top_height": 124.6,
+    "shoulder_width": 28.1,
+    "torso_depth_at_chest": 17.2,
+    "hem_height": 90.8,
+    "length_shoulder_to_hem": 33.8
+  },
+  "body_height_cm": 159.3,
+  "attach_these_images": [
+    "female_tank_top_front.png",
+    "female_tank_top_side.png",
+    "female_tank_top_top.png",
+    "female_tank_top_bottom.png"
+  ],
+  "notes": [
+    "Heights are measured from the floor.",
+    "Girths are around the body; the garment may be up to 1 cm larger for fabric thickness.",
+    "The reference images use a 1 cm grid; match the outline to the grid.",
+    "Do not draw the body, skin, head, arms or legs."
+  ]
+}

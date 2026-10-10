@@ -127,3 +127,12 @@ frame (`FIST` in `src/main.js`): **Auto** makes a fist for fighting, weapon,
 climbing and carrying clips, **Open** and **Fist** force either. "Model
 check" compares with the original model, colours the body by bone weights or
 shows the skeleton.
+
+## Clothing references
+
+`python3 tools/clothing_refs.py` measures both bodies and writes into
+`clothing/`: `<body>_measurements.json`, the outline of a tank top and of
+shorts cut from each body's own shape in four views
+(`<body>_<garment>_<front|side|top|bottom>.png`, 1 cm grid, no body drawn),
+and an image-generation prompt per garment (`<body>_<garment>.json`) with
+the measurements and the images to attach.

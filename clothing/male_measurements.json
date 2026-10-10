@@ -1,0 +1,21 @@
+{
+  "units": "cm",
+  "height": 172.9828338623047,
+  "crotch_height": 83.0,
+  "hip_height": 85.5,
+  "hip_girth": 92.2,
+  "waist_height": 106.0,
+  "waist_girth": 61.4,
+  "chest_height": 120.0,
+  "chest_girth": 82.6,
+  "armpit_height": 124.5,
+  "neck_base_height": 138.2,
+  "neck_base_width": 17.5,
+  "shoulder_top_height": 139.2,
+  "shoulder_width": 37.0,
+  "thigh_girth_at_shorts_hem": 53.5,
+  "shorts_hem_height": 74.0,
+  "torso_width_at_waist": 21.6,
+  "torso_width_at_hip": 31.1,
+  "torso_depth_at_chest": 19.8
+}
