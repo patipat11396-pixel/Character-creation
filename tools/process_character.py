@@ -323,17 +323,19 @@ def shape_breasts(verts, faces, avg, body):
 
 
 def flatten_brows(verts, avg, body):
-    """Relax the brow box (body["brow_box"], mirrored for the right brow) on
-    the front of the face, fading out over 1 cm around it."""
+    """Relax the brow ridge (body["brow_box"], mirrored for the right brow)
+    on the front of the face, fading out over 2.5 cm around it, so the ridge
+    and the step at its top edge are gone (the menu draws the brows)."""
     x0, z0, x1, z1 = body["brow_box"]
+    z1 += 1.5
     x, y, z = verts.T
     ax = np.abs(x)
-    w = (smoothstep(x0 - 1, x0, ax) * smoothstep(x1 + 1, x1, ax) * smoothstep(z0 - 1, z0, z)
-         * smoothstep(z1 + 1, z1, z) * (y < body["nose_tip"][0] + 8))
+    w = (smoothstep(x0 - 2.5, x0, ax) * smoothstep(x1 + 2.5, x1, ax) * smoothstep(z0 - 2.0, z0, z)
+         * smoothstep(z1 + 2.5, z1, z) * (y < body["nose_tip"][0] + 8))
     # Only forward/back: sliding the points sideways folded triangles at the
     # box's edge (a dark line between the eye and the nose).
     out = verts.copy()
-    for _ in range(30):
+    for _ in range(80):
         out[:, 1] += 0.5 * w * (avg @ out - out)[:, 1]
     return out, w > 0
 
@@ -582,6 +584,8 @@ def build(body):
             d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
             if k == "jawForward":                  # teeth and tongue go with the lower face
                 d = (morphs[k][nearest] * jw[:, None]).astype(np.float32)
+            elif k in ("lipsWidth", "lipsFull"):   # and stay inside the lips as they change
+                d = morphs[k][nearest].astype(np.float32)
             targets.append({"POSITION": out.append_sparse(np.asarray(d, np.float32)),
                             "NORMAL": out.append_sparse(np.asarray(dn, np.float32))})
         g["meshes"][0]["primitives"].append({

@@ -289,7 +289,7 @@ def _soft_lips(verts):
     across = np.clip(1 - (x / (half + 0.8)) ** 2, 0, 1)
     reach = np.where(up, m["up"] * 1.9, m["down"] * 1.7) * np.sqrt(across) + 0.05
     t = np.abs(z - line) / reach
-    out = smoothstep(1.0, 0.0, t) * smoothstep(half + 0.9, half - 0.6, np.abs(x))
+    out = np.exp(-2.2 * t ** 2) * smoothstep(half + 1.2, half - 0.8, np.abs(x))
     return out * smoothstep(m["y"] + 3.2, m["y"] + 1.8, y)
 
 
@@ -321,7 +321,9 @@ def face_shapes(verts):
     # cliff that stretched the skin texture into cracks.
     lips = _soft_lips(verts)
     # Spread away from the lip line smoothly (zero on the line, so the lips stay closed).
-    out["lipsFull"] = delta(dy=-0.35 * lips, dz=0.2 * np.clip((z - lip_z(x)) / 1.2, -1, 1) * lips)
+    # Forward, and thicker away from the lip line only (the lips stay shut).
+    off = z - lip_z(x)
+    out["lipsFull"] = delta(dy=-0.35 * lips, dz=0.14 * np.sign(off) * smoothstep(0.25, 1.0, np.abs(off)) * lips)
     out["lipsWidth"] = delta(dx=0.16 * x * lips)
 
     # Forehead: between the brows and the top of the head, front only.

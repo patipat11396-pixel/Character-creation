@@ -244,6 +244,7 @@ skin.onBeforeCompile = (shader) => {
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
 uniform vec3 eyeColor; uniform float eyeTint; uniform sampler2D featureMask;
+uniform vec3 toneColor; uniform vec3 skinRef; uniform float toneOn;
 uniform sampler2D browTex; uniform vec4 browBox; uniform float frontY;
 uniform vec2 browOffset; uniform float browScale; uniform float browAngle; uniform float browThick;
 uniform float browAmount; uniform vec3 browColor; uniform float browTint;
@@ -258,8 +259,12 @@ varying vec3 vSkinPos;`)
     vec3 fm = vec3(0.0, vLip, 0.0);
 #endif
 #ifdef USE_MAP
-    // Skin tones tint the texture through the material colour; the eyes keep the painting.
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb / max(diffuse, vec3(1e-3)), fm.b);
+    // Skin tone: the tone colour at the painting's brightness (head and body
+    // match, no colour cast); the painted eyes keep their colours.
+    if (toneOn > 0.5) {
+      float tl = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)) / max(dot(skinRef, vec3(0.299, 0.587, 0.114)), 1e-3);
+      diffuseColor.rgb = mix(toneColor * tl, diffuseColor.rgb, fm.b);
+    }
 #endif
     float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
     diffuseColor.rgb = mix(diffuseColor.rgb, lipColor * (0.45 + 1.1 * lum), clamp(fm.g, 0.0, 1.0) * lipAmount);
@@ -381,12 +386,17 @@ async function paintedSkin(body) {
   m.onBeforeCompile = (shader) => {
     skin.onBeforeCompile(shader);
     shader.uniforms.featureMask = { value: featureMask };
+    shader.uniforms.toneColor = m.userData.toneColor;
+    shader.uniforms.skinRef = { value: m.userData.reference.clone() };
+    shader.uniforms.toneOn = m.userData.toneOn;
     shader.uniforms.browTex = { value: browTex };
     shader.uniforms.browBox = { value: new THREE.Vector4(...info.browBox) };
     shader.uniforms.frontY = { value: info.frontY };
   };
   Object.assign(m, { map, roughnessMap, roughness: 1, sheen: 0.25 });
   m.userData.reference = new THREE.Color(info.reference);
+  m.userData.toneColor = { value: new THREE.Color() };
+  m.userData.toneOn = { value: 0 };
   return m;
 }
 
@@ -394,11 +404,12 @@ async function paintedSkin(body) {
 function applyTone(tone) {
   for (const ch of Object.values(characters)) {
     const m = ch.skin;
-    if (!tone.hex) m.color.set(m.userData.reference ? 0xffffff : 0xd7bd96);
-    else if (m.userData.reference) {
-      const t = new THREE.Color(tone.hex), r = m.userData.reference;
-      m.color.setRGB(t.r / r.r, t.g / r.g, t.b / r.b);
-    } else m.color.set(tone.hex);
+    if (m.userData.reference) {
+      // Painted skin: the shader recolours it (see toneColor); the colour stays white.
+      m.color.set(0xffffff);
+      m.userData.toneOn.value = tone.hex ? 1 : 0;
+      if (tone.hex) m.userData.toneColor.value.set(tone.hex);
+    } else m.color.set(tone.hex ?? 0xd7bd96);
     m.sheenColor.set(tone.hex ?? m.userData.reference ?? 0xd7bd96).lerp(new THREE.Color(0xffffff), 0.3);
   }
 }
