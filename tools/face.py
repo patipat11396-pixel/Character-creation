@@ -265,42 +265,6 @@ def lip_mask(verts):
     return mask.astype(np.float32)
 
 
-def scalp_mask(verts, front_raise=0.0):
-    """0..1 per vertex: the buzz-cut area under the hair, on the final (scaled) head.
-
-    The hairline follows a short women's crop: the forehead line at the
-    front, down past the temples to short sideburns, up and over the ears,
-    then down behind them to a tapered nape. Ears stay bare.
-
-    `front_raise` (cm) lifts the front of the hairline, fading out by the
-    sideburns: worn under a hair mesh, the edge then stays hidden under it.
-    """
-    x, y, z = verts.T
-    # Hairline height (cm) by depth from front (-y) to back (+y).
-    # Straight from the forehead corner down to the bottom of the sideburn
-    # just in front of the ear, then behind the ear down to the nape.
-    ys = [-5, 2, 13.8, 21, 24, 40]
-    hs = [158.5, 158.5, 142.8, 141, 140.5, 139.5]
-    line = np.interp(y, ys, hs) + front_raise * smoothstep(12, 6, y)
-    mask = smoothstep(line - 0.6, line + 0.6, z)
-    # Ears stay bare with a thin clean edge, as a barber leaves it: the ear
-    # is the part that stands out past the skull (|x| > 11 cm there).
-    ear_pts = verts[(np.abs(x) > 11.25) & (z > 142) & (z < 151.5) & (y > 13.5) & (y < 20.5)]
-    if len(ear_pts):
-        from scipy.spatial import cKDTree
-        near = cKDTree(ear_pts).query(verts)[0]
-        mask *= smoothstep(1.0, 1.8, near)
-    # The ear's hollow and the flap in front of its opening sit closer to the
-    # skull than the rim does; clear that lower front part too.
-    ey, ez = (y - 16.0) / 3.3, (z - 145.6) / 4.3
-    mask *= 1 - smoothstep(1.1, 0.85, np.sqrt(ey ** 2 + ez ** 2)) * smoothstep(9.2, 9.9, np.abs(x))
-    # The nape tapers: narrower as it goes down the neck.
-    nape = smoothstep(144, 141, z)
-    mask *= 1 - nape * smoothstep(5.5, 7.5, np.abs(x))
-    mask *= z > 134
-    return mask.astype(np.float32)
-
-
 # ---------------------------------------------------------------- teeth and tongue
 
 def _arch(z0, z1, inset, n=24):

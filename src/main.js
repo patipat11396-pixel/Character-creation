@@ -205,12 +205,44 @@ const lipUniforms = {
 skin.onBeforeCompile = (shader) => {
   Object.assign(shader.uniforms, lipUniforms);
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nattribute float _scalpmask;\nattribute float _scalpmaskhair;\nuniform float scalpUnderHair;\nvarying float vLip;\nvarying float vScalp;\nvarying vec3 vSkinPos;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vScalp = mix(_scalpmask, _scalpmaskhair, scalpUnderHair);\n  vSkinPos = position;');
+    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nvarying float vLip;\nvarying vec3 vSkinPos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vSkinPos = position;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
-uniform vec3 scalpColor; uniform float scalpAmount; varying float vScalp; varying vec3 vSkinPos;
+uniform vec3 scalpColor; uniform float scalpAmount; uniform float scalpUnderHair;
+varying vec3 vSkinPos;
+// Buzz-cut boundary, fitted to this head (mesh space, cm: x side, y back, z up).
+// Front and sides: a Catmull-Rom curve of hairline height by depth y, from the
+// forehead (158.5) through a short tapered temple to the front of the ear.
+const float HAIR_FRONT[14] = float[14](158.5, 158.5, 158.5, 158.3, 157.8, 156.8, 154.9,
+                                       151.2, 146.4, 143.2, 142.8, 142.8, 142.8, 142.8);  // y = -2, 0, 2 … 24
+float hairFront(float y) {
+  float t = clamp((y + 2.0) / 2.0, 0.0, 12.999);
+  int i = int(t);
+  float f = t - float(i);
+  float p0 = HAIR_FRONT[max(i - 1, 0)], p1 = HAIR_FRONT[i];
+  float p2 = HAIR_FRONT[min(i + 1, 13)], p3 = HAIR_FRONT[min(i + 2, 13)];
+  return 0.5 * (2.0 * p1 + (p2 - p0) * f + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * f * f
+              + (3.0 * p1 - p0 - 3.0 * p2 + p3) * f * f * f);
+}
+float scalpCover(vec3 p) {
+  // Back: a shallow rounded nape edge where the skull meets the neck (140.5 cm
+  // on the centre line), rising to meet the line behind each ear.
+  float back = 140.5 + 0.031 * p.x * p.x;
+  float line = mix(hairFront(p.y), back, smoothstep(18.0, 23.0, p.y));
+  // Under a hair mesh the front edge sits 2.5 cm higher so it stays hidden.
+  line += 2.5 * scalpUnderHair * smoothstep(12.0, 6.0, p.y);
+  float d = p.z - line;
+  float aa = max(fwidth(d), 0.02);
+  float m = smoothstep(-aa, aa, d);
+  // Ears: an ellipse just outside the measured ear outline (y 13.8-19.4,
+  // z 142-150) with 0.3 cm clearance, on the sides of the head only.
+  float r = length(vec2((p.y - 16.8) / 3.2, (p.z - 146.0) / 4.5)) - 1.0;
+  float ar = max(fwidth(r), 0.004);
+  m *= 1.0 - (1.0 - smoothstep(-ar, ar, r)) * smoothstep(8.5, 9.5, abs(p.x));
+  return m;
+}
 float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }`)
     .replace('#include <color_fragment>', `#include <color_fragment>
   diffuseColor.rgb = mix(diffuseColor.rgb, lipColor, clamp(vLip, 0.0, 1.0) * lipAmount);
@@ -218,8 +250,7 @@ float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719
     // Stubble: fine per-hair speckle, and a hairline broken up by it.
     float n = stubbleHash(floor(vSkinPos * 7.0));
     float n2 = stubbleHash(floor(vSkinPos * 19.0) + 3.1);
-    // Crisp edge at the hairline; the speckle only thins hair inside it.
-    float cover = smoothstep(0.5, 0.7, vScalp) * scalpAmount;
+    float cover = scalpCover(vSkinPos) * scalpAmount;
     vec3 stubble = scalpColor * (0.75 + 0.45 * n2);
     diffuseColor.rgb = mix(diffuseColor.rgb, stubble, cover * (0.82 + 0.18 * n));
   }`)

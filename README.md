@@ -157,13 +157,25 @@ towards its rest direction (Stiffness), pulled down (Weight), slowed by drag
 Bones near the tie are stiffer and bend less, as real hair is held there.
 Colours: Black, Brown, Blonde, Red or any custom colour.
 
-**Under hair (buzz cut).** `tools/face.py` stores a scalp mask on the body
-(`_SCALPMASK`) following a short crop's hairline: forehead, temples and
-sideburns, over the ears, down to a tapered nape; ears stay bare. The menu
-paints it in the hair colour with a fine stubble speckle and a broken-up
-hairline, so gaps in any hairstyle show hair instead of skin. The "Under
-hair" slider sets how strong it is, and the **Buzz cut** style shows it on
-its own with no hair mesh.
+**Under hair (buzz cut).** The menu's skin shader paints the scalp in the
+hair colour with a fine stubble speckle (`scalpCover` in `src/main.js`). The
+boundary is computed per pixel from the head's mesh-space position, fitted to
+this head's landmarks:
+
+- **Front and sides:** a Catmull-Rom curve of hairline height by depth
+  (`HAIR_FRONT`), from the forehead (158.5 cm) through a short, softly
+  tapered temple to a small sideburn in front of the ear. The cheek stays
+  clear.
+- **Ears:** an ellipse 0.3 cm outside the measured ear outline (front 13.8,
+  back 19.4, bottom 142, top 150 cm), so the ear is bare and the hair runs
+  close over and behind it.
+- **Nape:** a shallow rounded edge where the skull meets the neck (140.5 cm
+  on the centre line), rising to meet the line behind each ear.
+- **Under a hair mesh** the front edge is raised 2.5 cm so it stays hidden.
+
+The cap is painted on the head's own surface, so it cannot intersect or
+flicker against it. The "Under hair" slider sets its strength, and the
+**Buzz cut** style shows it on its own with no hair mesh.
 
 **Keeping your fits.** "Download setup with all hair fits (JSON)" saves a
 `defaults.json` with the fit of every style (on the published page through
