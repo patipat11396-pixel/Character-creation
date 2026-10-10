@@ -218,7 +218,8 @@ float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719
     // Stubble: fine per-hair speckle, and a hairline broken up by it.
     float n = stubbleHash(floor(vSkinPos * 7.0));
     float n2 = stubbleHash(floor(vSkinPos * 19.0) + 3.1);
-    float cover = clamp((vScalp - 0.5) * 2.5 + 0.5 + (n - 0.5) * 0.6, 0.0, 1.0) * scalpAmount;
+    // Crisp edge at the hairline; the speckle only thins hair inside it.
+    float cover = smoothstep(0.5, 0.7, vScalp) * scalpAmount;
     vec3 stubble = scalpColor * (0.75 + 0.45 * n2);
     diffuseColor.rgb = mix(diffuseColor.rgb, stubble, cover * (0.82 + 0.18 * n));
   }`)

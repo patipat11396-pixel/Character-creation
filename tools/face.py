@@ -277,8 +277,10 @@ def scalp_mask(verts, front_raise=0.0):
     """
     x, y, z = verts.T
     # Hairline height (cm) by depth from front (-y) to back (+y).
-    ys = [-5, 2, 5, 8, 10, 12, 13.8, 21, 24, 40]
-    hs = [158.5, 158.5, 156.5, 153, 148, 143.5, 142.5, 141, 140.5, 139.5]
+    # Straight from the forehead corner down to the bottom of the sideburn
+    # just in front of the ear, then behind the ear down to the nape.
+    ys = [-5, 2, 13.8, 21, 24, 40]
+    hs = [158.5, 158.5, 142.8, 141, 140.5, 139.5]
     line = np.interp(y, ys, hs) + front_raise * smoothstep(12, 6, y)
     mask = smoothstep(line - 0.6, line + 0.6, z)
     # Ears stay bare with a thin clean edge, as a barber leaves it: the ear
