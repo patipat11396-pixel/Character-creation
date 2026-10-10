@@ -279,7 +279,7 @@ FACE_SHAPES = {
     "jawWidth": "Jaw width", "jawSquare": "Jaw angle",
     "eyeSize": "Eye size", "eyeSpacing": "Eye spacing", "eyeHeight": "Eye height", "eyeTilt": "Eye tilt",
 }
-EYE = np.array([6.35, 153.3])          # x, z of each eye recess centre
+EYE = np.array([6.35, 149.7])          # x, z of each eye recess centre
 
 
 def _blob(verts, centre, sigma):
@@ -345,7 +345,7 @@ def face_shapes(verts):
 # The eye images (models/eyes, 400 px squares) draw an eye about 290 px wide,
 # centred 47 px below the middle. A 7.6 cm square patch therefore gives a
 # 5.5 cm eye centred in the recess. Measured on the final (85%) head.
-EYE_PATCH = {"centre_x": 5.4, "eye_z": 150.6, "size": 7.6, "offset_px": 47, "grid": 28, "lift": 0.07}
+EYE_PATCH = {"centre_x": 5.4, "eye_z": 147.6, "size": 7.6, "offset_px": 47, "grid": 28, "lift": 0.07}
 
 
 def eye_patches(verts, faces, morphs, names):
