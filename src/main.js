@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
+import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
+const HAIR_INDEX_URL = 'models/hair/index.json';
 // Filled in by the single-file artifact build: model URL -> base64 text parts.
 const PACKED = null;
 // The base bodies, built by tools/process_character.py, and their sources
@@ -71,6 +75,8 @@ const state = {
   hands: 'auto',
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
+  hair: { ...HAIR_DEFAULTS },
+  hairFits: {}, // body -> style id -> fit, for every style fitted on that body
   lips: { ...LIP_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
@@ -114,6 +120,35 @@ controls.minDistance = 0.45;
 controls.maxDistance = 7;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = Math.PI / 2 + 0.05;
+
+// Editor-style move / rotate / scale handles for the hair, on its HairRoot bone.
+const gizmo = new TransformControls(camera, canvas);
+gizmo.setSpace('local');
+gizmo.setSize(0.8);
+// The centre scale cube becomes "drag up to grow, down to shrink" for the
+// overall size: three.js's own uniform scale divides by the distance from the
+// centre and jumps when the cube is grabbed in the middle.
+const uniformDrag = { active: false, y: 0, size: 1 };
+let pointerY = 0;
+canvas.addEventListener('pointermove', (e) => { pointerY = e.clientY; });
+canvas.addEventListener('pointerdown', (e) => { pointerY = e.clientY; });
+gizmo.addEventListener('dragging-changed', (e) => {
+  controls.enabled = !e.value;
+  uniformDrag.active = e.value && gizmo.mode === 'scale' && gizmo.axis === 'XYZ';
+  Object.assign(uniformDrag, { y: pointerY, size: state.hair.size });
+});
+gizmo.addEventListener('objectChange', () => {
+  const rig = current()?.hair;
+  if (!rig) return;
+  if (uniformDrag.active) {
+    const size = THREE.MathUtils.clamp(uniformDrag.size * Math.exp((uniformDrag.y - pointerY) / 250), 0.3, 3);
+    setHair({ size });
+    rig.fit(state.hair); // undo three.js's own scaling for this frame
+    return;
+  }
+  setHair(rig.readFit(state.hair));
+});
+scene.add(gizmo.getHelper());
 
 // Camera presets: keep the viewing direction, change height and distance.
 // Heights are a share of the way up the head (from the chin) or of the body.
@@ -194,6 +229,7 @@ uniform vec3 lipColor; uniform float lipAmount; varying float vLip;`)
       '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
+const hairMat = hairMaterial(HAIR_DEFAULTS.color);
 
 // ---------------------------------------------------------------- models
 
@@ -247,12 +283,19 @@ async function buildCharacter(body, kind) {
     const m = bone.name.match(/Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
     if (m) fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[1]][m[2] - 1]) });
   }
+  // The Head bone's world matrix in the bind pose, where hairstyles are built.
+  mesh.skeleton.pose();
+  root.updateMatrixWorld(true);
+  const headBone = mesh.skeleton.bones.find((b) => b.name === 'Head');
+  const headBindWorld = headBone.matrixWorld.clone();
+  const hair = null;
   const mixer = new THREE.AnimationMixer(root);
   const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
   // Landmarks written by the build; the unprocessed source borrows the built model's.
   const landmarks = root.userData.body ?? (kind === 'fixed' ? null : (await loadModel(body, 'fixed')).body);
   const character = {
-    root, mesh, mixer, clips, fingers, faceMeshes, action: null, body: landmarks, skin: mesh.material,
+    root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null,
+    body: landmarks, headMap: headMapWorld(landmarks.head_map), skin: mesh.material,
   };
   characters[charKey(body, kind)] = character;
   root.visible = false;
@@ -293,6 +336,15 @@ function applyTone(tone) {
     } else m.color.set(tone.hex);
     m.sheenColor.set(tone.hex ?? m.userData.reference ?? 0xd7bd96).lerp(new THREE.Color(0xffffff), 0.3);
   }
+}
+
+// The build's head map (mesh cm: new = scale * old + offset) as a world-space
+// matrix: the meshes are centimetres, Z up, front -Y, under a 0.01 scale and a
+// -90 degree turn about X.
+const MESH_TO_WORLD = new THREE.Matrix4().makeRotationX(-Math.PI / 2).multiply(new THREE.Matrix4().makeScale(0.01, 0.01, 0.01));
+function headMapWorld(map) {
+  const m = new THREE.Matrix4().makeScale(...map.scale).setPosition(...map.offset);
+  return MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
 }
 
 // A colour per bone, blended by each vertex's skin weights, for the debug view.
@@ -383,6 +435,42 @@ function setExpression(name) {
   $('mouth-round').value = state.mouth.round;
 }
 
+function buildHairControls() {
+  const box = $('hair-colors');
+  for (const c of HAIR_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch hair-swatch';
+    b.style.background = c.hex;
+    b.dataset.color = c.hex;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c.name);
+    b.title = c.name;
+    b.addEventListener('click', () => setHair({ color: c.hex }));
+    box.appendChild(b);
+  }
+  $('hair-custom').addEventListener('input', (e) => setHair({ color: e.target.value }));
+  document.querySelectorAll('[data-hair]').forEach((input) =>
+    input.addEventListener('input', () => setHair({ [input.dataset.hair]: Number(input.value) })));
+  document.querySelectorAll('[data-gizmo]').forEach((b) =>
+    b.addEventListener('click', () => setGizmo(b.dataset.gizmo)));
+  window.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, select, textarea')) return;
+    const mode = { w: 'translate', e: 'rotate', r: 'scale', escape: 'off' }[e.key.toLowerCase()];
+    if (mode) setGizmo(mode);
+  });
+  $('hair-reset').addEventListener('click', () => {
+    const style = state.hair.style;
+    const physics = { weight: HAIR_DEFAULTS.weight, stiffness: HAIR_DEFAULTS.stiffness, bounce: HAIR_DEFAULTS.bounce };
+    for (const k of Object.keys(physics)) if (defaults?.hair?.[k] !== undefined) physics[k] = defaults.hair[k];
+    const fit = fitsByBody(defaults?.hairFits)[state.body]?.[style]
+      ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
+    setHair({ ...FIT_DEFAULTS, ...fit, ...physics });
+    for (const ch of Object.values(characters)) ch.hair?.reset();
+  });
+  setHair({});
+}
+
 function buildFaceControls() {
   const box = $('face-shape');
   for (const [group, items] of FACE_GROUPS) {
@@ -433,6 +521,117 @@ function setLips(change) {
     b.setAttribute('aria-checked', String(b.dataset.color === state.lips.color)));
   $('lip-custom').value = state.lips.color;
   $('lip-amount').value = state.lips.amount;
+}
+
+// ---------------------------------------------------------------- hairstyles
+
+let hairStyles = [];
+const hairFiles = {};       // style id -> Promise of the loaded file
+let hairRequest = 0;
+let shownStyle = null;
+
+async function loadHairIndex() {
+  try {
+    hairStyles = await (await fetch(HAIR_INDEX_URL)).json();
+  } catch {
+    hairStyles = [];
+  }
+  const select = $('hair-style');
+  for (const s of hairStyles) select.appendChild(new Option(s.name, s.id));
+  select.value = state.hair.style;
+  select.addEventListener('change', () => setHair({ style: select.value }));
+}
+
+/** Put hairstyle `id` on the character, loading it the first time. */
+async function showHairstyle(id) {
+  const request = ++hairRequest;
+  const ch = await loadModel(state.body, state.model);
+  if (ch !== current()) return;             // switched body or model meanwhile
+  const style = hairStyles.find((s) => s.id === id);
+  if (!style) return;
+  if (!style.file) {                        // bald: no hair mesh
+    if (request !== hairRequest) return;
+    if (gizmo.object === ch.hair?.root) gizmo.detach();
+    ch.hair?.detach();
+    ch.hair = null;
+    shownStyle = id;
+    return;
+  }
+  if (!ch.hairRigs[id]) {
+    status(`Loading ${style.name}…`);
+    hairFiles[id] ??= loadGLB(style.file);
+    let gltf;
+    try {
+      gltf = await hairFiles[id];
+    } catch {
+      delete hairFiles[id];
+      status(`Could not load ${style.name}.`);
+      return;
+    }
+    if (!ch.hairRigs[id]) {
+      // Each body gets its own copy: a rig takes over the scene it is given.
+      const copy = SkeletonUtils.clone(gltf.scene);
+      ch.hairRigs[id] = new HairRig(copy, ch.mesh, ch.headBone, ch.headBindWorld, ch.headMap, ch.body.head_map);
+      ch.hairRigs[id].mesh.material = hairMat;
+      ch.hairRigs[id].detach();
+    }
+    status('');
+  }
+  if (request !== hairRequest) return;      // a newer choice came in meanwhile
+  const following = gizmo.object && gizmo.object === ch.hair?.root;
+  ch.hair?.detach();
+  ch.hair = ch.hairRigs[id];
+  ch.hair.attach(scene);
+  shownStyle = id;
+  if (following) gizmo.attach(ch.hair.root);
+}
+
+function pickFit(source) {
+  return Object.fromEntries(FIT_KEYS.map((k) => [k, source[k] ?? FIT_DEFAULTS[k]]));
+}
+
+function setGizmo(mode) {
+  const rig = current()?.hair;
+  document.querySelectorAll('[data-gizmo]').forEach((b) => b.classList.toggle('on', b.dataset.gizmo === mode));
+  if (mode === 'off' || !rig) {
+    gizmo.detach();
+    return;
+  }
+  gizmo.setMode(mode);
+  gizmo.attach(rig.root);
+}
+
+/** Fits saved per body ({ female: { style: fit } }); older saves kept one set for the old body. */
+function fitsByBody(hairFits) {
+  if (!hairFits) return {};
+  if (Object.keys(hairFits).some((k) => k in BODIES)) return hairFits;
+  return Object.fromEntries(Object.keys(BODIES).map((b) => [b, hairFits]));
+}
+
+/** The fit `style` starts with on `body`: fitted here before, else the default's. */
+function fitFor(body, style) {
+  return state.hairFits[body]?.[style] ?? fitsByBody(defaults?.hairFits)[body]?.[style]
+    ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
+}
+
+function parkFit() {
+  (state.hairFits[state.body] ??= {})[state.hair.style] = pickFit(state.hair);
+}
+
+function setHair(change) {
+  if (change.style && change.style !== state.hair.style) {
+    // Each style keeps its own fit: park this one's, bring the next one's back.
+    parkFit();
+    Object.assign(state.hair, FIT_DEFAULTS, fitFor(state.body, change.style));
+  }
+  Object.assign(state.hair, change);
+  if ($('hair-style').value !== state.hair.style) $('hair-style').value = state.hair.style;
+  if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
+  setHairColor(hairMat, state.hair.color);
+  document.querySelectorAll('.hair-swatch').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
+  $('hair-custom').value = state.hair.color;
+  document.querySelectorAll('[data-hair]').forEach((input) => { input.value = state.hair[input.dataset.hair]; });
 }
 
 function syncTime(from, to) {
@@ -497,6 +696,7 @@ function buildAnimationList(clips) {
 
 function applyAnimation() {
   for (const ch of Object.values(characters)) {
+    ch.hair?.reset();
     if (state.anim) {
       playAnimation(ch, state.anim);
     } else {
@@ -525,14 +725,25 @@ async function setCharacter(body = state.body, model = state.model) {
     status('Could not load that model.');
     return;
   }
-  state.body = body;
+  if (body !== state.body) {
+    // Each body keeps its own hair fits: park this one's, bring the next one's back.
+    parkFit();
+    state.body = body;
+    Object.assign(state.hair, FIT_DEFAULTS, fitFor(body, state.hair.style));
+    setHair({});
+  }
   state.model = model;
+  setGizmo('off');
   applyAnimation();
   syncTime(previous, ch);
   for (const [key, c] of Object.entries(characters)) c.root.visible = key === k;
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
   applyTone(SKIN_TONES[state.tone]);
   applyWeightView();
+  if (hairStyles.length) {
+    shownStyle = null;
+    showHairstyle(state.hair.style);
+  }
   status('');
 }
 
@@ -560,6 +771,11 @@ function snapshot() {
     expression: state.expression,
     mouth: { ...state.mouth },
     hands: state.hands,
+    hair: { ...state.hair },
+    hairFits: {
+      ...state.hairFits,
+      [state.body]: { ...state.hairFits[state.body], [state.hair.style]: pickFit(state.hair) },
+    },
     lips: { ...state.lips },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
@@ -576,6 +792,15 @@ function applySetup(setup, { withName = false } = {}) {
     state.body = setup.body;                  // the model follows in setCharacter
     if (characters[charKey()]) setCharacter();
   }
+  const fits = fitsByBody(setup.hairFits);
+  for (const [b, f] of Object.entries(fits)) state.hairFits[b] = { ...state.hairFits[b], ...f };
+  if (setup.hair) {
+    const style = setup.hair.style ?? HAIR_DEFAULTS.style;
+    state.hair.style = style;                 // switch without parking the old fit
+    // A saved fit for this body wins; one saved for the old single body stays a fallback.
+    const fit = fits[state.body]?.[style] ?? pickFit(setup.hair);
+    setHair({ ...HAIR_DEFAULTS, ...setup.hair, ...fit, style });
+  }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
   if (setup.face) setFace(setup.face);
   if (setup.hands) {
@@ -589,6 +814,7 @@ function applySetup(setup, { withName = false } = {}) {
     $('mouth-smile').value = state.mouth.smile;
     $('mouth-round').value = state.mouth.round;
   }
+  for (const ch of Object.values(characters)) ch.hair?.reset();
 }
 
 function readSaved() {
@@ -625,7 +851,7 @@ function confirmCharacter() {
 // ---------------------------------------------------------------- defaults for everyone
 //
 // Where everyone's starting setup comes from, later ones winning:
-//   1. the built-in values in this file,
+//   1. the built-in values in this file and hair.js,
 //   2. models/defaults.json next to the page (committed to the repo),
 //   3. the published artifact's shared store, set with "Set as default".
 // A person's own Save still wins over all of them in their browser.
@@ -675,7 +901,7 @@ async function downloadSetup() {
   const setup = snapshot();
   delete setup.name;
   if (await saveJson('defaults.json', setup)) {
-    status('Saved defaults.json. Send it to Claude, or put it in models/ and commit it.');
+    status('Saved defaults.json with every hairstyle fit. Send it to Claude, or put it in models/ and commit it.');
   }
 }
 
@@ -714,6 +940,11 @@ renderer.setAnimationLoop(() => {
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseHands(dt);
   poseMouth(dt);
+  for (const ch of Object.values(characters)) {
+    if (!ch.hair) continue;
+    ch.root.updateMatrixWorld(true); // the physics reads this frame's head and spine
+    ch.hair.update(dt, state.hair);
+  }
   controls.update();
   stepView(dt);
   renderer.render(scene, camera);
@@ -735,6 +966,7 @@ for (const [id, key] of [['mouth-open', 'open'], ['mouth-smile', 'smile'], ['mou
   });
 }
 setExpression(state.expression);
+buildHairControls();
 buildLipControls();
 buildFaceControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
@@ -769,7 +1001,7 @@ $('download-setup').addEventListener('click', downloadSetup);
 
 // Start from the defaults, then this browser's own save if there is one.
 const savedCharacter = readSaved();
-const ready = loadDefaults();
+const ready = Promise.all([loadDefaults(), loadHairIndex()]);
 ready.then(() => {
   if (savedCharacter) {
     applySetup(savedCharacter, { withName: true });

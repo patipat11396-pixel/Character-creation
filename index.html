@@ -87,6 +87,39 @@
     </div>
 
     <div class="field">
+      <span class="label">Hair</span>
+      <select id="hair-style" aria-label="Hairstyle"></select>
+      <div class="hair-colors">
+        <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
+        <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
+      </div>
+      <div class="gizmo-row">
+        <span class="sublabel">Adjust in view</span>
+        <div class="segmented" role="group" aria-label="Hair handles">
+          <button type="button" data-gizmo="off" class="on">Off</button>
+          <button type="button" data-gizmo="translate" title="Move (W)">Move</button>
+          <button type="button" data-gizmo="rotate" title="Rotate (E)">Rotate</button>
+          <button type="button" data-gizmo="scale" title="Scale (R)">Scale</button>
+        </div>
+      </div>
+      <label class="slider"><span>Size</span><input data-hair="size" type="range" min="0.3" max="3" step="0.005"></label>
+      <label class="slider"><span>Width</span><input data-hair="width" type="range" min="0.3" max="3" step="0.005"></label>
+      <label class="slider"><span>Height</span><input data-hair="height" type="range" min="0.3" max="3" step="0.005"></label>
+      <label class="slider"><span>Depth</span><input data-hair="depth" type="range" min="0.3" max="3" step="0.005"></label>
+      <label class="slider"><span>Up / down</span><input data-hair="up" type="range" min="-10" max="20" step="0.1"></label>
+      <label class="slider"><span>Back / forward</span><input data-hair="forward" type="range" min="-10" max="10" step="0.1"></label>
+      <label class="slider"><span>Left / right</span><input data-hair="side" type="range" min="-8" max="8" step="0.1"></label>
+      <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-30" max="30" step="0.5"></label>
+      <label class="slider"><span>Turn</span><input data-hair="turn" type="range" min="-30" max="30" step="0.5"></label>
+      <label class="slider"><span>Roll</span><input data-hair="roll" type="range" min="-30" max="30" step="0.5"></label>
+      <span class="sublabel">Swinging parts (ponytail, braid, twin tails)</span>
+      <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
+      <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
+      <label class="slider"><span>Bounce</span><input data-hair="bounce" type="range" min="0" max="1" step="0.01"></label>
+      <button type="button" id="hair-reset" class="link">Reset hair fit and physics</button>
+    </div>
+
+    <div class="field">
       <span class="label">Hands</span>
       <div class="segmented" role="radiogroup" aria-label="Hands">
         <button type="button" data-hands="auto" class="on">Auto</button>
@@ -112,7 +145,7 @@
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
     <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
-    <button type="button" id="download-setup" class="link">Download setup (JSON)</button>
+    <button type="button" id="download-setup" class="link">Download setup with all hair fits (JSON)</button>
     <p class="status" id="status" role="status"></p>
   </aside>
 </main>

@@ -177,7 +177,7 @@ def main():
     (ROOT / "models/hair").mkdir(exist_ok=True)
     for style in styles:
         if style.get("mesh") is False:
-            continue                      # scalp only (the body's buzz cut)
+            continue                      # no mesh (bald)
         if not wanted or style["id"] in wanted:
             build(style, verts, head_faces)
     index = [{"id": s["id"], "name": s["name"],
