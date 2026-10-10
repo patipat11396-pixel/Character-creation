@@ -3,17 +3,19 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
-import { EYE_STYLES, EYE_COLORS, EYE_DEFAULTS, EyeTexture, Blinker } from './eyes.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
 const HAIR_INDEX_URL = 'models/hair/index.json';
 // Filled in by the single-file artifact build: model URL -> base64 text parts.
 const PACKED = null;
-const MODELS = {
-  fixed: 'models/character.glb',
-  original: 'models/source/retargeted_animations.glb',
+// The base bodies, built by tools/process_character.py, and their sources
+// (shown by "Model check").
+const BODIES = {
+  female: { label: 'Female', fixed: 'models/character_female.glb', original: 'models/source/f_base.glb' },
+  male: { label: 'Male', fixed: 'models/character_male.glb', original: 'models/source/m_base.glb' },
 };
 // Finger curl for a full fist, in degrees per joint (knuckle, middle, tip).
 // The finger bones curl towards the palm when rotated about their local X.
@@ -67,15 +69,15 @@ const state = {
   name: '',
   tone: DEFAULT_TONE,
   anim: 'Idle_A',
+  body: 'female',
   model: 'fixed',
   weights: false,
   hands: 'auto',
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
   hair: { ...HAIR_DEFAULTS },
-  hairFits: {}, // style id -> fit, for every style that has been fitted
+  hairFits: {}, // body -> style id -> fit, for every style fitted on that body
   lips: { ...LIP_DEFAULTS },
-  eyes: { ...EYE_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
 let grip = RELAXED_GRIP;
@@ -136,7 +138,7 @@ gizmo.addEventListener('dragging-changed', (e) => {
   Object.assign(uniformDrag, { y: pointerY, size: state.hair.size });
 });
 gizmo.addEventListener('objectChange', () => {
-  const rig = characters[state.model]?.hair;
+  const rig = current()?.hair;
   if (!rig) return;
   if (uniformDrag.active) {
     const size = THREE.MathUtils.clamp(uniformDrag.size * Math.exp((uniformDrag.y - pointerY) / 250), 0.3, 3);
@@ -149,9 +151,10 @@ gizmo.addEventListener('objectChange', () => {
 scene.add(gizmo.getHelper());
 
 // Camera presets: keep the viewing direction, change height and distance.
+// Heights are a share of the way up the head (from the chin) or of the body.
 const VIEWS = {
-  head: { target: 1.45, distance: 1.1 },
-  body: { target: 0.88, distance: 4.7 },
+  head: { target: (b) => (b.chin_z + 0.55 * (b.top_z - b.chin_z)) / 100, distance: 1.1 },
+  body: { target: (b) => 0.53 * b.top_z / 100, distance: 4.7 },
 };
 const view = { from: null, to: null, t: 1 };
 
@@ -162,7 +165,7 @@ function setView(name) {
   controls.update();
   controls.enableDamping = true;
   const dir = camera.position.clone().sub(controls.target).normalize();
-  const target = new THREE.Vector3(0, v.target, 0);
+  const target = new THREE.Vector3(0, v.target(current()?.body ?? { top_z: 160, chin_z: 131 }), 0);
   view.from = { target: controls.target.clone(), position: camera.position.clone() };
   view.to = { target, position: target.clone().addScaledVector(dir, v.distance) };
   view.t = 0;
@@ -215,6 +218,10 @@ const lipUniforms = {
   scalpColor: { value: new THREE.Color(HAIR_DEFAULTS.color) }, scalpAmount: { value: HAIR_DEFAULTS.under },
   // 1 while a hair mesh is worn: use the mask with the front hairline raised.
   scalpUnderHair: { value: 1 },
+  // This body's head against the head the hairline was drawn on (new = scale * old + offset),
+  // and its ears: centre (y, z), radii (y, z), and how far out (|x|) the ear cut starts.
+  headScale: { value: new THREE.Vector3(1, 1, 1) }, headOffset: { value: new THREE.Vector3() },
+  earShape: { value: new THREE.Vector4(16.8, 146, 3.2, 4.5) }, earX: { value: 8.5 },
 };
 skin.onBeforeCompile = (shader) => {
   Object.assign(shader.uniforms, lipUniforms);
@@ -225,8 +232,10 @@ skin.onBeforeCompile = (shader) => {
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
 uniform vec3 scalpColor; uniform float scalpAmount; uniform float scalpUnderHair;
+uniform vec3 headScale; uniform vec3 headOffset; uniform vec4 earShape; uniform float earX;
 varying vec3 vSkinPos;
-// Buzz-cut boundary, fitted to this head (mesh space, cm: x side, y back, z up).
+// Buzz-cut boundary, drawn on a reference head (mesh space, cm: x side, y back,
+// z up); each body maps its points onto that head first (headScale, headOffset).
 // Front and sides: a Catmull-Rom curve of hairline height by depth y, from the
 // forehead (158.5) through a short tapered temple to the front of the ear.
 const float HAIR_FRONT[14] = float[14](158.5, 158.5, 158.5, 158.3, 157.8, 156.8, 154.9,
@@ -240,7 +249,8 @@ float hairFront(float y) {
   return 0.5 * (2.0 * p1 + (p2 - p0) * f + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * f * f
               + (3.0 * p1 - p0 - 3.0 * p2 + p3) * f * f * f);
 }
-float scalpCover(vec3 p) {
+float scalpCover(vec3 q) {
+  vec3 p = (q - headOffset) / headScale;
   // Back: a shallow rounded nape edge where the skull meets the neck (140.5 cm
   // on the centre line), rising to meet the line behind each ear.
   float back = 140.5 + 0.031 * p.x * p.x;
@@ -250,11 +260,11 @@ float scalpCover(vec3 p) {
   float d = p.z - line;
   float aa = max(fwidth(d), 0.02);
   float m = smoothstep(-aa, aa, d);
-  // Ears: an ellipse just outside the measured ear outline (y 13.8-19.4,
-  // z 142-150) with 0.3 cm clearance, on the sides of the head only.
-  float r = length(vec2((p.y - 16.8) / 3.2, (p.z - 146.0) / 4.5)) - 1.0;
+  // Ears: an ellipse just outside this body's measured ear outline, on the
+  // sides of the head only.
+  float r = length(vec2((q.y - earShape.x) / earShape.z, (q.z - earShape.y) / earShape.w)) - 1.0;
   float ar = max(fwidth(r), 0.004);
-  m *= 1.0 - (1.0 - smoothstep(-ar, ar, r)) * smoothstep(8.5, 9.5, abs(p.x));
+  m *= 1.0 - (1.0 - smoothstep(-ar, ar, r)) * smoothstep(earX, earX + 1.0, abs(q.x));
   return m;
 }
 float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }`)
@@ -273,13 +283,14 @@ float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const hairMat = hairMaterial(HAIR_DEFAULTS.color);
-const eyeTex = new EyeTexture();
-const blinker = new Blinker();
 
 // ---------------------------------------------------------------- models
 
 const loader = new GLTFLoader();
-const characters = {}; // model key -> { root, mesh, mixer, clips, action }
+const characters = {}; // "body:model" -> { root, mesh, mixer, clips, action, body }
+const loading = {};    // "body:model" -> Promise of the character
+const charKey = (body = state.body, model = state.model) => `${body}:${model}`;
+const current = () => characters[charKey()];
 const clock = new THREE.Clock();
 
 async function loadGLB(url) {
@@ -294,16 +305,23 @@ async function loadGLB(url) {
   return loader.parseAsync(bytes.buffer, '');
 }
 
-async function loadModel(kind) {
-  if (characters[kind]) return characters[kind];
-  const gltf = await loadGLB(MODELS[kind]);
+function loadModel(body, kind) {
+  const k = charKey(body, kind);
+  loading[k] ??= buildCharacter(body, kind).catch((err) => {
+    delete loading[k];
+    throw err;
+  });
+  return loading[k];
+}
+
+async function buildCharacter(body, kind) {
+  const gltf = await loadGLB(BODIES[body][kind]);
   const root = gltf.scene;
   let mesh;
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (o.material.name === 'Eyes') o.material = eyeTex.material;
-      else if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -326,10 +344,33 @@ async function loadModel(kind) {
   const hair = null;
   const mixer = new THREE.AnimationMixer(root);
   const clips = new Map(gltf.animations.map((c) => [c.name.replace(/_RT$/, ''), c]));
-  const character = { root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null };
-  characters[kind] = character;
+  // Landmarks written by the build; the unprocessed source borrows the built model's.
+  const landmarks = root.userData.body ?? (kind === 'fixed' ? null : (await loadModel(body, 'fixed')).body);
+  const character = {
+    root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null,
+    body: landmarks, headMap: headMapWorld(landmarks.head_map),
+  };
+  characters[charKey(body, kind)] = character;
+  root.visible = false;
   scene.add(root);
   return character;
+}
+
+// The build's head map (mesh cm: new = scale * old + offset) as a world-space
+// matrix: the meshes are centimetres, Z up, front -Y, under a 0.01 scale and a
+// -90 degree turn about X.
+const MESH_TO_WORLD = new THREE.Matrix4().makeRotationX(-Math.PI / 2).multiply(new THREE.Matrix4().makeScale(0.01, 0.01, 0.01));
+function headMapWorld(map) {
+  const m = new THREE.Matrix4().makeScale(...map.scale).setPosition(...map.offset);
+  return MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
+}
+
+/** Point the skin shader's hairline at this body's head and ears. */
+function useBodyLandmarks(b) {
+  lipUniforms.headScale.value.set(...b.head_map.scale);
+  lipUniforms.headOffset.value.set(...b.head_map.offset);
+  lipUniforms.earShape.value.set(b.ear.y, b.ear.z, b.ear.ry, b.ear.rz);
+  lipUniforms.earX.value = b.ear.x;
 }
 
 // A colour per bone, blended by each vertex's skin weights, for the debug view.
@@ -448,7 +489,8 @@ function buildHairControls() {
     const style = state.hair.style;
     const physics = { weight: HAIR_DEFAULTS.weight, stiffness: HAIR_DEFAULTS.stiffness, bounce: HAIR_DEFAULTS.bounce };
     for (const k of Object.keys(physics)) if (defaults?.hair?.[k] !== undefined) physics[k] = defaults.hair[k];
-    const fit = defaults?.hairFits?.[style] ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
+    const fit = fitsByBody(defaults?.hairFits)[state.body]?.[style]
+      ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
     setHair({ ...FIT_DEFAULTS, ...fit, ...physics });
     for (const ch of Object.values(characters)) ch.hair?.reset();
   });
@@ -476,47 +518,6 @@ function buildFaceControls() {
 function setFace(values) {
   for (const k of FACE_KEYS) if (typeof values?.[k] === 'number') state.face[k] = values[k];
   document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face]; });
-}
-
-function buildEyeControls() {
-  const box = $('eye-colors');
-  for (const c of EYE_COLORS) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'swatch eye-swatch';
-    b.style.background = c.hex;
-    b.dataset.color = c.hex;
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-label', c.name);
-    b.title = c.name;
-    b.addEventListener('click', () => setEyes({ color: c.hex }));
-    box.appendChild(b);
-  }
-  $('eye-custom').addEventListener('input', (e) => setEyes({ color: e.target.value }));
-  for (const part of ['style', 'white', 'iris', 'pupil', 'lash']) {
-    const sel = $(`eye-${part}`);
-    for (let i = 1; i <= EYE_STYLES; i++) sel.appendChild(new Option(`${i}`, i));
-    sel.addEventListener('change', () => {
-      const n = Number(sel.value);
-      // "Style" sets every part at once; the others mix and match.
-      setEyes(part === 'style' ? { white: n, iris: n, pupil: n, lash: n } : { [part]: n });
-    });
-  }
-  $('eye-blink').addEventListener('change', (e) => setEyes({ blink: e.target.checked }));
-  setEyes({});
-}
-
-function setEyes(change) {
-  Object.assign(state.eyes, change);
-  const e = state.eyes;
-  for (const part of ['white', 'iris', 'pupil', 'lash']) $(`eye-${part}`).value = e[part];
-  const same = e.white === e.iris && e.iris === e.pupil && e.pupil === e.lash;
-  $('eye-style').value = same ? e.white : '';
-  document.querySelectorAll('.eye-swatch').forEach((b) =>
-    b.setAttribute('aria-checked', String(b.dataset.color === e.color)));
-  $('eye-custom').value = e.color;
-  $('eye-blink').checked = e.blink;
-  eyeTex.draw(e);
 }
 
 function buildLipControls() {
@@ -570,7 +571,8 @@ async function loadHairIndex() {
 /** Put hairstyle `id` on the character, loading it the first time. */
 async function showHairstyle(id) {
   const request = ++hairRequest;
-  const ch = await characterReady;
+  const ch = await loadModel(state.body, state.model);
+  if (ch !== current()) return;             // switched body or model meanwhile
   const style = hairStyles.find((s) => s.id === id);
   if (!style) return;
   if (!style.file) {                        // buzz cut: only the scalp layer
@@ -594,7 +596,9 @@ async function showHairstyle(id) {
       return;
     }
     if (!ch.hairRigs[id]) {
-      ch.hairRigs[id] = new HairRig(gltf.scene, ch.mesh, ch.headBone, ch.headBindWorld);
+      // Each body gets its own copy: a rig takes over the scene it is given.
+      const copy = SkeletonUtils.clone(gltf.scene);
+      ch.hairRigs[id] = new HairRig(copy, ch.mesh, ch.headBone, ch.headBindWorld, ch.headMap, ch.body.head_map);
       ch.hairRigs[id].mesh.material = hairMat;
       ch.hairRigs[id].detach();
     }
@@ -615,7 +619,7 @@ function pickFit(source) {
 }
 
 function setGizmo(mode) {
-  const rig = characters[state.model]?.hair;
+  const rig = current()?.hair;
   document.querySelectorAll('[data-gizmo]').forEach((b) => b.classList.toggle('on', b.dataset.gizmo === mode));
   if (mode === 'off' || !rig) {
     gizmo.detach();
@@ -625,12 +629,28 @@ function setGizmo(mode) {
   gizmo.attach(rig.root);
 }
 
+/** Fits saved per body ({ female: { style: fit } }); older saves kept one set for the old body. */
+function fitsByBody(hairFits) {
+  if (!hairFits) return {};
+  if (Object.keys(hairFits).some((k) => k in BODIES)) return hairFits;
+  return Object.fromEntries(Object.keys(BODIES).map((b) => [b, hairFits]));
+}
+
+/** The fit `style` starts with on `body`: fitted here before, else the default's. */
+function fitFor(body, style) {
+  return state.hairFits[body]?.[style] ?? fitsByBody(defaults?.hairFits)[body]?.[style]
+    ?? (defaults?.hair?.style === style ? pickFit(defaults.hair) : FIT_DEFAULTS);
+}
+
+function parkFit() {
+  (state.hairFits[state.body] ??= {})[state.hair.style] = pickFit(state.hair);
+}
+
 function setHair(change) {
   if (change.style && change.style !== state.hair.style) {
     // Each style keeps its own fit: park this one's, bring the next one's back.
-    state.hairFits[state.hair.style] = pickFit(state.hair);
-    const fit = state.hairFits[change.style] ?? defaults?.hairFits?.[change.style] ?? FIT_DEFAULTS;
-    Object.assign(state.hair, FIT_DEFAULTS, fit);
+    parkFit();
+    Object.assign(state.hair, FIT_DEFAULTS, fitFor(state.body, change.style));
   }
   Object.assign(state.hair, change);
   if ($('hair-style').value !== state.hair.style) $('hair-style').value = state.hair.style;
@@ -717,19 +737,43 @@ function applyAnimation() {
   }
 }
 
-async function setModel(kind) {
-  const buttons = document.querySelectorAll('[data-model]');
-  buttons.forEach((b) => b.classList.toggle('on', b.dataset.model === kind));
-  if (!characters[kind]) status('Loading original model…');
-  const previous = characters[state.model];
-  const ch = await loadModel(kind);
-  state.model = kind;
+/** Show `body` ("female" / "male") as `model` ("fixed" or its "original" source). */
+async function setCharacter(body = state.body, model = state.model) {
+  document.querySelectorAll('[data-model]').forEach((b) => b.classList.toggle('on', b.dataset.model === model));
+  document.querySelectorAll('[data-body]').forEach((b) => {
+    b.setAttribute('aria-checked', String(b.dataset.body === body));
+    b.classList.toggle('on', b.dataset.body === body);
+  });
+  const k = charKey(body, model);
+  if (!characters[k]) status(`Loading ${model === 'original' ? 'original ' : ''}${BODIES[body].label.toLowerCase()} model…`);
+  const previous = current();
+  let ch;
+  try {
+    ch = await loadModel(body, model);
+  } catch (err) {
+    console.error(err);
+    status('Could not load that model.');
+    return;
+  }
+  if (body !== state.body) {
+    // Each body keeps its own hair fits: park this one's, bring the next one's back.
+    parkFit();
+    state.body = body;
+    Object.assign(state.hair, FIT_DEFAULTS, fitFor(body, state.hair.style));
+    setHair({});
+  }
+  state.model = model;
+  setGizmo('off');
   applyAnimation();
   syncTime(previous, ch);
-  for (const [k, c] of Object.entries(characters)) c.root.visible = k === kind;
+  for (const [key, c] of Object.entries(characters)) c.root.visible = key === k;
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
-  setGizmo('off');
+  useBodyLandmarks(ch.body);
   applyWeightView();
+  if (hairStyles.length) {
+    shownStyle = null;
+    showHairstyle(state.hair.style);
+  }
   status('');
 }
 
@@ -753,13 +797,16 @@ function snapshot() {
   return {
     name: $('name').value.trim(),
     skinTone: { index: state.tone + 1, id: tone.id, hex: tone.hex },
+    body: state.body,
     expression: state.expression,
     mouth: { ...state.mouth },
     hands: state.hands,
     hair: { ...state.hair },
-    hairFits: { ...state.hairFits, [state.hair.style]: pickFit(state.hair) },
+    hairFits: {
+      ...state.hairFits,
+      [state.body]: { ...state.hairFits[state.body], [state.hair.style]: pickFit(state.hair) },
+    },
     lips: { ...state.lips },
-    eyes: { ...state.eyes },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
@@ -771,15 +818,21 @@ function applySetup(setup, { withName = false } = {}) {
   if (withName) $('name').value = setup.name ?? '';
   const i = (setup.skinTone?.index ?? 0) - 1;
   if (i >= 0 && i < SKIN_TONES.length) setTone(i);
-  if (setup.hairFits) state.hairFits = { ...state.hairFits, ...setup.hairFits };
+  if (setup.body in BODIES && setup.body !== state.body) {
+    state.body = setup.body;                  // the model follows in setCharacter
+    if (characters[charKey()]) setCharacter();
+  }
+  const fits = fitsByBody(setup.hairFits);
+  for (const [b, f] of Object.entries(fits)) state.hairFits[b] = { ...state.hairFits[b], ...f };
   if (setup.hair) {
     const style = setup.hair.style ?? HAIR_DEFAULTS.style;
     state.hair.style = style;                 // switch without parking the old fit
-    setHair({ ...HAIR_DEFAULTS, ...(setup.hairFits?.[style] ?? {}), ...setup.hair, style });
+    // A saved fit for this body wins; one saved for the old single body stays a fallback.
+    const fit = fits[state.body]?.[style] ?? pickFit(setup.hair);
+    setHair({ ...HAIR_DEFAULTS, ...setup.hair, ...fit, style });
   }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
   if (setup.face) setFace(setup.face);
-  if (setup.eyes) setEyes({ ...EYE_DEFAULTS, ...setup.eyes });
   if (setup.hands) {
     state.hands = setup.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
@@ -917,7 +970,6 @@ renderer.setAnimationLoop(() => {
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseHands(dt);
   poseMouth(dt);
-  eyeTex.setClosed(blinker.update(dt, state.eyes.blink));
   for (const ch of Object.values(characters)) {
     if (!ch.hair) continue;
     ch.root.updateMatrixWorld(true); // the physics reads this frame's head and spine
@@ -947,14 +999,15 @@ setExpression(state.expression);
 buildHairControls();
 buildLipControls();
 buildFaceControls();
-buildEyeControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o === b));
   }));
 document.querySelectorAll('[data-model]').forEach((b) =>
-  b.addEventListener('click', () => setModel(b.dataset.model)));
+  b.addEventListener('click', () => setCharacter(state.body, b.dataset.model)));
+document.querySelectorAll('[data-body]').forEach((b) =>
+  b.addEventListener('click', () => setCharacter(b.dataset.body, state.model)));
 $('bones').addEventListener('change', (e) => {
   for (const ch of Object.values(characters)) {
     if (!ch.bonesHelper) {
@@ -978,20 +1031,24 @@ $('download-setup').addEventListener('click', downloadSetup);
 
 // Start from the defaults, then this browser's own save if there is one.
 const savedCharacter = readSaved();
-Promise.all([loadDefaults(), loadHairIndex()]).then(() => {
+const ready = Promise.all([loadDefaults(), loadHairIndex()]);
+ready.then(() => {
   if (savedCharacter) {
     applySetup(savedCharacter, { withName: true });
     status(`Loaded your saved character${savedCharacter.name ? `, ${savedCharacter.name}` : ''}.`);
   } else {
     applySetup(defaults);
   }
-  if (!shownStyle) showHairstyle(state.hair.style);
 });
 
-const characterReady = loadModel('fixed');
-characterReady.then((ch) => {
+// The body comes from this browser's save, else the defaults.
+ready.then(() => {
+  const b = savedCharacter?.body ?? defaults?.body;
+  if (b in BODIES) state.body = b;
+  return loadModel(state.body, 'fixed');
+}).then(async (ch) => {
   buildAnimationList(ch.clips);
-  applyAnimation();
+  await setCharacter(state.body, 'fixed');
   $('loading').classList.add('hidden');
 }).catch((err) => {
   console.error(err);

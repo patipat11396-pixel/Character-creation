@@ -1,32 +1,56 @@
-"""Face fixes for the retargeted character: smoother eye area and a working mouth.
+"""Face work for the base bodies: a mouth that opens, face shape keys and eye patches.
 
-All coordinates are the source mesh's: centimetres, Z up, front = -Y.
+All coordinates are the source mesh's: centimetres, Z up, front = -Y. Every
+position comes from the body's landmarks in bodies.py; call `configure(body)`
+first.
 
-* The eye recesses are covered by a few long, thin triangles (up to 3.6 cm
-  against 0.85 cm elsewhere), which read as bumps. `refine_long_edges` splits
-  them down to the face's normal size and `smooth_eye_area` relaxes the patch.
-* The mouth corners have tiny folded triangles that show as white spots;
-  `mouth_corner_normals` evens out their shading.
-* The mouth is sculpted shut: the lips fold about 2 cm inwards and meet along
-  one line. `cut_mouth` splits the mesh along that line so the lips can part,
-  `mouth_morphs` builds the shape keys and `mouth_parts` adds teeth and a
-  tongue.
+* The mouth is sculpted shut with only a few large triangles across it.
+  `refine_mouth` splits them small, `cut_mouth` splits the mesh along the lip
+  line so the lips can part, `mouth_morphs` builds the shape keys and
+  `mouth_parts` adds teeth and a tongue.
+* `face_shapes` builds the face sliders and `lip_mask` the lip colour area.
 """
 import numpy as np
-import trimesh
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
-MOUTH_Z = 141.45                     # height of the line where the lips meet
-MOUTH_CORNERS = (np.array([-2.85, 0.85, 141.45]), np.array([2.85, 0.85, 141.45]))
-JAW_HINGE = np.array([13.0, 147.0])  # (y, z) of the jaw hinge, in front of the ears
-JAW_ANGLE = np.radians(13)
 MORPHS = ["jawOpen", "smile", "frown", "mouthRound"]
+JAW_ANGLE = np.radians(13)
+B = {}                                   # landmarks of the body being built
+
+
+def configure(body):
+    """Use `body` (a bodies.BODIES entry) for every function below."""
+    B.clear()
+    B.update(body)
 
 
 def smoothstep(a, b, x):
     t = np.clip((x - a) / (b - a), 0, 1)
     return t * t * (3 - 2 * t)
+
+
+def front_of(y, behind_near, behind_far):
+    """1 at the face, 0 further back: falls from `behind_near` to `behind_far`
+    cm behind the nose tip (scaled to this head's depth)."""
+    f, k = B["nose_tip"][0], B["depth"]
+    return smoothstep(f + behind_far * k, f + behind_near * k, y)
+
+
+def lip_z(x):
+    """Height of the lip line at x: it rises towards the corners on a smile."""
+    m = B["mouth"]
+    return m["z"] + m["kz"] * np.asarray(x) ** 2
+
+
+def lip_y(x):
+    m = B["mouth"]
+    return m["y"] + m["ky"] * np.asarray(x) ** 2
+
+
+def mouth_corners():
+    h = B["mouth"]["half"]
+    return [np.array([s * h, float(lip_y(h)), float(lip_z(h))]) for s in (-1, 1)]
 
 
 def edge_graph(verts, faces):
@@ -38,17 +62,18 @@ def edge_graph(verts, faces):
     return g + g.T, e
 
 
-# ---------------------------------------------------------------- eye area
+# ---------------------------------------------------------------- mouth
 
-def eye_area(points):
-    """Front of the face between the cheeks and the brow, minus nose and ears."""
+def mouth_area(points):
+    """The lips and a margin around them, front of the face only."""
     x, y, z = points.T
-    return ((z > 143.5) & (z < 162) & (y < 5) & (np.abs(x) < 10.2)
-            & ~((np.abs(x) < 1.8) & (z < 151)))           # nose
+    m = B["mouth"]
+    return ((np.abs(x) < m["half"] + 1.2) & (np.abs(z - m["z"]) < 2.2)
+            & (y < m["y"] + 2.5))
 
 
-def refine_long_edges(verts, faces, attrs, max_len=0.9, rounds=6):
-    """Split edges longer than max_len inside the eye area, keeping the mesh conforming.
+def refine_mouth(verts, faces, attrs, max_len=0.3, rounds=8):
+    """Split edges longer than max_len around the mouth, keeping the mesh conforming.
 
     attrs are per-vertex arrays that new midpoints get by averaging.
     """
@@ -56,7 +81,7 @@ def refine_long_edges(verts, faces, attrs, max_len=0.9, rounds=6):
         e = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
         key = np.sort(e, axis=1)
         mid = (verts[key[:, 0]] + verts[key[:, 1]]) / 2
-        long_ = (np.linalg.norm(verts[key[:, 0]] - verts[key[:, 1]], axis=1) > max_len) & eye_area(mid)
+        long_ = (np.linalg.norm(verts[key[:, 0]] - verts[key[:, 1]], axis=1) > max_len) & mouth_area(mid)
         if not long_.any():
             break
         split = np.unique(key[long_], axis=0)
@@ -87,63 +112,22 @@ def refine_long_edges(verts, faces, attrs, max_len=0.9, rounds=6):
     return verts, faces, attrs
 
 
-def smooth_eye_area(verts, faces, avg):
-    """Relax the refined patch; its outer two rings stay put so it blends in."""
-    inside = eye_area(verts)
-    fixed = ~inside
-    for _ in range(2):
-        fixed = fixed | (avg @ fixed.astype(float) > 0)
-    move = inside & ~fixed
-    out = verts.copy()
-    for _ in range(10):
-        out[move] = 0.5 * out[move] + 0.5 * (avg @ out)[move]
-    for _ in range(40):
-        for factor in (0.5, -0.53):
-            out[move] += factor * (avg @ out - out)[move]
-    return out, move
-
-
-# ---------------------------------------------------------------- mouth
-
-def mouth_corner_normals(verts, normals, avg, crease, iterations=8):
-    """Even out the shading at both mouth corners without moving anything.
-
-    The source has tiny triangles folded back on themselves where the lips
-    meet at each corner (edges bending 120-165 degrees). Their normals point
-    the wrong way and catch the light as white spots. Moving the vertices
-    breaks the lip line, so only the normals there are blended with their
-    neighbours'.
-    """
-    x, y, z = verts.T
-    box = (np.abs(np.abs(x) - 3.0) < 1.1) & (np.abs(z - MOUTH_Z) < 1.0) & (y > -1.5) & (y < 2.5)
-    fix = box & (crease > 60)
-    for _ in range(2):
-        fix = fix | ((avg @ fix.astype(float) > 0) & box)
-    out = normals.copy()
-    for _ in range(iterations):
-        out[fix] = (avg @ out)[fix]
-        out[fix] /= np.linalg.norm(out[fix], axis=1, keepdims=True)
-    return out, fix
-
-
 def lip_line(verts, faces):
-    """Vertex path along the bottom of the lip fold, corner to corner."""
+    """Vertex path along the measured lip line, corner to corner."""
     graph, edges = edge_graph(verts, faces)
     x, y, z = verts.T
-    near = (z > MOUTH_Z - 0.9) & (z < MOUTH_Z + 0.9) & (np.abs(x) < 3.3) & (y > -2.6) & (y < 1.8)
-    # Deepest (largest y) point of the fold at each x, to steer the path.
-    xs = np.arange(-3.0, 3.01, 0.25)
-    deep = np.array([y[near & (np.abs(x - x0) < 0.3)].max() for x0 in xs])
+    m = B["mouth"]
+    near = (np.abs(z - lip_z(x)) < 0.6) & (np.abs(x) < m["half"] + 0.3) & (y < m["y"] + 2.0)
     a, b = edges.T
     keep = near[a] & near[b]
     mid = (verts[a] + verts[b]) / 2
-    shallow = np.maximum(0, np.interp(mid[:, 0], xs, deep) - mid[:, 1])
-    cost = np.linalg.norm(verts[a] - verts[b], axis=1) * (1 + 40 * shallow + 20 * np.abs(mid[:, 2] - MOUTH_Z))
+    off = np.abs(mid[:, 2] - lip_z(mid[:, 0]))
+    cost = np.linalg.norm(verts[a] - verts[b], axis=1) * (1 + 60 * off)
     n = len(verts)
     g = coo_matrix((cost[keep], (a[keep], b[keep])), shape=(n, n)).tocsr()
     g = g + g.T
     cand = np.flatnonzero(near)
-    start, end = (cand[np.linalg.norm(verts[cand] - c, axis=1).argmin()] for c in MOUTH_CORNERS)
+    start, end = (cand[np.linalg.norm(verts[cand] - c, axis=1).argmin()] for c in mouth_corners())
     _, pred = dijkstra(g, indices=start, return_predecessors=True)
     path = [end]
     while path[-1] != start:
@@ -198,10 +182,11 @@ def cut_mouth(verts, faces, attrs):
 def rotate_jaw(points, amount=1.0):
     """Points rotated about the jaw hinge (an X axis), by amount * JAW_ANGLE."""
     a = JAW_ANGLE * np.asarray(amount)
-    dy, dz = points[:, 1] - JAW_HINGE[0], points[:, 2] - JAW_HINGE[1]
+    hy, hz = B["jaw_hinge"]
+    dy, dz = points[:, 1] - hy, points[:, 2] - hz
     out = points.copy()
-    out[:, 1] = JAW_HINGE[0] + dy * np.cos(a) - dz * np.sin(a)
-    out[:, 2] = JAW_HINGE[1] + dy * np.sin(a) + dz * np.cos(a)
+    out[:, 1] = hy + dy * np.cos(a) - dz * np.sin(a)
+    out[:, 2] = hz + dy * np.sin(a) + dz * np.cos(a)
     return out
 
 
@@ -212,22 +197,27 @@ def mouth_morphs(verts, faces, upper, lower):
     d_low = dijkstra(graph, indices=lower[1:-1], min_only=True, limit=40)
     d_up, d_low = np.minimum(d_up, 99), np.minimum(d_low, 99)   # unreached -> far
     x, y, z = verts.T
+    m = B["mouth"]
+    chin = B["chin_z"]
     jaw_side = smoothstep(-1.5, 1.5, d_up - d_low)
     jaw_side[lower] = 1
     jaw_side[upper] = 0
     jaw_side[[upper[0], upper[-1]]] = 0.5
-    w_jaw = (jaw_side * smoothstep(134.0, 137.5, z) * smoothstep(9.0, 4.0, np.abs(x))
-             * smoothstep(10, 4, y) * smoothstep(MOUTH_Z + 3, MOUTH_Z + 1, z))
+    # The chin and lower lip follow the jaw; the neck below the chin does not.
+    w_jaw = (jaw_side * smoothstep(chin - 3.0, chin + 0.5, z) * smoothstep(m["half"] + 6, m["half"] + 1, np.abs(x))
+             * front_of(y, 6, 12) * smoothstep(m["z"] + 3, m["z"] + 1, z))
     jaw = rotate_jaw(verts) - verts
     jaw *= w_jaw[:, None]
-    lift = (1 - jaw_side) * np.exp(-(d_up ** 2) / (2 * 0.6 ** 2)) * smoothstep(3.6, 2.0, np.abs(x))
+    lift = (1 - jaw_side) * np.exp(-(d_up ** 2) / (2 * 0.6 ** 2)) * smoothstep(m["half"] + 0.6, m["half"] - 1.0, np.abs(x))
     jaw[:, 2] += 0.22 * lift
+    corners = mouth_corners()
+    face_front = front_of(y, 4, 8)
 
     def corner_field(radius):
         out = np.zeros(len(verts))
         sides = np.zeros(len(verts))
-        for s, c in zip((-1, 1), MOUTH_CORNERS):
-            g = np.exp(-np.sum((verts - c) ** 2, 1) / (2 * radius ** 2)) * smoothstep(5, 2, y)
+        for s, c in zip((-1, 1), corners):
+            g = np.exp(-np.sum((verts - c) ** 2, 1) / (2 * radius ** 2)) * face_front
             out += g
             sides += s * g
         return out, np.sign(sides)
@@ -235,42 +225,44 @@ def mouth_morphs(verts, faces, upper, lower):
     g, side = corner_field(1.1)
     smile = np.c_[0.5 * side * g, 0.4 * g, 0.8 * g]
     cheek = np.zeros(len(verts))
-    for c in MOUTH_CORNERS:
+    for c in corners:
         cc = c + [np.sign(c[0]) * 1.0, -1.0, 2.0]
         cheek += np.exp(-np.sum((verts - cc) ** 2, 1) / (2 * 1.8 ** 2))
-    smile[:, 2] += 0.3 * cheek * smoothstep(5, 1, y)
+    smile[:, 2] += 0.3 * cheek * face_front
     frown = np.c_[-0.1 * side * g, 0.1 * g, -0.55 * g]
 
-    lips = np.exp(-((z - MOUTH_Z) ** 2) / (2 * 1.1 ** 2)) * smoothstep(4.2, 2.0, np.abs(x)) * smoothstep(3, 0, y)
-    rnd = np.c_[-0.32 * x * lips, -0.45 * lips * (1 - (x / 3.2) ** 2).clip(0), np.zeros(len(verts))]
+    lips = (np.exp(-((z - lip_z(x)) ** 2) / (2 * 1.1 ** 2)) * smoothstep(m["half"] + 1.1, m["half"] - 1.0, np.abs(x))
+            * smoothstep(m["y"] + 3, m["y"], y))
+    rnd = np.c_[-0.32 * x * lips, -0.45 * lips * (1 - (x / (m["half"] + 0.3)) ** 2).clip(0), np.zeros(len(verts))]
     return {"jawOpen": jaw, "smile": smile, "frown": frown, "mouthRound": rnd}, w_jaw
 
 
 def lip_mask(verts):
     """0..1 per vertex: how much of the lip colour each vertex takes.
 
-    A soft lens shape around the lip line, measured on this face: the upper
-    lip reaches about 0.85 cm above the line and the lower lip about 1.7 cm
-    below it, both narrowing towards the corners. The inside of the lip fold
-    is included so the colour carries into the open mouth.
+    A soft lens shape around the lip line: the upper lip reaches `up` cm above
+    the line and the lower lip `down` cm below it, both narrowing towards the
+    corners. The inside of the lips is included so the colour carries into the
+    open mouth.
     """
     x, y, z = verts.T
-    up = z >= MOUTH_Z
-    half = np.where(up, 3.0, 2.9)                       # half width of each lip
+    m = B["mouth"]
+    line = lip_z(x)
+    up = z >= line
+    half = np.where(up, m["half"], m["half"] - 0.1)    # half width of each lip
     across = np.clip(1 - (x / half) ** 2, 0, 1)
-    reach = np.where(up, 0.85 * np.sqrt(across), 1.7 * across ** 0.7)
-    t = np.abs(z - MOUTH_Z) / np.maximum(reach, 1e-3)
+    reach = np.where(up, m["up"] * np.sqrt(across), m["down"] * across ** 0.7)
+    t = np.abs(z - line) / np.maximum(reach, 1e-3)
     mask = 1 - smoothstep(0.75, 1.15, t)
     mask *= smoothstep(half, half - 0.45, np.abs(x))    # soft corners
-    mask *= smoothstep(3.5, 2.5, y)                     # front of the face only
+    mask *= smoothstep(m["y"] + 3.2, m["y"] + 2.2, y)   # front of the face only
     return mask.astype(np.float32)
 
 
 # ---------------------------------------------------------------- face shape
 
 # Face shape keys: name -> menu label. Each is a smooth weighted push on the
-# face, built on the full-size head (process_character shrinks it with the
-# head). Landmarks measured on this head, in cm (x side, y back, z up).
+# face around the body's landmarks.
 FACE_SHAPES = {
     "noseWidth": "Nose width", "noseLength": "Nose length", "noseBridge": "Nose bridge",
     "lipsFull": "Lip fullness", "lipsWidth": "Lip width",
@@ -279,7 +271,6 @@ FACE_SHAPES = {
     "jawWidth": "Jaw width", "jawSquare": "Jaw angle",
     "eyeSize": "Eye size", "eyeSpacing": "Eye spacing", "eyeHeight": "Eye height", "eyeTilt": "Eye tilt",
 }
-EYE = np.array([6.35, 149.7])          # x, z of each eye recess centre
 
 
 def _blob(verts, centre, sigma):
@@ -291,17 +282,21 @@ def face_shapes(verts):
     """Position deltas (cm) for each of FACE_SHAPES at full strength (slider 1)."""
     x, y, z = verts.T
     n = len(verts)
-    front = smoothstep(12, 4, y)                 # the face, not the back of the head
-    neck_guard = smoothstep(132.5, 135, z)
+    ny, nz = B["nose_tip"]
+    m, chin_z, eye = B["mouth"], B["chin_z"], B["eye"]
+    front = front_of(y, 8, 16)                   # the face, not the back of the head
+    neck_guard = smoothstep(chin_z - 4.5, chin_z - 2.0, z)
     out = {}
 
     def delta(dx=0.0, dy=0.0, dz=0.0):
         return np.c_[np.broadcast_to(dx, n), np.broadcast_to(dy, n), np.broadcast_to(dz, n)].astype(float)
 
     # Nose: the whole nose, its tip, and the bridge between the eyes.
-    nose = _blob(verts, (0, -2.5, 145.0), (2.0, 3.0, 2.6)) * front
-    tip = _blob(verts, (0, -3.6, 145.6), (1.6, 2.0, 1.7)) * front
-    bridge = _blob(verts, (0, -1.4, 150.0), (1.3, 2.2, 2.4)) * front
+    nw = B["nose_width"]
+    nose = _blob(verts, (0, ny + 1.1, nz), (nw * 1.25, 3.0, 2.6)) * front
+    tip = _blob(verts, (0, ny, nz + 0.3), (nw, 2.0, 1.7)) * front
+    bridge_z = (nz + eye["z"]) / 2 + 0.5
+    bridge = _blob(verts, (0, ny + 2.4, bridge_z), (1.3, 2.2, 2.4)) * front
     out["noseWidth"] = delta(dx=0.4 * x * nose)
     out["noseLength"] = delta(dy=-0.5 * tip, dz=-1.1 * tip)
     out["noseBridge"] = delta(dy=-0.9 * bridge)
@@ -309,105 +304,50 @@ def face_shapes(verts):
     # Lips: the lip area, pushed out and apart (fuller) or stretched sideways.
     lips = lip_mask(verts).astype(float)
     # Spread away from the lip line smoothly (zero on the line, so the lips stay closed).
-    out["lipsFull"] = delta(dy=-0.5 * lips, dz=0.3 * np.clip((z - MOUTH_Z) / 1.2, -1, 1) * lips)
+    out["lipsFull"] = delta(dy=-0.5 * lips, dz=0.3 * np.clip((z - lip_z(x)) / 1.2, -1, 1) * lips)
     out["lipsWidth"] = delta(dx=0.16 * x * lips)
 
     # Forehead: between the brows and the top of the head, front only.
-    fore = smoothstep(151, 157.5, z) * smoothstep(168.5, 160, z) * smoothstep(10.5, 3, np.abs(x)) * front
+    brow, top = B["brow_z"], B["top_z"]
+    mid = (brow + top) / 2
+    fore = (smoothstep(brow, brow + 6, z) * smoothstep(top - 0.5, top - 8, z)
+            * smoothstep(9.5, 3, np.abs(x)) * front)
     out["foreheadFull"] = delta(dy=-0.9 * fore)
-    out["foreheadSlope"] = delta(dy=0.12 * (z - 154.5) * fore)
+    out["foreheadSlope"] = delta(dy=0.12 * (z - mid) * fore)
 
     # Chin and jaw.
-    chin = (smoothstep(140.5, 137.0, z) * smoothstep(5.0, 1.5, np.abs(x))
-            * smoothstep(10, 6, y) * neck_guard)
+    chin = (smoothstep(chin_z + 2.0, chin_z - 1.0, z) * smoothstep(5.0, 1.5, np.abs(x))
+            * front_of(y, 10, 14) * neck_guard)
     out["chinLength"] = delta(dz=-0.9 * chin)
     out["chinForward"] = delta(dy=-1.0 * chin)
     out["chinWidth"] = delta(dx=0.22 * x * chin)
-    jaw = (smoothstep(145, 141, z) * smoothstep(2.5, 5.0, np.abs(x)) * smoothstep(15, 11, y)
-           * neck_guard * smoothstep(-1, 2, y))
+    jx, jy, jz = B["jaw_corner"]
+    jaw = (smoothstep(m["z"] + 1, m["z"] - 3, z) * smoothstep(2.5, 5.0, np.abs(x))
+           * smoothstep(jy + 6, jy + 2, y) * neck_guard)
     out["jawWidth"] = delta(dx=0.16 * x * jaw)
-    corner = sum(_blob(verts, (s_ * 8.6, 8.5, 137.8), (2.0, 3.0, 2.0)) for s_ in (-1, 1)) * neck_guard
+    corner = sum(_blob(verts, (s_ * jx, jy, jz), (2.0, 3.0, 2.0)) for s_ in (-1, 1)) * neck_guard
     out["jawSquare"] = delta(dx=0.7 * np.sign(x) * corner, dz=-0.3 * corner)
 
-    # Eyes: the eye recesses only (the model has no eyeballs).
-    eye = sum(_blob(verts, (s_ * EYE[0], 0.0, EYE[1]), (2.7, 99, 2.4)) for s_ in (-1, 1)) * front
-    eye *= smoothstep(1.2, 2.2, np.abs(x))      # leave the bridge of the nose alone
-    cx = np.sign(x) * EYE[0]
-    out["eyeSize"] = delta(dx=0.18 * (x - cx) * eye, dy=0.35 * eye, dz=0.18 * (z - EYE[1]) * eye)
-    out["eyeSpacing"] = delta(dx=0.9 * np.sign(x) * eye)
-    out["eyeHeight"] = delta(dz=0.9 * eye)
-    out["eyeTilt"] = delta(dz=0.15 * (np.abs(x) - EYE[0]) * eye)
+    # Eyes: the eye sockets.
+    ex, ez = eye["x"], eye["z"]
+    sx, sz = eye["w"] * 0.55, eye["h"] * 0.6
+    socket = sum(_blob(verts, (s_ * ex, 0.0, ez), (sx, 99, sz)) for s_ in (-1, 1)) * front
+    socket *= smoothstep(1.2, 2.2, np.abs(x))   # leave the bridge of the nose alone
+    cx = np.sign(x) * ex
+    out["eyeSize"] = delta(dx=0.18 * (x - cx) * socket, dz=0.18 * (z - ez) * socket)
+    out["eyeSpacing"] = delta(dx=0.9 * np.sign(x) * socket)
+    out["eyeHeight"] = delta(dz=0.9 * socket)
+    out["eyeTilt"] = delta(dz=0.15 * (np.abs(x) - ex) * socket)
     return out
-
-
-# ---------------------------------------------------------------- eye patches
-
-# The eye images (models/eyes, 400 px squares) draw an eye about 290 px wide,
-# centred 47 px below the middle. A 7.6 cm square patch therefore gives a
-# 5.5 cm eye centred in the recess. Measured on the final (85%) head.
-EYE_PATCH = {"centre_x": 5.4, "eye_z": 147.6, "size": 7.6, "offset_px": 47, "grid": 28, "lift": 0.07}
-
-
-def eye_patches(verts, faces, morphs, names):
-    """One patch per eye that hugs the head surface in the eye recess.
-
-    Grid points are projected straight back onto the head; each takes the
-    head's shape-key movement at that spot, so the eyes follow the face
-    sliders. Returns (positions, faces, uvs, normals, {morph: deltas}).
-    """
-    head_faces = faces[(verts[faces][:, :, 2] > 133).all(1)]
-    mesh = trimesh.Trimesh(verts, head_faces, process=False)
-    p = EYE_PATCH
-    n = p["grid"]
-    centre_z = p["eye_z"] + p["offset_px"] / 400 * p["size"]
-    all_v, all_f, all_uv, all_n = [], [], [], []
-    all_d = {k: [] for k in names}
-    t = np.linspace(0, 1, n + 1)
-    uu, vv = np.meshgrid(t, t, indexing="ij")
-    uu, vv = uu.ravel(), vv.ravel()
-    for side in (1, -1):
-        # Image right is the outer corner: +x for the left eye, mirrored for the right.
-        x = side * (p["centre_x"] + (uu - 0.5) * p["size"])
-        z = centre_z + (vv - 0.5) * p["size"]
-        origins = np.c_[x, np.full_like(x, -40.0), z]
-        dirs = np.tile([0.0, 1.0, 0.0], (len(x), 1))
-        locs, ray, tri = mesh.ray.intersects_location(origins, dirs, multiple_hits=False)
-        hit = np.full((len(x), 3), np.nan)
-        tri_of = np.full(len(x), -1)
-        hit[ray], tri_of[ray] = locs, tri
-        ok = tri_of >= 0
-        hit[~ok] = origins[~ok] + [0, 40, 0]          # off the head: never seen (transparent)
-        fn = mesh.face_normals[np.maximum(tri_of, 0)]
-        fn[~ok] = [0, -1, 0]
-        pos = hit + fn * p["lift"]                    # just off the skin
-        # Barycentric weights of each hit in its triangle, to carry the shape keys.
-        tris = head_faces[np.maximum(tri_of, 0)]
-        bary = trimesh.triangles.points_to_barycentric(verts[tris], hit)
-        bary[~ok] = 0
-        for k in names:
-            all_d[k].append(np.einsum("ij,ijk->ik", bary, morphs[k][tris]))
-        quads = []
-        for i in range(n):
-            for j in range(n):
-                a_, b_ = i * (n + 1) + j, (i + 1) * (n + 1) + j
-                quad = [a_, b_, b_ + 1, a_ + 1]
-                if ok[quad].all():
-                    quads += [(a_, b_, b_ + 1), (a_, b_ + 1, a_ + 1)] if side > 0 else [(a_, b_ + 1, b_), (a_, a_ + 1, b_ + 1)]
-        base = sum(len(v_) for v_ in all_v)
-        all_v.append(pos)
-        all_f.append(np.array(quads) + base)
-        all_uv.append(np.c_[uu, 1 - vv])              # glTF UVs: v runs down the image
-        all_n.append(fn)
-    return (np.vstack(all_v), np.vstack(all_f), np.vstack(all_uv), np.vstack(all_n),
-            {k: np.vstack(d) for k, d in all_d.items()})
 
 
 # ---------------------------------------------------------------- teeth and tongue
 
 def _arch(z0, z1, inset, n=24):
     """A curved band of teeth following the lip line, set `inset` cm behind it."""
-    xs = np.linspace(-2.25, 2.25, n)
-    ys = -0.25 + 0.16 * xs ** 2 + inset
+    h = B["mouth"]["half"] * 0.65
+    xs = np.linspace(-h, h, n)
+    ys = lip_y(xs) + inset
     front = np.c_[xs, ys]
     back = np.c_[xs * 0.92, ys + 0.3]
     verts, faces = [], []
@@ -435,7 +375,9 @@ def _arch(z0, z1, inset, n=24):
 def _tongue(n=16):
     u, v = np.meshgrid(np.linspace(0, np.pi, n), np.linspace(0, 2 * np.pi, n, endpoint=False), indexing="ij")
     pts = np.c_[np.sin(u).ravel() * np.cos(v).ravel(), np.sin(u).ravel() * np.sin(v).ravel(), np.cos(u).ravel()]
-    pts = pts * [1.7, 1.8, 0.45] + [0, 2.4, 140.55]
+    m = B["mouth"]
+    k = m["half"] / 2.85
+    pts = pts * [1.4 * k, 1.4 * k, 0.35] + [0, m["y"] + 3.0, m["z"] - 0.8]
     faces = []
     for i in range(n - 1):
         for j in range(n):
@@ -447,8 +389,9 @@ def _tongue(n=16):
 
 def mouth_parts():
     """(name, verts, faces, jaw_weight) for the upper teeth, lower teeth and tongue."""
-    upper_v, upper_f = _arch(MOUTH_Z + 0.05, MOUTH_Z + 0.6, 0.45)
-    lower_v, lower_f = _arch(MOUTH_Z - 0.6, MOUTH_Z - 0.1, 0.55)
+    z = B["mouth"]["z"]
+    upper_v, upper_f = _arch(z + 0.05, z + 0.6, 1.0)
+    lower_v, lower_f = _arch(z - 0.6, z - 0.1, 1.1)
     tongue_v, tongue_f = _tongue()
     return [("UpperTeeth", upper_v, upper_f, 0.0),
             ("LowerTeeth", lower_v, lower_f, 1.0),

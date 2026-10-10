@@ -1,15 +1,16 @@
-"""Add finger bones to the retargeted character and fix its hip weights.
+"""Build the menu's character models from the base bodies.
 
-The source (`models/source/retargeted_animations.glb`, a three.js export in
-centimetres, Z up, front = -Y) has a Mixamo-style skeleton with one bone per
-hand, so the hands cannot close. Its buttocks are weighted almost entirely to
-the thigh bones, so they fold into spikes whenever a leg lifts.
+Each source (`models/source/f_base.glb`, `models/source/m_base.glb`; three.js
+exports in centimetres, Z up, front = -Y) has a Mixamo-style skeleton with one
+bone per hand, so the hands cannot close, and the buttocks are weighted almost
+entirely to the thigh bones, so they fold into spikes whenever a leg lifts.
+Every body-specific position comes from tools/bodies.py.
 
-This script:
+For each body this script:
 
 * welds the triangle soup into an indexed mesh,
-* flattens the raised seams a removed tank top and bikini left on the body
-  (neckline, armholes, bikini line); the rest of the shape is unchanged,
+* flattens raised clothing seams on the torso (neckline, armholes); the rest
+  of the shape is unchanged,
 * adds 15 finger bones per hand (Thumb, Index, Middle, Ring, Pinky, 3 each),
   placed on the measured finger centrelines, and splits each hand's weight
   between the palm and those bones by distance to each bone,
@@ -17,19 +18,17 @@ This script:
   fold, then smooths the weights around the pelvis,
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
-* adds face shape keys (nose, lips, forehead, chin, jaw, eye recesses),
-* adds eye patches on the recesses for the menu's drawn eyes,
+* adds face shape keys (nose, lips, forehead, chin, jaw, eye sockets),
 * stores a lip mask (_LIPMASK) for lip colour in the menu,
-* smooths the eye area (see face.py), cuts the lips apart and adds mouth
-  shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
-* makes the head 15% smaller (HEAD_SCALE), blending through the upper neck,
+* refines the mouth (see face.py), cuts the lips apart and adds mouth shape
+  keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
+* stores the body's landmarks the menu needs in the scene's extras,
 * scales the scene to metres and drops the "_RT" suffix from clip names.
 
 Finger bones point along the finger (+Y) and curl towards the palm when
 rotated about their local +X axis, which is what the menu's fist control does.
 
-    python3 tools/process_character.py [--in models/source/retargeted_animations.glb]
-                                       [--out models/character.glb]
+    python3 tools/process_character.py [female|male ...]     (default: every body)
 """
 import argparse
 from pathlib import Path
@@ -38,17 +37,15 @@ import numpy as np
 from scipy.sparse import coo_matrix, diags
 
 import face
+from bodies import BODIES
 from glb import GlbWriter, read_accessor, read_glb
 
 ROOT = Path(__file__).resolve().parent.parent
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
-# Lateral (Y) centre of each finger, measured from the mesh's fingertip outline.
-FINGER_Y = {"Index": 18.4, "Middle": 20.1, "Ring": 21.7, "Pinky": 23.2}
-# The head is made 15% smaller around the top of the neck, blending to full
-# size over the upper neck so there is no step.
-HEAD_SCALE = 0.85
-HEAD_PIVOT = np.array([0.0, 16.4, 135.5])
-HEAD_BLEND = (131.5, 135.5)                       # z range of the neck blend (cm)
+# The old character's head (as the hairstyles and the menu's buzz-cut hairline
+# were fitted to it), in its mesh centimetres: the top, the half width and the
+# front and back 6 cm below the top, and the bottom of the chin.
+REF_HEAD = {"top": 164.63, "half": 10.31, "front": 2.6, "back": 26.75, "chin": 136.33}
 PALM_NORMAL = np.array([0.0, 0.0, -1.0])          # palms face down in the T-pose
 # Thumb curl direction per bone, found by searching for the axes and angles that
 # put the thumb tip on the curled index and middle fingers without bending the
@@ -61,10 +58,18 @@ def smoothstep(a, b, x):
     return t * t * (3 - 2 * t)
 
 
-def head_scale(points):
-    """Per-point scale factor and the points shrunk towards HEAD_PIVOT."""
-    factor = 1 - (1 - HEAD_SCALE) * smoothstep(*HEAD_BLEND, points[:, 2])
-    return factor, HEAD_PIVOT + (points - HEAD_PIVOT) * factor[:, None]
+def head_map(verts, body):
+    """Per-axis scale and offset taking the old head onto this one:
+    new = scale * old + offset (mesh cm). Hairstyles and the hairline use it."""
+    top = verts[:, 2].max()
+    level = verts[np.abs(verts[:, 2] - (top - 6)) < 0.3]
+    half = np.abs(level[:, 0]).max()
+    front, back = level[:, 1].min(), level[:, 1].max()
+    r = REF_HEAD
+    scale = np.array([half / r["half"], (back - front) / (r["back"] - r["front"]),
+                      (top - body["chin_z"]) / (r["top"] - r["chin"])])
+    offset = np.array([0.0, front - scale[1] * r["front"], top - scale[2] * r["top"]])
+    return {"scale": [round(float(v), 4) for v in scale], "offset": [round(float(v), 3) for v in offset]}
 
 
 def matrix(acc_rows):
@@ -93,29 +98,30 @@ def slice_centre(verts, x, y=None, half=0.7, lateral=0.6, mask=None):
     return verts[sel].mean(0)
 
 
-def hand_landmarks(verts, side):
+def hand_landmarks(verts, side, body):
     """Joint chains in mesh space for one hand. side=+1 left, -1 right."""
     h = verts * [side, 1, 1]
-    hand = h[:, 0] > 50
+    hand = h[:, 0] > body["hand_x"]
     chains = {}
-    for name, yc in FINGER_Y.items():
-        band = hand & (np.abs(h[:, 1] - yc) < 0.5)
+    for name, yc in body["finger_y"].items():
+        band = hand & (np.abs(h[:, 1] - yc) < 0.6)
         tip_x = h[band, 0].max()
-        knuckle_x = 63.5 if name != "Pinky" else 63.0
+        knuckle_x = body["knuckle_x"][name]
         length = tip_x - knuckle_x
         xs = [knuckle_x, knuckle_x + 0.46 * length, knuckle_x + 0.75 * length]
-        pts = [slice_centre(h, x, yc, mask=hand) for x in xs]
+        pts = [slice_centre(h, x, yc, half=0.8, lateral=0.9, mask=hand) for x in xs]
         for p, x in zip(pts, xs):
             p[0], p[1] = x, yc
         tip = np.array([tip_x - 0.4, yc, pts[-1][2]])
         chains[name] = pts + [tip]
-    thumb = hand & (h[:, 1] < 17.4) & (h[:, 0] > 57)
+    thumb = hand & (h[:, 1] < body["thumb_max_y"]) & (h[:, 0] > body["thumb_xy"][0][0])
     tip = h[thumb][h[thumb, 0].argmax()].copy()
     tip[0] -= 0.4
-    mcp = slice_centre(h, 59.5, mask=thumb)
-    ip = slice_centre(h, 63.8, mask=thumb)
-    cmc = np.array([54.5, 18.8, 118.6])
-    chains["Thumb"] = [cmc, mcp, ip, tip]
+    joints = []
+    for x, y in body["thumb_xy"]:
+        near = hand & (np.hypot(h[:, 0] - x, h[:, 1] - y) < 1.2)
+        joints.append(np.array([x, y, h[near, 2].mean()]))
+    chains["Thumb"] = joints + [tip]
     for name in chains:
         chains[name] = [p * [side, 1, 1] for p in chains[name]]
     return chains
@@ -150,17 +156,17 @@ def crease_angles(verts, faces):
     return score
 
 
-def smooth_seams(verts, faces, avg):
+def smooth_seams(verts, faces, avg, body):
     """Flatten the ridges left by a removed tank top and bikini.
 
-    The source mesh has raised edge loops around the neckline, the armholes
-    and the bikini line. They show as hard lines that get worse in motion.
+    The sources have raised edge loops around the neckline and the armholes. They show as hard lines that get worse in motion.
     Only vertices on those ridges (and three rings around them) move; Taubin
     smoothing keeps the surrounding volume. Below the waist the midline is left alone so
     the buttock crease and the crotch keep their shape.
     """
-    torso = (verts[:, 2] > 60) & (verts[:, 2] < 135) & (np.abs(verts[:, 0]) < 30)
-    torso &= (np.abs(verts[:, 0]) > 1.2) | (verts[:, 2] > 95)   # keep the crease and crotch
+    z0, z1 = body["torso_z"]
+    torso = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 30)
+    torso &= (np.abs(verts[:, 0]) > 1.2) | (verts[:, 2] > body["crotch_z"])   # keep the crease and crotch
     seam = (crease_angles(verts, faces) > 22) & torso
     grow = seam.astype(float)
     for _ in range(3):
@@ -196,11 +202,15 @@ def smooth_rows(weights, avg, mask, iterations, alpha=0.5):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="src", default=ROOT / "models/source/retargeted_animations.glb")
-    ap.add_argument("--out", default=ROOT / "models/character.glb")
-    args = ap.parse_args()
+    ap.add_argument("bodies", nargs="*", help=f"any of {', '.join(BODIES)} (default: all)")
+    for key in ap.parse_args().bodies or BODIES:
+        print(f"== {key}")
+        build(BODIES[key])
 
-    gltf, binary = read_glb(args.src)
+
+def build(body):
+    face.configure(body)
+    gltf, binary = read_glb(ROOT / body["src"])
     prim = gltf["meshes"][0]["primitives"][0]
     attr = prim["attributes"]
     skin = gltf["skins"][0]
@@ -220,16 +230,14 @@ def main():
     np.add.at(source_weights, (np.repeat(np.arange(len(verts)), 4), jnt[first].ravel()), wgt[first].ravel())
     print(f"source: {len(pos)} corners -> {len(verts)} vertices, {len(faces)} triangles")
 
-    # ---- face: refine and relax the eye area, then cut the lips apart
+    # ---- face: refine the mouth, then cut the lips apart
     before = len(verts)
-    verts, faces, (normals, source_weights) = face.refine_long_edges(verts, faces, [normals, source_weights])
-    verts, eye_moved = face.smooth_eye_area(verts, faces, adjacency(len(verts), faces))
-    print(f"eye area: {len(verts) - before} vertices added, {eye_moved.sum()} relaxed")
+    verts, faces, (normals, source_weights) = face.refine_mouth(verts, faces, [normals, source_weights])
+    print(f"mouth area: {len(verts) - before} vertices added")
     verts, faces, (normals, source_weights), upper_lip, lower_lip = face.cut_mouth(
         verts, faces, [normals, source_weights])
     print(f"mouth: lip line of {len(upper_lip)} vertices cut")
     n = len(verts)
-    eye_moved = np.r_[eye_moved, np.zeros(n - len(eye_moved), bool)]
     lips = face.lip_mask(verts)
 
     # ---- finger bones
@@ -237,8 +245,8 @@ def main():
     hand_bones = {}  # side -> list of (joint index, segment start, segment end)
     for side, prefix in ((1, "Left"), (-1, "Right")):
         hand = bone[f"{prefix}Hand"]
-        chains = hand_landmarks(verts, side)
-        knuckles = np.mean([chains[f][0] for f in FINGER_Y], axis=0)
+        chains = hand_landmarks(verts, side, body)
+        knuckles = np.mean([chains[f][0] for f in body["finger_y"]], axis=0)
         segments = [(hand, np.linalg.inv(ibm[hand])[:3, 3], knuckles)]
         for finger in FINGERS:
             pts = chains[finger]
@@ -256,7 +264,7 @@ def main():
                 names.append(node["name"])
                 segments.append((len(names) - 1, pts[k], pts[k + 1]))
                 parent, parent_ibm = idx, np.linalg.inv(f)
-        hand_bones[side] = (hand, bone[f"{prefix}Hand_end"], segments)
+        hand_bones[side] = (hand, bone.get(f"{prefix}Hand_end"), segments)
 
     dense = np.zeros((n, len(names)))
     dense[:, :source_weights.shape[1]] = source_weights
@@ -264,18 +272,19 @@ def main():
 
     # Split each hand's weight between the palm and the finger bones.
     for side, (hand, hand_end, segments) in hand_bones.items():
-        share = dense[:, hand] + dense[:, hand_end]
+        share = dense[:, hand] + (dense[:, hand_end] if hand_end is not None else 0)
         idx = np.flatnonzero(share > 0)
         p = verts[idx]
         score = np.stack([1 / (segment_distance(p, a, b) + 0.4) ** 5 for _, a, b in segments], 1)
         score /= score.sum(1, keepdims=True)
         dense[idx, hand] = 0
-        dense[idx, hand_end] = 0
+        if hand_end is not None:
+            dense[idx, hand_end] = 0
         for col, (j, _, _) in enumerate(segments):
             dense[idx, j] += share[idx] * score[:, col]
         mask = np.zeros(n, bool)
         mask[idx] = True
-        mask &= (verts[:, 0] * side) > 54          # leave the wrist blend as authored
+        mask &= (verts[:, 0] * side) > body["wrist_x"]   # leave the wrist blend as authored
         dense = smooth_rows(dense, avg, mask, iterations=6)
 
     # ---- buttocks: follow Hips down to the gluteal fold
@@ -286,28 +295,27 @@ def main():
         b = np.linalg.inv(ibm[knee])[:3, 3]
         down = (b - a) / np.linalg.norm(b - a)
         t = (verts - a) @ down                       # cm down the thigh
-        back = smoothstep(9, 15, verts[:, 1])        # 0 at the front, 1 behind the hip joint
+        back = smoothstep(*body["hip_back_y"], verts[:, 1])   # 0 at the front, 1 behind the hip joint
         h = back * (1 - smoothstep(6, 18, t))
         moved = dense[:, up] * h
         dense[:, up] -= moved
         dense[:, hips] += moved
-    pelvis = (verts[:, 2] > 70) & (verts[:, 2] < 106) & (np.abs(verts[:, 0]) < 26)
+    z0, z1 = body["pelvis_z"]
+    pelvis = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 26)
     dense = smooth_rows(dense, avg, pelvis, iterations=12)
 
     # ---- shoulders, upper back and neck: the source hands off between Spine2,
     # the shoulders, the upper arms and the neck along hard lines, which crease
     # and wrinkle when the arms go up. Stop below the jaw and above the elbows.
-    shoulders = (verts[:, 2] > 104) & (verts[:, 2] < 136) & (np.abs(verts[:, 0]) < 30)
+    z0, z1 = body["shoulders_z"]
+    shoulders = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 30)
     dense = smooth_rows(dense, avg, shoulders, iterations=25)
 
     # ---- flatten the leftover clothing seams; recompute normals around them
-    verts, moved = smooth_seams(verts, faces, avg)
+    verts, moved = smooth_seams(verts, faces, avg, body)
     print(f"seams: smoothed {moved.sum()} vertices")
-    moved |= eye_moved
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
-    normals, corners = face.mouth_corner_normals(verts, normals, avg, crease_angles(verts, faces))
-    print(f"mouth corners: shading evened out on {corners.sum()} vertices")
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
@@ -315,11 +323,6 @@ def main():
     MORPH_NAMES = face.MORPHS + list(face.FACE_SHAPES)
     base_n = vertex_normals(verts, faces)
     morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
-
-    # ---- smaller head: shrink the head (and its shape keys) towards the neck
-    factor, verts = head_scale(verts)
-    morphs = {k: d * factor[:, None] for k, d in morphs.items()}
-    print(f"head: scaled to {HEAD_SCALE:.0%}")
 
     # ---- keep the 4 strongest influences
     order = np.argsort(-dense, axis=1)[:, :4]
@@ -335,11 +338,11 @@ def main():
     out.replace(attr["WEIGHTS_0"], top.astype(np.float32), 34962)
     out.replace(skin["inverseBindMatrices"],
                 np.array([m.T.ravel() for m in new_ibm], np.float32))
-    body = g["meshes"][0]["primitives"][0]
-    body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
-    body["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
-    body["targets"] = [{"POSITION": out.append_sparse(morphs[k]),
-                        "NORMAL": out.append_sparse(morph_normals[k])} for k in MORPH_NAMES]
+    skinned = g["meshes"][0]["primitives"][0]
+    skinned["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
+    skinned["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
+    skinned["targets"] = [{"POSITION": out.append_sparse(morphs[k]),
+                         "NORMAL": out.append_sparse(morph_normals[k])} for k in MORPH_NAMES]
 
     # ---- teeth and tongue: extra primitives on the same mesh, bound to Head
     head = bone["Head"]
@@ -355,8 +358,6 @@ def main():
         pn = vertex_normals(pv, pf)
         jaw = (face.rotate_jaw(pv) - pv) * jw[:, None]
         jaw_n = vertex_normals(pv + jaw, pf) - pn
-        factor, pv = head_scale(pv)
-        jaw = jaw * factor[:, None]
         zero = np.zeros_like(pv, dtype=np.float32)
         joints = np.zeros((len(pv), 4), np.uint16)
         joints[:, 0] = head
@@ -378,37 +379,22 @@ def main():
             "material": len(g["materials"]) - 1,
             "targets": targets,
         })
-    # ---- eye patches: drawn eyes on the recesses, textured by the menu
-    ev, ef, euv, en, ed = face.eye_patches(verts, faces, morphs, MORPH_NAMES)
-    joints = np.zeros((len(ev), 4), np.uint16)
-    joints[:, 0] = head
-    weights = np.zeros((len(ev), 4), np.float32)
-    weights[:, 0] = 1
-    g["materials"].append({"name": "Eyes", "alphaMode": "BLEND", "pbrMetallicRoughness": {
-        "baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0, "roughnessFactor": 0.45}})
-    g["meshes"][0]["primitives"].append({
-        "attributes": {"POSITION": out.append(ev.astype(np.float32), 34962),
-                       "NORMAL": out.append(en.astype(np.float32), 34962),
-                       "TEXCOORD_0": out.append(euv.astype(np.float32), 34962),
-                       "JOINTS_0": out.append(joints, 34962),
-                       "WEIGHTS_0": out.append(weights, 34962)},
-        "indices": out.append(ef.astype(np.uint32).reshape(-1, 1), 34963),
-        "material": len(g["materials"]) - 1,
-        "targets": [{"POSITION": out.append_sparse(ed[k]),
-                     "NORMAL": out.append_sparse(np.zeros_like(ed[k]))} for k in MORPH_NAMES],
-    })
-    print(f"eyes: {len(ev)} patch vertices")
     g["meshes"][0]["weights"] = [0] * len(MORPH_NAMES)
     g["meshes"][0]["extras"] = {"targetNames": MORPH_NAMES}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"
     g["materials"][0]["name"] = "Skin"
     g["nodes"][0]["scale"] = [0.01, 0.01, 0.01]  # centimetres -> metres
+    # Landmarks the menu reads (gltf.scene.userData.body), in mesh centimetres.
+    extras = {k: body[k] for k in ("label", "ear", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
+    extras["head_map"] = head_map(verts, body)
+    g["scenes"][0].setdefault("extras", {})["body"] = extras
+    print(f"head map: {extras['head_map']}")
     for anim in g["animations"]:
         anim["name"] = anim["name"].removesuffix("_RT")
     g["asset"]["generator"] = "Character-creation tools/process_character.py"
-    out.write(args.out)
+    out.write(ROOT / body["out"])
     print(f"bones: {len(names)} ({len(names) - len(ibm)} finger bones added)")
-    print(f"wrote {args.out} ({Path(args.out).stat().st_size / 1e6:.1f} MB)")
+    print(f"wrote {body['out']} ({(ROOT / body['out']).stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

@@ -23,15 +23,18 @@ export const HAIR_DEFAULTS = {
   weight: 1, stiffness: 0.5, bounce: 0.5,             // physics of the swinging parts
 };
 
-// Spheres the ponytail cannot pass through, in the body's mesh space (cm),
-// each carried by a bone.
+// Spheres the ponytail cannot pass through, each carried by a bone. The head's
+// is given on the reference head (mesh cm) and moved with the body's head map;
+// the others sit at an offset (mesh cm: x side, y back, z up) from their bone.
+const HEAD_COLLIDER = { bone: 'Head', centre: [0, 14.4, 149.6], radius: 14 };
 const COLLIDERS = [
-  { bone: 'Head', centre: [0, 14.4, 149.6], radius: 14 },
-  { bone: 'Neck', centre: [0, 16, 132], radius: 4.5 },
-  { bone: 'Spine2', centre: [0, 12.5, 120], radius: 10 },
-  { bone: 'Spine1', centre: [0, 10, 108], radius: 6.5 },
-  { bone: 'Hips', centre: [0, 13, 90], radius: 11 },
+  { bone: 'Neck', offset: [0, -1.8, 1.7], radius: 4.5 },
+  { bone: 'Spine2', offset: [0, -3, -0.7], radius: 10 },
+  { bone: 'Spine1', offset: [0, -3.2, -4.6], radius: 6.5 },
+  { bone: 'Hips', offset: [0, 3, -9], radius: 11 },
 ];
+// Mesh centimetres (Z up, front -Y) -> world metres (Y up, front +Z).
+const meshToWorld = (v) => new THREE.Vector3(v[0], v[2], -v[1]).multiplyScalar(0.01);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const STEP = 1 / 60;
 const MAX_BEND = THREE.MathUtils.degToRad(60); // per bone, away from its rest direction
@@ -63,8 +66,11 @@ export class HairRig {
    * @param bodyMesh      the character's body (for colliders)
    * @param headBone      the character's Head bone
    * @param headBindWorld the Head bone's world matrix in the bind pose
+   * @param headMap       world matrix taking the reference head (the one the
+   *                      hairstyles were built on) onto this body's head
+   * @param headMapCm     the same map in mesh cm: { scale, offset }
    */
-  constructor(gltfScene, bodyMesh, headBone, headBindWorld) {
+  constructor(gltfScene, bodyMesh, headBone, headBindWorld, headMap, headMapCm) {
     gltfScene.updateMatrixWorld(true);
     let mesh = null;
     gltfScene.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
@@ -74,8 +80,8 @@ export class HairRig {
     const bones = mesh.skeleton.bones;
     const byName = (n) => bones.find((b) => b.name === n);
     this.root = byName('HairRoot');
-    // Same place in the world, now as a child of the head.
-    const local = headBindWorld.clone().invert().multiply(this.root.matrixWorld);
+    // Moved onto this body's head, then held as a child of the head.
+    const local = headBindWorld.clone().invert().multiply(headMap).multiply(this.root.matrixWorld);
     this.head = headBone;
     headBone.add(this.root);
     local.decompose(this.root.position, this.root.quaternion, this.root.scale);
@@ -98,9 +104,18 @@ export class HairRig {
     // Colliders: mesh space -> each bone's local space through its inverse
     // bind matrix, so they follow the bone in any pose.
     const skeleton = bodyMesh.skeleton;
-    this.colliders = COLLIDERS.map((c) => {
+    const head = HEAD_COLLIDER.centre.map((v, k) => headMapCm.scale[k] * v + headMapCm.offset[k]);
+    const specs = [
+      { bone: HEAD_COLLIDER.bone, world: meshToWorld(head), radius: HEAD_COLLIDER.radius * headMapCm.scale[0] },
+      ...COLLIDERS.map((c) => {
+        const i = skeleton.bones.findIndex((b) => b.name === c.bone);
+        const bind = new THREE.Vector3().setFromMatrixPosition(skeleton.boneInverses[i].clone().invert());
+        return { bone: c.bone, world: bind.add(meshToWorld(c.offset)), radius: c.radius };
+      }),
+    ];
+    this.colliders = specs.map((c) => {
       const i = skeleton.bones.findIndex((b) => b.name === c.bone);
-      const offset = new THREE.Vector3(...c.centre).applyMatrix4(skeleton.boneInverses[i]);
+      const offset = c.world.clone().applyMatrix4(skeleton.boneInverses[i]);
       return { bone: skeleton.bones[i], offset, radius: c.radius, world: new THREE.Vector3(), worldRadius: 0 };
     });
     this.time = 0;

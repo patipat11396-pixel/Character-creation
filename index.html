@@ -35,6 +35,14 @@
     </label>
 
     <div class="field">
+      <span class="label">Body</span>
+      <div class="segmented" role="radiogroup" aria-label="Body">
+        <button type="button" role="radio" data-body="female" aria-checked="true" class="on">Female</button>
+        <button type="button" role="radio" data-body="male" aria-checked="false">Male</button>
+      </div>
+    </div>
+
+    <div class="field">
       <div class="label-row">
         <span class="label">Skin tone</span>
         <span class="value" id="tone-value"></span>
@@ -61,22 +69,6 @@
       <label class="slider"><span>Mouth open</span><input id="mouth-open" type="range" min="0" max="1" step="0.01" value="0"></label>
       <label class="slider"><span>Frown / smile</span><input id="mouth-smile" type="range" min="-1" max="1" step="0.01" value="0"></label>
       <label class="slider"><span>Round lips</span><input id="mouth-round" type="range" min="0" max="1" step="0.01" value="0"></label>
-    </div>
-
-    <div class="field">
-      <span class="label">Eyes</span>
-      <label class="slider"><span>Style</span><select id="eye-style" aria-label="Eye style"><option value="">Mixed</option></select></label>
-      <div class="eye-parts">
-        <label>Shape <select id="eye-white"></select></label>
-        <label>Iris <select id="eye-iris"></select></label>
-        <label>Pupil <select id="eye-pupil"></select></label>
-        <label>Lashes <select id="eye-lash"></select></label>
-      </div>
-      <div class="hair-colors">
-        <div class="swatches eyes" id="eye-colors" role="radiogroup" aria-label="Eye colour"></div>
-        <label class="custom-color" title="Custom colour"><input id="eye-custom" type="color" value="#7a4a26"><span>Custom</span></label>
-      </div>
-      <label class="check"><input type="checkbox" id="eye-blink" checked> Blink</label>
     </div>
 
     <div class="field" id="face-shape-box">
