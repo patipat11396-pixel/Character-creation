@@ -52,6 +52,16 @@ class GlbWriter:
         self.replace(index, arr, target)
         return index
 
+    def append_sparse(self, arr, eps=1e-6):
+        """A float accessor stored as only its non-zero rows (glTF sparse)."""
+        arr = np.ascontiguousarray(arr, np.float32)
+        rows = np.flatnonzero(np.abs(arr).max(1) > eps).astype(np.uint32)
+        self.gltf["accessors"].append({})
+        index = len(self.gltf["accessors"]) - 1
+        self.sparse = getattr(self, "sparse", {})
+        self.sparse[index] = (len(arr), arr.shape[1], rows, arr[rows])
+        return index
+
     def write(self, path):
         gltf, old_views = self.gltf, self.gltf["bufferViews"]
         blob = bytearray()
@@ -66,8 +76,23 @@ class GlbWriter:
             views.append(view)
             return len(views) - 1
 
+        sparse = getattr(self, "sparse", {})
         for i, acc in enumerate(gltf["accessors"]):
-            if i in self.replaced:
+            if i in sparse:
+                count, width, rows, values = sparse[i]
+                new = {"componentType": 5126, "count": count, "type": TYPE[width]}
+                if len(rows):
+                    new["sparse"] = {"count": len(rows),
+                                     "indices": {"bufferView": add_view(rows.tobytes()), "componentType": 5125},
+                                     "values": {"bufferView": add_view(values.tobytes())}}
+                else:
+                    new["bufferView"] = add_view(np.zeros((count, width), np.float32).tobytes())
+                if width == 3:
+                    full = values if len(rows) else np.zeros((1, 3), np.float32)
+                    new["min"] = np.minimum(full.min(0), 0).tolist()
+                    new["max"] = np.maximum(full.max(0), 0).tolist()
+                gltf["accessors"][i] = new
+            elif i in self.replaced:
                 arr, target = self.replaced[i]
                 arr = arr.reshape(len(arr), -1)
                 new = {"bufferView": add_view(arr.tobytes(), target),

@@ -17,6 +17,7 @@ This script:
   fold, then smooths the weights around the pelvis,
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
+* adds face shape keys (nose, lips, forehead, chin, jaw, eye recesses),
 * stores a lip mask (_LIPMASK) for lip colour in the menu,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
@@ -309,6 +310,8 @@ def main():
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
+    morphs.update(face.face_shapes(verts))
+    MORPH_NAMES = face.MORPHS + list(face.FACE_SHAPES)
     base_n = vertex_normals(verts, faces)
     morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
 
@@ -334,8 +337,8 @@ def main():
     body = g["meshes"][0]["primitives"][0]
     body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
     body["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
-    body["targets"] = [{"POSITION": out.append(morphs[k].astype(np.float32)),
-                        "NORMAL": out.append(morph_normals[k].astype(np.float32))} for k in face.MORPHS]
+    body["targets"] = [{"POSITION": out.append_sparse(morphs[k]),
+                        "NORMAL": out.append_sparse(morph_normals[k])} for k in MORPH_NAMES]
 
     # ---- teeth and tongue: extra primitives on the same mesh, bound to Head
     head = bone["Head"]
@@ -361,7 +364,7 @@ def main():
         g["materials"].append({"name": name, "pbrMetallicRoughness": {
             "baseColorFactor": color, "metallicFactor": 0, "roughnessFactor": roughness}})
         targets = []
-        for k in face.MORPHS:
+        for k in MORPH_NAMES:
             d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
             targets.append({"POSITION": out.append(np.asarray(d, np.float32)),
                             "NORMAL": out.append(np.asarray(dn, np.float32))})
@@ -374,8 +377,8 @@ def main():
             "material": len(g["materials"]) - 1,
             "targets": targets,
         })
-    g["meshes"][0]["weights"] = [0] * len(face.MORPHS)
-    g["meshes"][0]["extras"] = {"targetNames": face.MORPHS}
+    g["meshes"][0]["weights"] = [0] * len(MORPH_NAMES)
+    g["meshes"][0]["extras"] = {"targetNames": MORPH_NAMES}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"
     g["materials"][0]["name"] = "Skin"
     g["nodes"][0]["scale"] = [0.01, 0.01, 0.01]  # centimetres -> metres

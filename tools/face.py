@@ -265,6 +265,80 @@ def lip_mask(verts):
     return mask.astype(np.float32)
 
 
+# ---------------------------------------------------------------- face shape
+
+# Face shape keys: name -> menu label. Each is a smooth weighted push on the
+# face, built on the full-size head (process_character shrinks it with the
+# head). Landmarks measured on this head, in cm (x side, y back, z up).
+FACE_SHAPES = {
+    "noseWidth": "Nose width", "noseLength": "Nose length", "noseBridge": "Nose bridge",
+    "lipsFull": "Lip fullness", "lipsWidth": "Lip width",
+    "foreheadFull": "Forehead fullness", "foreheadSlope": "Forehead slope",
+    "chinLength": "Chin length", "chinForward": "Chin forward", "chinWidth": "Chin width",
+    "jawWidth": "Jaw width", "jawSquare": "Jaw angle",
+    "eyeSize": "Eye size", "eyeSpacing": "Eye spacing", "eyeHeight": "Eye height", "eyeTilt": "Eye tilt",
+}
+EYE = np.array([6.35, 153.3])          # x, z of each eye recess centre
+
+
+def _blob(verts, centre, sigma):
+    d = (verts - np.asarray(centre)) / np.asarray(sigma)
+    return np.exp(-0.5 * np.sum(d * d, axis=1))
+
+
+def face_shapes(verts):
+    """Position deltas (cm) for each of FACE_SHAPES at full strength (slider 1)."""
+    x, y, z = verts.T
+    n = len(verts)
+    front = smoothstep(12, 4, y)                 # the face, not the back of the head
+    neck_guard = smoothstep(132.5, 135, z)
+    out = {}
+
+    def delta(dx=0.0, dy=0.0, dz=0.0):
+        return np.c_[np.broadcast_to(dx, n), np.broadcast_to(dy, n), np.broadcast_to(dz, n)].astype(float)
+
+    # Nose: the whole nose, its tip, and the bridge between the eyes.
+    nose = _blob(verts, (0, -2.5, 145.0), (2.0, 3.0, 2.6)) * front
+    tip = _blob(verts, (0, -3.6, 145.6), (1.6, 2.0, 1.7)) * front
+    bridge = _blob(verts, (0, -1.4, 150.0), (1.3, 2.2, 2.4)) * front
+    out["noseWidth"] = delta(dx=0.4 * x * nose)
+    out["noseLength"] = delta(dy=-0.5 * tip, dz=-1.1 * tip)
+    out["noseBridge"] = delta(dy=-0.9 * bridge)
+
+    # Lips: the lip area, pushed out and apart (fuller) or stretched sideways.
+    lips = lip_mask(verts).astype(float)
+    # Spread away from the lip line smoothly (zero on the line, so the lips stay closed).
+    out["lipsFull"] = delta(dy=-0.5 * lips, dz=0.3 * np.clip((z - MOUTH_Z) / 1.2, -1, 1) * lips)
+    out["lipsWidth"] = delta(dx=0.16 * x * lips)
+
+    # Forehead: between the brows and the top of the head, front only.
+    fore = smoothstep(151, 157.5, z) * smoothstep(168.5, 160, z) * smoothstep(10.5, 3, np.abs(x)) * front
+    out["foreheadFull"] = delta(dy=-0.9 * fore)
+    out["foreheadSlope"] = delta(dy=0.12 * (z - 154.5) * fore)
+
+    # Chin and jaw.
+    chin = (smoothstep(140.5, 137.0, z) * smoothstep(5.0, 1.5, np.abs(x))
+            * smoothstep(10, 6, y) * neck_guard)
+    out["chinLength"] = delta(dz=-0.9 * chin)
+    out["chinForward"] = delta(dy=-1.0 * chin)
+    out["chinWidth"] = delta(dx=0.22 * x * chin)
+    jaw = (smoothstep(145, 141, z) * smoothstep(2.5, 5.0, np.abs(x)) * smoothstep(15, 11, y)
+           * neck_guard * smoothstep(-1, 2, y))
+    out["jawWidth"] = delta(dx=0.16 * x * jaw)
+    corner = sum(_blob(verts, (s_ * 8.6, 8.5, 137.8), (2.0, 3.0, 2.0)) for s_ in (-1, 1)) * neck_guard
+    out["jawSquare"] = delta(dx=0.7 * np.sign(x) * corner, dz=-0.3 * corner)
+
+    # Eyes: the eye recesses only (the model has no eyeballs).
+    eye = sum(_blob(verts, (s_ * EYE[0], 0.0, EYE[1]), (2.7, 99, 2.4)) for s_ in (-1, 1)) * front
+    eye *= smoothstep(1.2, 2.2, np.abs(x))      # leave the bridge of the nose alone
+    cx = np.sign(x) * EYE[0]
+    out["eyeSize"] = delta(dx=0.18 * (x - cx) * eye, dy=0.35 * eye, dz=0.18 * (z - EYE[1]) * eye)
+    out["eyeSpacing"] = delta(dx=0.9 * np.sign(x) * eye)
+    out["eyeHeight"] = delta(dz=0.9 * eye)
+    out["eyeTilt"] = delta(dz=0.15 * (np.abs(x) - EYE[0]) * eye)
+    return out
+
+
 # ---------------------------------------------------------------- teeth and tongue
 
 def _arch(z0, z1, inset, n=24):

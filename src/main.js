@@ -47,6 +47,17 @@ const LIP_COLORS = [
   { name: 'Berry', hex: '#7a2541' },
 ];
 const LIP_DEFAULTS = { color: '#b8676d', amount: 0.35 };
+// Face shape keys built by tools/face.py (FACE_SHAPES), grouped for the menu.
+// Each slider runs -1 … 1; 0 is the model as made.
+const FACE_GROUPS = [
+  ['Nose', [['noseWidth', 'Width'], ['noseLength', 'Length'], ['noseBridge', 'Bridge']]],
+  ['Lips', [['lipsFull', 'Fullness'], ['lipsWidth', 'Width']]],
+  ['Forehead', [['foreheadFull', 'Fullness'], ['foreheadSlope', 'Slope']]],
+  ['Chin', [['chinLength', 'Length'], ['chinForward', 'Forward'], ['chinWidth', 'Width']]],
+  ['Jaw', [['jawWidth', 'Width'], ['jawSquare', 'Angle']]],
+  ['Eyes', [['eyeSize', 'Size'], ['eyeSpacing', 'Spacing'], ['eyeHeight', 'Height'], ['eyeTilt', 'Tilt']]],
+];
+const FACE_KEYS = FACE_GROUPS.flatMap(([, items]) => items.map(([k]) => k));
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -63,6 +74,7 @@ const state = {
   hair: { ...HAIR_DEFAULTS },
   hairFits: {}, // style id -> fit, for every style that has been fitted
   lips: { ...LIP_DEFAULTS },
+  face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
 let grip = RELAXED_GRIP;
 
@@ -384,6 +396,10 @@ function poseMouth(dt) {
         const i = m.morphTargetDictionary[key];
         if (i !== undefined) m.morphTargetInfluences[i] = mouthNow[key];
       }
+      for (const key of FACE_KEYS) {
+        const i = m.morphTargetDictionary[key];
+        if (i !== undefined) m.morphTargetInfluences[i] = state.face[key];
+      }
     }
   }
 }
@@ -432,6 +448,29 @@ function buildHairControls() {
     for (const ch of Object.values(characters)) ch.hair?.reset();
   });
   setHair({});
+}
+
+function buildFaceControls() {
+  const box = $('face-shape');
+  for (const [group, items] of FACE_GROUPS) {
+    const label = document.createElement('span');
+    label.className = 'sublabel';
+    label.textContent = group;
+    box.appendChild(label);
+    for (const [key, name] of items) {
+      const row = document.createElement('label');
+      row.className = 'slider';
+      row.innerHTML = `<span>${name}</span><input type="range" min="-1" max="1" step="0.01" value="0" data-face="${key}">`;
+      row.querySelector('input').addEventListener('input', (e) => { state.face[key] = Number(e.target.value); });
+      box.appendChild(row);
+    }
+  }
+  $('face-reset').addEventListener('click', () => setFace(Object.fromEntries(FACE_KEYS.map((k) => [k, 0]))));
+}
+
+function setFace(values) {
+  for (const k of FACE_KEYS) if (typeof values?.[k] === 'number') state.face[k] = values[k];
+  document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face]; });
 }
 
 function buildLipControls() {
@@ -674,6 +713,7 @@ function snapshot() {
     hair: { ...state.hair },
     hairFits: { ...state.hairFits, [state.hair.style]: pickFit(state.hair) },
     lips: { ...state.lips },
+    face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
 }
@@ -691,6 +731,7 @@ function applySetup(setup, { withName = false } = {}) {
     setHair({ ...HAIR_DEFAULTS, ...(setup.hairFits?.[style] ?? {}), ...setup.hair, style });
   }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
+  if (setup.face) setFace(setup.face);
   if (setup.hands) {
     state.hands = setup.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
@@ -856,6 +897,7 @@ for (const [id, key] of [['mouth-open', 'open'], ['mouth-smile', 'smile'], ['mou
 setExpression(state.expression);
 buildHairControls();
 buildLipControls();
+buildFaceControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;

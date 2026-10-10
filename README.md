@@ -117,6 +117,16 @@ the inside of the lip fold. The menu mixes the chosen lip colour over the
 skin by that mask times Intensity (`src/main.js`, skin shader). Presets:
 Natural, Nude, Pink, Rose, Coral, Red, Berry, or any custom colour.
 
+## Face shape (test)
+
+`tools/face.py` (`face_shapes`) adds 16 shape keys, each a smooth weighted
+push on the face fitted to this head's landmarks: nose width, length and
+bridge; lip fullness and width; forehead fullness and slope; chin length,
+forward and width; jaw width and angle; eye recess size, spacing, height and
+tilt. They are stored as sparse morph targets (only the points that move),
+so they add almost nothing to the file. The menu's "Face shape (test)"
+section has a -1 … 1 slider for each, saved with the character.
+
 ## Hair
 
 Nine hairstyles, each its own file in `models/hair/` loaded when it is
