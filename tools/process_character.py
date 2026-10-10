@@ -74,6 +74,43 @@ def head_map(verts, body):
     return {"scale": [round(float(v), 4) for v in scale], "offset": [round(float(v), 3) for v in offset]}
 
 
+def body_colliders(verts, bind, body):
+    """Ellipsoids that keep hair outside the body, one per bone segment.
+
+    Each is fitted to a slab of the bind-pose mesh (its bounding box, grown
+    so the ellipsoid's equator reaches the surface) and is carried by a bone:
+    the torso by the spine, the neck, the shoulders, the upper arms.
+    Returns [{bone, centre, radii}] in mesh cm.
+    """
+    x, y, z = verts.T
+    out = []
+
+    def fit(bone, sel, grow=(1.1, 1.12, 1.35), radii=None):
+        p = verts[sel]
+        lo, hi = p.min(0), p.max(0)
+        centre = (lo + hi) / 2
+        r = (hi - lo) / 2 * np.array(grow) if radii is None else np.array(radii)
+        out.append({"bone": bone, "centre": [round(float(v), 2) for v in centre],
+                    "radii": [round(float(v), 2) for v in r]})
+
+    arm_x = abs(bind("LeftArm")[0])
+    neck_z, head_z = bind("Neck")[2], bind("Head")[2]
+    chest = (abs(x) < arm_x) & (z > bind("Spine2")[2] - 3) & (z < neck_z - 1)
+    fit("Spine2", chest)
+    fit("Spine1", (abs(x) < arm_x) & (z > bind("Spine1")[2] - 4) & (z < bind("Spine2")[2]))
+    fit("Hips", (abs(x) < arm_x + 4) & (z > bind("Hips")[2] - 14) & (z < bind("Spine")[2]))
+    fit("Neck", (abs(x) < 6) & (z > neck_z - 1) & (z < (neck_z + head_z) / 2 + 1) & (y > body["nose_tip"][0] + 4),
+        grow=(1.08, 1.08, 1.6))
+    for side in ("Left", "Right"):
+        a, f = bind(f"{side}Arm"), bind(f"{side}ForeArm")
+        s = np.sign(a[0])
+        fit(f"{side}Shoulder", (np.linalg.norm(verts - (a + [-s * 2.5, 0, 1.5]), axis=1) < 7.5), grow=(1.0, 1.0, 1.0))
+        upper = (x * s > abs(a[0]) + 2) & (x * s < abs(f[0])) & (np.abs(z - (a[2] + f[2]) / 2) < 7)
+        upper &= np.abs(y - (a[1] + f[1]) / 2) < 7
+        fit(f"{side}Arm", upper, grow=(0.62, 1.15, 1.15))
+    return out
+
+
 def matrix(acc_rows):
     """glTF column-major MAT4 rows -> (n, 4, 4) matrices."""
     return acc_rows.reshape(-1, 4, 4).transpose(0, 2, 1)
@@ -213,6 +250,20 @@ def clean_body(verts, faces, avg, body, bone_at):
     return out, moved
 
 
+def flatten_brows(verts, avg, body):
+    """Relax the brow box (body["brow_box"], mirrored for the right brow) on
+    the front of the face, fading out over 1 cm around it."""
+    x0, z0, x1, z1 = body["brow_box"]
+    x, y, z = verts.T
+    ax = np.abs(x)
+    w = (smoothstep(x0 - 1, x0, ax) * smoothstep(x1 + 1, x1, ax) * smoothstep(z0 - 1, z0, z)
+         * smoothstep(z1 + 1, z1, z) * (y < body["nose_tip"][0] + 8))
+    out = verts.copy()
+    for _ in range(30):
+        out += (0.5 * w)[:, None] * (avg @ out - out)
+    return out, w > 0
+
+
 def vertex_normals(verts, faces):
     fn = np.cross(verts[faces[:, 1]] - verts[faces[:, 0]], verts[faces[:, 2]] - verts[faces[:, 0]])
     normals = np.zeros_like(verts)
@@ -349,6 +400,13 @@ def build(body):
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
 
+    # ---- brows: the sculpted brow ridges stay behind when the menu moves the
+    # painted brows, so the brow area is relaxed flat (both sides, front only)
+    verts, flat = flatten_brows(verts, avg, body)
+    print(f"brows: relaxed {flat.sum()} vertices")
+    near = flat | (avg @ flat.astype(float) > 0)
+    normals[near] = vertex_normals(verts, faces)[near]
+
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
     morphs.update(face.face_shapes(verts))
@@ -427,6 +485,7 @@ def build(body):
     # Landmarks the menu reads (gltf.scene.userData.body), in mesh centimetres.
     extras = {k: body[k] for k in ("label", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
     extras["head_map"] = head_map(verts, body)
+    extras["colliders"] = body_colliders(verts, bind.__getitem__, body)
     g["scenes"][0].setdefault("extras", {})["body"] = extras
     print(f"head map: {extras['head_map']}")
     for anim in g["animations"]:

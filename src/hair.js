@@ -32,6 +32,17 @@ const COLLIDERS = [
   { bone: 'Spine1', offset: [0, -3.2, -4.6], radius: 6.5 },
   { bone: 'Hips', offset: [0, 3, -9], radius: 11 },
 ];
+// Ellipsoids that keep the hair mesh outside the body (fitted per body by
+// tools/process_character.py), as world matrices of a unit sphere and their
+// inverses, filled in each frame by the hairstyle that is worn.
+const MAX_ELLIPSOIDS = 12;
+export const hairCollision = {
+  hairEllipsoids: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
+  hairEllipsoidsInv: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
+  hairEllipsoidCount: { value: 0 },
+};
+const ELLIPSOID_MARGIN = 0.5; // cm the hair keeps off the skin
+
 // Mesh centimetres (Z up, front -Y) -> world metres (Y up, front +Z).
 const meshToWorld = (v) => new THREE.Vector3(v[0], v[2], -v[1]).multiplyScalar(0.01);
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -68,8 +79,10 @@ export class HairRig {
    * @param headMap       world matrix taking the reference head (the one the
    *                      hairstyles were built on) onto this body's head
    * @param headMapCm     the same map in mesh cm: { scale, offset }
+   * @param ellipsoids    [{ bone, centre, radii }] in mesh cm: the body's shape
+   *                      for keeping the hair mesh outside it
    */
-  constructor(gltfScene, bodyMesh, headBone, headBindWorld, headMap, headMapCm) {
+  constructor(gltfScene, bodyMesh, headBone, headBindWorld, headMap, headMapCm, ellipsoids = []) {
     gltfScene.updateMatrixWorld(true);
     let mesh = null;
     gltfScene.traverse((o) => { if (o.isSkinnedMesh) mesh = o; });
@@ -118,6 +131,25 @@ export class HairRig {
       return { bone: skeleton.bones[i], offset, radius: c.radius, world: new THREE.Vector3(), worldRadius: 0 };
     });
     this.time = 0;
+
+    // Body ellipsoids, each in its bone's bind space: world = bone.matrixWorld
+    // x boneInverse x bindMatrix x (translate centre, scale radii).
+    this.ellipsoids = ellipsoids.slice(0, MAX_ELLIPSOIDS).flatMap((e) => {
+      const i = skeleton.bones.findIndex((b) => b.name === e.bone);
+      if (i < 0) return [];
+      const local = new THREE.Matrix4().makeScale(...e.radii.map((r) => r + ELLIPSOID_MARGIN)).setPosition(...e.centre);
+      return [{ bone: skeleton.bones[i], bind: skeleton.boneInverses[i].clone().multiply(bodyMesh.bindMatrix).multiply(local) }];
+    });
+  }
+
+  /** Point the hair shader's ellipsoids at this body's current pose. */
+  collide(enabled) {
+    const u = hairCollision;
+    u.hairEllipsoidCount.value = enabled ? this.ellipsoids.length : 0;
+    this.ellipsoids.forEach((e, k) => {
+      u.hairEllipsoids.value[k].multiplyMatrices(e.bone.matrixWorld, e.bind);
+      u.hairEllipsoidsInv.value[k].copy(u.hairEllipsoids.value[k]).invert();
+    });
   }
 
   reset() {
@@ -169,6 +201,7 @@ export class HairRig {
   }
 
   update(dt, s) {
+    this.collide(s.collide !== false);
     this.fit(s);
     this.root.updateMatrixWorld(true);
     for (const c of this.colliders) {
@@ -257,6 +290,27 @@ export class HairRig {
 export function hairMaterial(hex) {
   const m = new THREE.MeshPhysicalMaterial({ roughness: 0.45, sheen: 0.6, sheenRoughness: 0.4 });
   setHairColor(m, hex);
+  // After skinning, push every hair vertex that sits inside a body ellipsoid
+  // out to its surface (along the ellipsoid's own radius).
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, hairCollision);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+uniform mat4 hairEllipsoids[${MAX_ELLIPSOIDS}];
+uniform mat4 hairEllipsoidsInv[${MAX_ELLIPSOIDS}];
+uniform int hairEllipsoidCount;`)
+      .replace('#include <skinning_vertex>', `#include <skinning_vertex>
+  {
+    vec4 wp = modelMatrix * vec4(transformed, 1.0);
+    for (int k = 0; k < ${MAX_ELLIPSOIDS}; k++) {
+      if (k >= hairEllipsoidCount) break;
+      vec4 q = hairEllipsoidsInv[k] * wp;
+      float r = length(q.xyz);
+      if (r < 1.0 && r > 1e-4) wp = hairEllipsoids[k] * vec4(q.xyz / r, 1.0);
+    }
+    transformed = (inverse(modelMatrix) * wp).xyz;
+  }`);
+  };
   return m;
 }
 

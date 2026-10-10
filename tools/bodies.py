@@ -35,6 +35,8 @@ BODIES = {
         "brow_z": 146.5,
         "top_z": 158.25,
         "eye": {"x": 5.65, "z": 141.2, "w": 5.3, "h": 4.3},
+        "iris": {"x": 4.9, "z": 141.2, "rx": 1.8, "rz": 2.1},     # on the painted texture
+        "brow_box": [1.0, 144.3, 9.5, 146.9],                       # left brow: x0, z0, x1, z1
         "depth": 0.81,                 # head depth against the old reference head
     },
     "male": {
@@ -62,6 +64,10 @@ BODIES = {
         "brow_z": 160.5,
         "top_z": 171.98,
         "eye": {"x": 5.4, "z": 156.4, "w": 5.2, "h": 3.8},
+        "iris": {"x": 4.68, "z": 156.37, "rx": 1.15, "rz": 1.15},
+        "brow_box": [1.0, 159.0, 9.5, 161.4],
+        # The painted eyes' upper halves do not match the lower: repainted (build_skin.py).
+        "eye_repaint": {"seam_z": 156.1, "opening": {"x": 4.85, "z": 156.25, "a": 2.45, "b": 1.85}},
         "depth": 0.82,
     },
 }

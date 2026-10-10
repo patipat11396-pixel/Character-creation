@@ -121,6 +121,7 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 .hair-colors { display: flex; align-items: center; gap: 12px; }
 .swatches.hair { grid-template-columns: repeat(4, 2.4rem); gap: 10px; }
 .swatches.lips { grid-template-columns: repeat(7, 1.75rem); gap: 7px; }
+.swatches.eyes { grid-template-columns: repeat(9, 1.6rem); gap: 6px; }
 .hair-colors { flex-wrap: wrap; }
 .custom-color { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
 .custom-color input { width: 2.4rem; height: 2.4rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: none; cursor: pointer; }
@@ -131,6 +132,28 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 .link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
 
 .face-shape { display: flex; flex-direction: column; gap: 6px; }
+[data-face-group] { display: flex; flex-direction: column; gap: 6px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.tabs button {
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--muted); font: inherit; font-size: 12px;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--text); background: var(--line); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-panel { display: flex; flex-direction: column; gap: 22px; }
+.tab-panel[hidden] { display: none; }
+
+.style-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.style-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 4px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted);
+  font: inherit; font-size: 11px; text-align: center;
+}
+.style-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 5px; background: #23262e; }
+.style-card[aria-checked="true"] { border-color: var(--accent); color: var(--text); }
+.style-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .debug summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .debug[open] summary { margin-bottom: 10px; }

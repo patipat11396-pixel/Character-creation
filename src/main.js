@@ -50,6 +50,18 @@ const LIP_COLORS = [
   { name: 'Berry', hex: '#7a2541' },
 ];
 const LIP_DEFAULTS = { color: '#b8676d', amount: 0.35 };
+// Eye colours over the painted irises; null keeps the painting.
+const EYE_COLORS = [
+  { name: 'Painted', hex: null },
+  { name: 'Brown', hex: '#7a4a26' }, { name: 'Dark brown', hex: '#3e2617' }, { name: 'Hazel', hex: '#9a7b2e' },
+  { name: 'Green', hex: '#4f8f4c' }, { name: 'Blue', hex: '#4d84c8' }, { name: 'Grey', hex: '#8d99a6' },
+  { name: 'Amber', hex: '#c98d2a' }, { name: 'Black', hex: '#231d1a' },
+];
+const EYE_DEFAULTS = { color: null };
+// Brows lifted off the painting (tools/build_skin.py) and drawn back where these put them:
+// height and spacing in cm, size as a scale, angle in degrees (outer end up), thickness 0..1
+// (0.5 as painted), amount 0..1, colour null for the painted one.
+const BROW_DEFAULTS = { color: null, height: 0, spacing: 0, size: 1, angle: 0, thickness: 0.5, amount: 1 };
 // Face shape keys built by tools/face.py (FACE_SHAPES), grouped for the menu.
 // Each slider runs -1 … 1; 0 is the model as made.
 const FACE_GROUPS = [
@@ -75,8 +87,10 @@ const state = {
   hands: 'auto',
   expression: 'neutral',
   mouth: { open: 0, smile: 0, round: 0 },
-  hair: { ...HAIR_DEFAULTS },
+  hair: { ...HAIR_DEFAULTS, collide: true },
   hairFits: {}, // body -> style id -> fit, for every style fitted on that body
+  eyes: { ...EYE_DEFAULTS },
+  brows: { ...BROW_DEFAULTS },
   lips: { ...LIP_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
@@ -214,6 +228,11 @@ const skin = new THREE.MeshPhysicalMaterial({
 // Lip colour: the model marks the lips with a 0..1 vertex attribute.
 const lipUniforms = {
   lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount },
+  // Eye colour over the painted irises (the feature mask's red channel); 0 keeps the painting.
+  eyeColor: { value: new THREE.Color(0x7a4a26) }, eyeTint: { value: 0 },
+  browOffset: { value: new THREE.Vector2() }, browScale: { value: 1 }, browAngle: { value: 0 },
+  browThick: { value: 0.5 }, browAmount: { value: 1 }, browColor: { value: new THREE.Color(0x3b2a20) },
+  browTint: { value: 0 },
 };
 skin.onBeforeCompile = (shader) => {
   Object.assign(shader.uniforms, lipUniforms);
@@ -222,9 +241,41 @@ skin.onBeforeCompile = (shader) => {
     .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vSkinPos = position;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
-uniform vec3 lipColor; uniform float lipAmount; varying float vLip;`)
+uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
+uniform vec3 eyeColor; uniform float eyeTint; uniform sampler2D featureMask;
+uniform sampler2D browTex; uniform vec4 browBox; uniform float frontY;
+uniform vec2 browOffset; uniform float browScale; uniform float browAngle; uniform float browThick;
+uniform float browAmount; uniform vec3 browColor; uniform float browTint;
+varying vec3 vSkinPos;`)
     .replace('#include <color_fragment>', `#include <color_fragment>
-  diffuseColor.rgb = mix(diffuseColor.rgb, lipColor, clamp(vLip, 0.0, 1.0) * lipAmount);`)
+  {
+#ifdef USE_MAP
+    // Painted skin: the feature mask marks the irises (red) and the lips (green).
+    vec3 fm = texture2D(featureMask, vMapUv).rgb;
+#else
+    vec3 fm = vec3(0.0, vLip, 0.0);
+#endif
+    float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+    diffuseColor.rgb = mix(diffuseColor.rgb, lipColor * (0.45 + 1.1 * lum), clamp(fm.g, 0.0, 1.0) * lipAmount);
+    diffuseColor.rgb = mix(diffuseColor.rgb, eyeColor * (0.25 + 2.2 * lum), fm.r * eyeTint);
+#ifdef USE_MAP
+    // Brows: the brow image (left brow, over browBox; mirrored on the right)
+    // moved, turned and scaled by the brow settings, front of the face only.
+    vec2 c = 0.5 * (browBox.xy + browBox.zw);
+    vec2 d = vec2(abs(vSkinPos.x) - c.x - browOffset.x, vSkinPos.z - c.y - browOffset.y);
+    float ca = cos(browAngle), sa = sin(browAngle);
+    d = vec2(ca * d.x + sa * d.y, -sa * d.x + ca * d.y) / browScale;
+    vec2 size = browBox.zw - browBox.xy;
+    vec2 bu = vec2(d.x / size.x + 0.5, 0.5 - d.y / size.y);
+    if (vSkinPos.y < frontY && bu.x > 0.0 && bu.x < 1.0 && bu.y > 0.0 && bu.y < 1.0) {
+      vec4 b = texture2D(browTex, bu);
+      float a = pow(b.a, exp2((0.5 - browThick) * 3.0)) * browAmount;
+      float bl = dot(b.rgb, vec3(0.299, 0.587, 0.114));
+      vec3 bc = mix(b.rgb, browColor * (0.4 + 1.6 * bl), browTint);
+      diffuseColor.rgb = mix(diffuseColor.rgb, bc, clamp(a, 0.0, 1.0));
+    }
+#endif
+  }`)
     .replace('#include <dithering_fragment>',
       '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
@@ -307,19 +358,27 @@ async function buildCharacter(body, kind) {
 // skin shader. Skin tones tint it by tone / the texture's reference colour.
 const texLoader = new THREE.TextureLoader();
 async function paintedSkin(body) {
-  const load = async (name, srgb) => {
-    const t = await texLoader.loadAsync(`models/skin/${body}_${name}.jpg`);
+  const load = async (name, srgb, ext = 'jpg') => {
+    const t = await texLoader.loadAsync(`models/skin/${body}_${name}.${ext}`);
     t.flipY = false;                        // glTF texture coordinates run top-down
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.anisotropy = 4;
     return t;
   };
-  const [map, roughnessMap, info] = await Promise.all([
+  const [map, roughnessMap, featureMask, browTex, info] = await Promise.all([
     load('color', true), load('rough', false),
+    texLoader.loadAsync(`models/skin/${body}_mask.png`).then((t) => Object.assign(t, { flipY: false })),
+    load('brow', true, 'png'),
     fetch(`models/skin/${body}.json`).then((r) => r.json()),
   ]);
   const m = skin.clone();
-  m.onBeforeCompile = skin.onBeforeCompile;
+  m.onBeforeCompile = (shader) => {
+    skin.onBeforeCompile(shader);
+    shader.uniforms.featureMask = { value: featureMask };
+    shader.uniforms.browTex = { value: browTex };
+    shader.uniforms.browBox = { value: new THREE.Vector4(...info.browBox) };
+    shader.uniforms.frontY = { value: info.frontY };
+  };
   Object.assign(m, { map, roughnessMap, roughness: 1, sheen: 0.25 });
   m.userData.reference = new THREE.Color(info.reference);
   return m;
@@ -454,6 +513,7 @@ function buildHairControls() {
     input.addEventListener('input', () => setHair({ [input.dataset.hair]: Number(input.value) })));
   document.querySelectorAll('[data-gizmo]').forEach((b) =>
     b.addEventListener('click', () => setGizmo(b.dataset.gizmo)));
+  $('hair-collide').addEventListener('change', (e) => setHair({ collide: e.target.checked }));
   window.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea')) return;
     const mode = { w: 'translate', e: 'rotate', r: 'scale', escape: 'off' }[e.key.toLowerCase()];
@@ -472,12 +532,8 @@ function buildHairControls() {
 }
 
 function buildFaceControls() {
-  const box = $('face-shape');
   for (const [group, items] of FACE_GROUPS) {
-    const label = document.createElement('span');
-    label.className = 'sublabel';
-    label.textContent = group;
-    box.appendChild(label);
+    const box = document.querySelector(`[data-face-group="${group}"]`);
     for (const [key, name] of items) {
       const row = document.createElement('label');
       row.className = 'slider';
@@ -485,13 +541,88 @@ function buildFaceControls() {
       row.querySelector('input').addEventListener('input', (e) => { state.face[key] = Number(e.target.value); });
       box.appendChild(row);
     }
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'link';
+    reset.textContent = `Reset ${group.toLowerCase()}`;
+    reset.addEventListener('click', () => setFace(Object.fromEntries(items.map(([k]) => [k, 0]))));
+    box.appendChild(reset);
   }
-  $('face-reset').addEventListener('click', () => setFace(Object.fromEntries(FACE_KEYS.map((k) => [k, 0]))));
+}
+
+// ---------------------------------------------------------------- tabs
+
+// Tabs that are about the head bring the camera to the head.
+const HEAD_TABS = ['hair', 'nose', 'lips', 'forehead', 'chin', 'jaw', 'eyes', 'brow'];
+
+function setTab(name) {
+  document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  if (name !== 'hair') setGizmo('off');
+  if (HEAD_TABS.includes(name)) setView('head');
 }
 
 function setFace(values) {
   for (const k of FACE_KEYS) if (typeof values?.[k] === 'number') state.face[k] = values[k];
   document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face]; });
+}
+
+/** A row of colour swatches; a null colour shows as "P" (as painted). */
+function buildColorSwatches(box, colors, className, onPick) {
+  for (const c of colors) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `swatch ${className}`;
+    b.style.background = c.hex ?? 'linear-gradient(135deg, #f0c4a4, #8a5a3c)';
+    b.dataset.color = c.hex ?? '';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c.name);
+    b.title = c.name;
+    if (!c.hex) b.innerHTML = '<span>P</span>';
+    b.addEventListener('click', () => onPick(c.hex));
+    box.appendChild(b);
+  }
+}
+
+function buildEyeControls() {
+  buildColorSwatches($('eye-colors'), EYE_COLORS, 'eye-swatch', (color) => setEyes({ color }));
+  $('eye-custom').addEventListener('input', (e) => setEyes({ color: e.target.value }));
+  setEyes({});
+}
+
+function setEyes(change) {
+  Object.assign(state.eyes, change);
+  const c = state.eyes.color;
+  lipUniforms.eyeTint.value = c ? 1 : 0;
+  if (c) lipUniforms.eyeColor.value.set(c);
+  document.querySelectorAll('.eye-swatch').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.color === (c ?? ''))));
+  if (c) $('eye-custom').value = c;
+}
+
+function buildBrowControls() {
+  buildColorSwatches($('brow-colors'), [{ name: 'Painted', hex: null }, ...HAIR_COLORS], 'brow-swatch',
+    (color) => setBrows({ color }));
+  $('brow-custom').addEventListener('input', (e) => setBrows({ color: e.target.value }));
+  document.querySelectorAll('[data-brow]').forEach((input) =>
+    input.addEventListener('input', () => setBrows({ [input.dataset.brow]: Number(input.value) })));
+  $('brow-reset').addEventListener('click', () => setBrows({ ...BROW_DEFAULTS }));
+  setBrows({});
+}
+
+function setBrows(change) {
+  Object.assign(state.brows, change);
+  const b = state.brows;
+  const u = lipUniforms;
+  u.browOffset.value.set(b.spacing, b.height);
+  u.browScale.value = b.size;
+  u.browAngle.value = THREE.MathUtils.degToRad(b.angle);
+  u.browThick.value = b.thickness;
+  u.browAmount.value = b.amount;
+  u.browTint.value = b.color ? 1 : 0;
+  if (b.color) u.browColor.value.set(b.color);
+  document.querySelectorAll('[data-brow]').forEach((input) => { input.value = b[input.dataset.brow]; });
+  document.querySelectorAll('.brow-swatch').forEach((el) => el.setAttribute('aria-checked', String(el.dataset.color === (b.color ?? ''))));
+  if (b.color) $('brow-custom').value = b.color;
 }
 
 function buildLipControls() {
@@ -536,10 +667,19 @@ async function loadHairIndex() {
   } catch {
     hairStyles = [];
   }
-  const select = $('hair-style');
-  for (const s of hairStyles) select.appendChild(new Option(s.name, s.id));
-  select.value = state.hair.style;
-  select.addEventListener('change', () => setHair({ style: select.value }));
+  // A picture of each style (models/hair/thumbs, made by tools/hair_thumbs.mjs).
+  const grid = $('hair-styles');
+  for (const s of hairStyles) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'style-card';
+    b.dataset.style = s.id;
+    b.setAttribute('role', 'radio');
+    b.innerHTML = `<img src="models/hair/thumbs/${s.id}.jpg" alt="" loading="lazy"><span>${s.name}</span>`;
+    b.addEventListener('click', () => setHair({ style: s.id }));
+    grid.appendChild(b);
+  }
+  setHair({});
 }
 
 /** Put hairstyle `id` on the character, loading it the first time. */
@@ -571,7 +711,8 @@ async function showHairstyle(id) {
     if (!ch.hairRigs[id]) {
       // Each body gets its own copy: a rig takes over the scene it is given.
       const copy = SkeletonUtils.clone(gltf.scene);
-      ch.hairRigs[id] = new HairRig(copy, ch.mesh, ch.headBone, ch.headBindWorld, ch.headMap, ch.body.head_map);
+      ch.hairRigs[id] = new HairRig(copy, ch.mesh, ch.headBone, ch.headBindWorld, ch.headMap, ch.body.head_map,
+        ch.body.colliders);
       ch.hairRigs[id].mesh.material = hairMat;
       ch.hairRigs[id].detach();
     }
@@ -625,13 +766,15 @@ function setHair(change) {
     Object.assign(state.hair, FIT_DEFAULTS, fitFor(state.body, change.style));
   }
   Object.assign(state.hair, change);
-  if ($('hair-style').value !== state.hair.style) $('hair-style').value = state.hair.style;
+  document.querySelectorAll('[data-style]').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.style === state.hair.style)));
   if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
   setHairColor(hairMat, state.hair.color);
   document.querySelectorAll('.hair-swatch').forEach((b) =>
     b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
   $('hair-custom').value = state.hair.color;
   document.querySelectorAll('[data-hair]').forEach((input) => { input.value = state.hair[input.dataset.hair]; });
+  $('hair-collide').checked = state.hair.collide !== false;
 }
 
 function syncTime(from, to) {
@@ -785,6 +928,8 @@ function snapshot() {
       [state.body]: { ...state.hairFits[state.body], [state.hair.style]: pickFit(state.hair) },
     },
     lips: { ...state.lips },
+    eyes: { ...state.eyes },
+    brows: { ...state.brows },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
@@ -811,6 +956,9 @@ function applySetup(setup, { withName = false } = {}) {
   }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
   if (setup.face) setFace(setup.face);
+  // (Older saves hold the removed drawn eyes' settings under "eyes"; skip those.)
+  setEyes({ ...EYE_DEFAULTS, ...(setup.eyes && !('white' in setup.eyes) ? setup.eyes : {}) });
+  setBrows({ ...BROW_DEFAULTS, ...setup.brows });
   if (setup.hands) {
     state.hands = setup.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
@@ -977,6 +1125,9 @@ setExpression(state.expression);
 buildHairControls();
 buildLipControls();
 buildFaceControls();
+buildEyeControls();
+buildBrowControls();
+document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;

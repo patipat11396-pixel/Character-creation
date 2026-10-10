@@ -42,102 +42,164 @@
       </div>
     </div>
 
-    <div class="field">
-      <div class="label-row">
-        <span class="label">Skin tone</span>
-        <span class="value" id="tone-value"></span>
+    <nav class="tabs" role="tablist" aria-label="Customise">
+      <button type="button" role="tab" data-tab="basic" aria-selected="true">Basic</button>
+      <button type="button" role="tab" data-tab="hair">Hair</button>
+      <button type="button" role="tab" data-tab="nose">Nose</button>
+      <button type="button" role="tab" data-tab="lips">Lips</button>
+      <button type="button" role="tab" data-tab="forehead">Forehead</button>
+      <button type="button" role="tab" data-tab="chin">Chin</button>
+      <button type="button" role="tab" data-tab="jaw">Jaw</button>
+      <button type="button" role="tab" data-tab="eyes">Eyes</button>
+      <button type="button" role="tab" data-tab="brow">Brow</button>
+    </nav>
+
+    <section class="tab-panel" role="tabpanel" data-panel="basic">
+      <div class="field">
+        <div class="label-row">
+          <span class="label">Skin tone</span>
+          <span class="value" id="tone-value"></span>
+        </div>
+        <div class="swatches" id="swatches" role="radiogroup" aria-label="Skin tone"></div>
+        <p class="note">P is the painted skin; 1-10 tint it to the Monk Skin Tone Scale.</p>
       </div>
-      <div class="swatches" id="swatches" role="radiogroup" aria-label="Skin tone"></div>
-      <p class="note">P is the painted skin; 1-10 tint it to the Monk Skin Tone Scale.</p>
-    </div>
-
-    <label class="field">
-      <span class="label">Preview animation</span>
-      <select id="anim"></select>
-    </label>
-
-    <div class="field">
-      <span class="label">Expression</span>
-      <div class="chips" role="radiogroup" aria-label="Expression">
-        <button type="button" role="radio" data-expression="neutral">Neutral</button>
-        <button type="button" role="radio" data-expression="smile">Smile</button>
-        <button type="button" role="radio" data-expression="laugh">Laugh</button>
-        <button type="button" role="radio" data-expression="surprised">Surprised</button>
-        <button type="button" role="radio" data-expression="sad">Sad</button>
-        <button type="button" role="radio" data-expression="talking">Talking</button>
+      <label class="field">
+        <span class="label">Preview animation</span>
+        <select id="anim"></select>
+      </label>
+      <div class="field">
+        <span class="label">Expression</span>
+        <div class="chips" role="radiogroup" aria-label="Expression">
+          <button type="button" role="radio" data-expression="neutral">Neutral</button>
+          <button type="button" role="radio" data-expression="smile">Smile</button>
+          <button type="button" role="radio" data-expression="laugh">Laugh</button>
+          <button type="button" role="radio" data-expression="surprised">Surprised</button>
+          <button type="button" role="radio" data-expression="sad">Sad</button>
+          <button type="button" role="radio" data-expression="talking">Talking</button>
+        </div>
+        <label class="slider"><span>Mouth open</span><input id="mouth-open" type="range" min="0" max="1" step="0.01" value="0"></label>
+        <label class="slider"><span>Frown / smile</span><input id="mouth-smile" type="range" min="-1" max="1" step="0.01" value="0"></label>
+        <label class="slider"><span>Round lips</span><input id="mouth-round" type="range" min="0" max="1" step="0.01" value="0"></label>
       </div>
-      <label class="slider"><span>Mouth open</span><input id="mouth-open" type="range" min="0" max="1" step="0.01" value="0"></label>
-      <label class="slider"><span>Frown / smile</span><input id="mouth-smile" type="range" min="-1" max="1" step="0.01" value="0"></label>
-      <label class="slider"><span>Round lips</span><input id="mouth-round" type="range" min="0" max="1" step="0.01" value="0"></label>
-    </div>
-
-    <div class="field" id="face-shape-box">
-      <span class="label">Face shape (test)</span>
-      <div id="face-shape" class="face-shape"></div>
-      <button type="button" id="face-reset" class="link">Reset face shape</button>
-    </div>
-
-    <div class="field">
-      <span class="label">Lips</span>
-      <div class="hair-colors">
-        <div class="swatches lips" id="lip-colors" role="radiogroup" aria-label="Lip colour"></div>
-        <label class="custom-color" title="Custom colour"><input id="lip-custom" type="color" value="#b8676d"><span>Custom</span></label>
+      <div class="field">
+        <span class="label">Hands</span>
+        <div class="segmented" role="radiogroup" aria-label="Hands">
+          <button type="button" data-hands="auto" class="on">Auto</button>
+          <button type="button" data-hands="open">Open</button>
+          <button type="button" data-hands="fist">Fist</button>
+        </div>
+        <p class="note">Auto makes a fist for fighting, weapons and climbing.</p>
       </div>
-      <label class="slider"><span>Intensity</span><input id="lip-amount" type="range" min="0" max="1" step="0.01"></label>
-    </div>
+      <details class="field debug">
+        <summary>Model check</summary>
+        <div class="segmented" role="radiogroup" aria-label="Model version">
+          <button type="button" data-model="fixed" class="on">Fixed</button>
+          <button type="button" data-model="original">Original</button>
+        </div>
+        <label class="check"><input type="checkbox" id="weights"> Show bone weights</label>
+        <label class="check"><input type="checkbox" id="bones"> Show bones</label>
+      </details>
+    </section>
 
-    <div class="field">
-      <span class="label">Hair</span>
-      <select id="hair-style" aria-label="Hairstyle"></select>
-      <div class="hair-colors">
-        <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
-        <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
+    <section class="tab-panel" role="tabpanel" data-panel="hair" hidden>
+      <div class="field">
+        <span class="label">Hairstyle</span>
+        <div class="style-grid" id="hair-styles" role="radiogroup" aria-label="Hairstyle"></div>
       </div>
-      <div class="gizmo-row">
-        <span class="sublabel">Adjust in view</span>
+      <div class="field">
+        <span class="label">Colour</span>
+        <div class="hair-colors">
+          <div class="swatches hair" id="hair-colors" role="radiogroup" aria-label="Hair colour"></div>
+          <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Fit</span>
         <div class="segmented" role="group" aria-label="Hair handles">
           <button type="button" data-gizmo="off" class="on">Off</button>
           <button type="button" data-gizmo="translate" title="Move (W)">Move</button>
           <button type="button" data-gizmo="rotate" title="Rotate (E)">Rotate</button>
           <button type="button" data-gizmo="scale" title="Scale (R)">Scale</button>
         </div>
+        <label class="slider"><span>Size</span><input data-hair="size" type="range" min="0.3" max="3" step="0.005"></label>
+        <label class="slider"><span>Width</span><input data-hair="width" type="range" min="0.3" max="3" step="0.005"></label>
+        <label class="slider"><span>Height</span><input data-hair="height" type="range" min="0.3" max="3" step="0.005"></label>
+        <label class="slider"><span>Depth</span><input data-hair="depth" type="range" min="0.3" max="3" step="0.005"></label>
+        <label class="slider"><span>Up / down</span><input data-hair="up" type="range" min="-10" max="20" step="0.1"></label>
+        <label class="slider"><span>Back / forward</span><input data-hair="forward" type="range" min="-10" max="10" step="0.1"></label>
+        <label class="slider"><span>Left / right</span><input data-hair="side" type="range" min="-8" max="8" step="0.1"></label>
+        <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-30" max="30" step="0.5"></label>
+        <label class="slider"><span>Turn</span><input data-hair="turn" type="range" min="-30" max="30" step="0.5"></label>
+        <label class="slider"><span>Roll</span><input data-hair="roll" type="range" min="-30" max="30" step="0.5"></label>
       </div>
-      <label class="slider"><span>Size</span><input data-hair="size" type="range" min="0.3" max="3" step="0.005"></label>
-      <label class="slider"><span>Width</span><input data-hair="width" type="range" min="0.3" max="3" step="0.005"></label>
-      <label class="slider"><span>Height</span><input data-hair="height" type="range" min="0.3" max="3" step="0.005"></label>
-      <label class="slider"><span>Depth</span><input data-hair="depth" type="range" min="0.3" max="3" step="0.005"></label>
-      <label class="slider"><span>Up / down</span><input data-hair="up" type="range" min="-10" max="20" step="0.1"></label>
-      <label class="slider"><span>Back / forward</span><input data-hair="forward" type="range" min="-10" max="10" step="0.1"></label>
-      <label class="slider"><span>Left / right</span><input data-hair="side" type="range" min="-8" max="8" step="0.1"></label>
-      <label class="slider"><span>Tilt</span><input data-hair="tilt" type="range" min="-30" max="30" step="0.5"></label>
-      <label class="slider"><span>Turn</span><input data-hair="turn" type="range" min="-30" max="30" step="0.5"></label>
-      <label class="slider"><span>Roll</span><input data-hair="roll" type="range" min="-30" max="30" step="0.5"></label>
-      <span class="sublabel">Swinging parts (ponytail, braid, twin tails)</span>
-      <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
-      <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
-      <label class="slider"><span>Bounce</span><input data-hair="bounce" type="range" min="0" max="1" step="0.01"></label>
-      <button type="button" id="hair-reset" class="link">Reset hair fit and physics</button>
-    </div>
+      <div class="field">
+        <span class="label">Movement</span>
+        <label class="slider"><span>Weight</span><input data-hair="weight" type="range" min="0.2" max="2.5" step="0.05"></label>
+        <label class="slider"><span>Stiffness</span><input data-hair="stiffness" type="range" min="0" max="1" step="0.01"></label>
+        <label class="slider"><span>Bounce</span><input data-hair="bounce" type="range" min="0" max="1" step="0.01"></label>
+        <label class="check"><input type="checkbox" id="hair-collide" checked> Keep hair outside the body</label>
+        <button type="button" id="hair-reset" class="link">Reset hair fit and movement</button>
+      </div>
+    </section>
 
-    <div class="field">
-      <span class="label">Hands</span>
-      <div class="segmented" role="radiogroup" aria-label="Hands">
-        <button type="button" data-hands="auto" class="on">Auto</button>
-        <button type="button" data-hands="open">Open</button>
-        <button type="button" data-hands="fist">Fist</button>
-      </div>
-      <p class="note">Auto makes a fist for fighting, weapons and climbing.</p>
-    </div>
+    <section class="tab-panel" role="tabpanel" data-panel="nose" hidden>
+      <div class="field"><span class="label">Nose</span><div data-face-group="Nose"></div></div>
+    </section>
 
-    <details class="field debug">
-      <summary>Model check</summary>
-      <div class="segmented" role="radiogroup" aria-label="Model version">
-        <button type="button" data-model="fixed" class="on">Fixed</button>
-        <button type="button" data-model="original">Original</button>
+    <section class="tab-panel" role="tabpanel" data-panel="lips" hidden>
+      <div class="field">
+        <span class="label">Lip colour</span>
+        <div class="hair-colors">
+          <div class="swatches lips" id="lip-colors" role="radiogroup" aria-label="Lip colour"></div>
+          <label class="custom-color" title="Custom colour"><input id="lip-custom" type="color" value="#b8676d"><span>Custom</span></label>
+        </div>
+        <label class="slider"><span>Intensity</span><input id="lip-amount" type="range" min="0" max="1" step="0.01"></label>
       </div>
-      <label class="check"><input type="checkbox" id="weights"> Show bone weights</label>
-      <label class="check"><input type="checkbox" id="bones"> Show bones</label>
-    </details>
+      <div class="field"><span class="label">Shape</span><div data-face-group="Lips"></div></div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="forehead" hidden>
+      <div class="field"><span class="label">Forehead</span><div data-face-group="Forehead"></div></div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="chin" hidden>
+      <div class="field"><span class="label">Chin</span><div data-face-group="Chin"></div></div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="jaw" hidden>
+      <div class="field"><span class="label">Jaw</span><div data-face-group="Jaw"></div></div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="eyes" hidden>
+      <div class="field">
+        <span class="label">Eye colour</span>
+        <div class="hair-colors">
+          <div class="swatches eyes" id="eye-colors" role="radiogroup" aria-label="Eye colour"></div>
+          <label class="custom-color" title="Custom colour"><input id="eye-custom" type="color" value="#7a4a26"><span>Custom</span></label>
+        </div>
+      </div>
+      <div class="field"><span class="label">Shape</span><div data-face-group="Eyes"></div></div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="brow" hidden>
+      <div class="field">
+        <span class="label">Brow colour</span>
+        <div class="hair-colors">
+          <div class="swatches eyes" id="brow-colors" role="radiogroup" aria-label="Brow colour"></div>
+          <label class="custom-color" title="Custom colour"><input id="brow-custom" type="color" value="#3b2a20"><span>Custom</span></label>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">Shape</span>
+        <label class="slider"><span>Height</span><input data-brow="height" type="range" min="-1.2" max="1.2" step="0.02"></label>
+        <label class="slider"><span>Spacing</span><input data-brow="spacing" type="range" min="-1" max="1.2" step="0.02"></label>
+        <label class="slider"><span>Size</span><input data-brow="size" type="range" min="0.7" max="1.4" step="0.01"></label>
+        <label class="slider"><span>Angle</span><input data-brow="angle" type="range" min="-20" max="20" step="0.5"></label>
+        <label class="slider"><span>Thickness</span><input data-brow="thickness" type="range" min="0" max="1" step="0.01"></label>
+        <label class="slider"><span>Strength</span><input data-brow="amount" type="range" min="0" max="1" step="0.01"></label>
+        <button type="button" id="brow-reset" class="link">Reset brows</button>
+      </div>
+    </section>
 
     <div class="actions">
       <button type="button" id="random" class="secondary">Randomize</button>
@@ -145,7 +207,7 @@
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
     <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
-    <button type="button" id="download-setup" class="link">Download setup with all hair fits (JSON)</button>
+    <button type="button" id="download-setup" class="link">Download setup (JSON)</button>
     <p class="status" id="status" role="status"></p>
   </aside>
 </main>
