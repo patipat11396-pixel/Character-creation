@@ -256,39 +256,52 @@ def shape_breasts(verts, avg, body):
 
     The chest wall under them is found by relaxing the chest with its edge
     held (a membrane over the breasts' base); each breast is then a dome on
-    that wall shaped like a teardrop: from the fullest point an S-shaped
-    slope runs up into the chest (no point at the top), and below it the
-    breast rounds off; the ellipse reaches further up than down. Points move forward or back only; the ellipse's rim
+    that wall shaped like a teardrop: one smooth dome, rounded at its fullest
+    point, rounding off underneath and sloping long and flat into the chest
+    above and to the sides; the ellipse reaches further up than down. Points move forward or back only; the ellipse's rim
     fades into the original surface.
     """
     b = body["breasts"]
     x, y, z = verts.T
-    dx = (np.abs(x) - b["x"]) / b["rx"]
-    dz = (z - b["z"]) / np.where(z > b["z"], b["up"], b["down"])
+    dx = (np.sqrt(x ** 2 + 1.0) - b["x"]) / b["rx"]           # smooth |x|: no ridge on the midline
+    # Vertical reach changes smoothly from `down` to `up` (a hard switch at the
+    # centre left a crease across the breast).
+    reach = b["down"] + (b["up"] - b["down"]) * smoothstep(-3.0, 3.0, z - b["z"])
+    dz = (z - b["z"]) / reach
     u = np.hypot(dx, dz)
     front = y < body["nose_tip"][0] + 10
     # Chest wall: the breast area relaxed with a ring around it held.
-    region = (u < 1.6) & front
+    region = (u < 2.0) & front
     wall = verts.copy()
     for _ in range(300):
         wall[region] = (avg @ wall)[region]
-    # Teardrop: above the fullest point the slope falls away in an S (no
-    # point at the top, blending into the chest), below it the breast rounds
-    # off; across, a soft round section.
-    sv = np.clip(np.abs(dz), 0, 1)
-    vert = np.where(dz > 0, 1 - 3 * sv ** 2 + 2 * sv ** 3, np.sqrt(np.clip(1 - sv ** 2, 0, 1)) ** 0.85)
-    across = np.clip(1 - dx ** 2, 0, 1) ** 0.7
-    height = b["depth"] * vert * across
-    offset = (wall[:, 1] - height - y) * smoothstep(1.5, 0.95, u) * region
-    edge = region & (u > 0.8)
-    for _ in range(25):
+    # Teardrop: one smooth dome, (1 - u^2)^p, rounded at the fullest point.
+    # Underneath p is small, so the breast rounds off into a soft fold; up and
+    # to the sides p grows, so the slope runs long and flat into the chest.
+    dirz = dz / np.maximum(u, 1e-6)
+    p = 0.75 + 0.3 * smoothstep(-0.2, 0.8, dirz)
+    # Towards the middle the slope runs down gently into the cleavage instead of
+    # dropping off (which read as a point from the side).
+    p = p + 0.6 * smoothstep(-0.1, -0.8, dx / np.maximum(u, 1e-6))
+    height = b["depth"] * np.clip(1 - u ** 2, 0, 1) ** p
+    # The whole old breast (out to 1.45) is replaced by wall + dome, so none of
+    # its creases survive; past that it fades back to the original surface.
+    offset = (wall[:, 1] - height - y) * smoothstep(1.85, 1.45, u) * region
+    edge = region & (u > 1.0)
+    for _ in range(30):
         offset[edge] = 0.5 * offset[edge] + 0.5 * (avg @ offset)[edge]
     # Even out the facets over the whole breast.
     for _ in range(4):
         offset[region] = 0.7 * offset[region] + 0.3 * (avg @ offset)[region]
     out = verts.copy()
     out[:, 1] += offset
-    moved = np.abs(offset) > 1e-4
+    # A final volume-keeping smoothing over the whole area takes out the
+    # facets and creases left from the old shape.
+    area = region & (u < 1.9)
+    for _ in range(12):
+        for factor in (0.5, -0.53):
+            out[area] += factor * (avg @ out - out)[area]
+    moved = (np.abs(offset) > 1e-4) | area
     return out, moved
 
 

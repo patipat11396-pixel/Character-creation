@@ -27,7 +27,7 @@ BODIES = {
         # Breast shape (shape_breasts): a round dome on the chest wall, centred at
         # (x, z), reaching rx to the sides, `up` above and `down` below, standing
         # `depth` cm forward of the chest wall at its fullest (about a C cup).
-        "breasts": {"x": 7.6, "z": 112.0, "rx": 6.0, "up": 8.0, "down": 5.2, "depth": 6.4},
+        "breasts": {"x": 7.4, "z": 110.5, "rx": 7.0, "up": 9.0, "down": 6.6, "depth": 7.6},
         # ---- face
         "nose_tip": (-7.45, 136.3),    # (y, z)
         "nose_width": 1.6,

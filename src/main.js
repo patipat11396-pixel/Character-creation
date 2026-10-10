@@ -60,8 +60,9 @@ const EYE_COLORS = [
 const EYE_DEFAULTS = { color: null };
 // Brows lifted off the painting (tools/build_skin.py) and drawn back where these put them:
 // height and spacing in cm, size as a scale, angle in degrees (outer end up), thickness 0..1
-// (0.5 as painted), amount 0..1, colour null for the painted one.
-const BROW_DEFAULTS = { color: null, height: 0, spacing: 0, size: 1, angle: 0, thickness: 0.5, amount: 1 };
+// (0.5 as painted), amount 0..1. Colour 'hair' follows the hair colour, null keeps
+// the painted one, a hex sets its own.
+const BROW_DEFAULTS = { color: 'hair', height: 0, spacing: 0, size: 1, angle: 0, thickness: 0.5, amount: 1 };
 // Face shape keys built by tools/face.py (FACE_SHAPES), grouped for the menu.
 // Each slider runs -1 … 1; 0 is the model as made.
 const FACE_GROUPS = [
@@ -607,6 +608,17 @@ function setEyes(change) {
 function buildBrowControls() {
   buildColorSwatches($('brow-colors'), [{ name: 'Painted', hex: null }, ...HAIR_COLORS], 'brow-swatch',
     (color) => setBrows({ color }));
+  // First choice: follow the hair colour.
+  const same = document.createElement('button');
+  same.type = 'button';
+  same.className = 'swatch brow-swatch brow-hair';
+  same.dataset.color = 'hair';
+  same.setAttribute('role', 'radio');
+  same.setAttribute('aria-label', 'Same as hair');
+  same.title = 'Same as hair';
+  same.innerHTML = '<span>H</span>';
+  same.addEventListener('click', () => setBrows({ color: 'hair' }));
+  $('brow-colors').prepend(same);
   $('brow-custom').addEventListener('input', (e) => setBrows({ color: e.target.value }));
   document.querySelectorAll('[data-brow]').forEach((input) =>
     input.addEventListener('input', () => setBrows({ [input.dataset.brow]: Number(input.value) })));
@@ -623,11 +635,14 @@ function setBrows(change) {
   u.browAngle.value = THREE.MathUtils.degToRad(b.angle);
   u.browThick.value = b.thickness;
   u.browAmount.value = b.amount;
-  u.browTint.value = b.color ? 1 : 0;
-  if (b.color) u.browColor.value.set(b.color);
+  const c = b.color === 'hair' ? state.hair.color : b.color;
+  u.browTint.value = c ? 1 : 0;
+  if (c) u.browColor.value.set(c);
+  const hairSwatch = document.querySelector('.brow-hair');
+  if (hairSwatch) hairSwatch.style.background = state.hair.color;
   document.querySelectorAll('[data-brow]').forEach((input) => { input.value = b[input.dataset.brow]; });
   document.querySelectorAll('.brow-swatch').forEach((el) => el.setAttribute('aria-checked', String(el.dataset.color === (b.color ?? ''))));
-  if (b.color) $('brow-custom').value = b.color;
+  if (c) $('brow-custom').value = c;
 }
 
 function buildLipControls() {
@@ -779,6 +794,7 @@ function setHair(change) {
   if (hairStyles.length && state.hair.style !== shownStyle) showHairstyle(state.hair.style);
   setHairColor(hairMat, state.hair.color);
   $('hair-styles').style.setProperty('--hair', state.hair.color);
+  if (state.brows) setBrows({});                // brows that follow the hair colour
   document.querySelectorAll('.hair-swatch').forEach((b) =>
     b.setAttribute('aria-checked', String(b.dataset.color === state.hair.color)));
   $('hair-custom').value = state.hair.color;
