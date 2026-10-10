@@ -74,14 +74,14 @@ BODIES = {
         "top_z": 171.98,
         "eye": {"x": 5.4, "z": 156.4, "w": 5.2, "h": 3.8},
         # The repainted iris: large, its top fifth under the upper lid (as the female's).
-        "iris": {"x": 5.05, "z": 157.05, "rx": 1.75, "rz": 1.75},
+        "iris": {"x": 4.65, "z": 156.85, "rx": 1.49, "rz": 1.49},
         "brow_box": [1.0, 159.0, 9.5, 161.4],
         # The painted eyes' upper halves do not match the lower: repainted (build_skin.py).
         # The opening sits inside the sculpted eye socket; the iris colours are
         # read from the painted iris (sample) below the seam.
-        "eye_repaint": {"seam_z": 156.1, "opening": {"x": 5.4, "z": 156.35, "a": 2.45, "b": 1.75},
+        "eye_repaint": {"seam_z": 156.1, "opening": {"x": 4.85, "z": 156.55, "a": 2.0, "b": 1.5},
                         "sample": {"x": 4.68, "z": 156.37, "r": 1.15},
-                        "painted": {"x": 4.85, "z": 156.4, "a": 2.75, "b": 2.2}},   # the old eye, painted out
+                        "painted": {"x": 4.75, "z": 156.4, "a": 3.0, "b": 2.2}},   # the old eye, painted out
         "depth": 0.82,
     },
 }
