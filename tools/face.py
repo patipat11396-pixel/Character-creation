@@ -13,6 +13,7 @@ All coordinates are the source mesh's: centimetres, Z up, front = -Y.
   tongue.
 """
 import numpy as np
+import trimesh
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import dijkstra
 
@@ -337,6 +338,68 @@ def face_shapes(verts):
     out["eyeHeight"] = delta(dz=0.9 * eye)
     out["eyeTilt"] = delta(dz=0.15 * (np.abs(x) - EYE[0]) * eye)
     return out
+
+
+# ---------------------------------------------------------------- eye patches
+
+# The eye images (models/eyes, 400 px squares) draw an eye about 290 px wide,
+# centred 47 px below the middle. A 7.6 cm square patch therefore gives a
+# 5.5 cm eye centred in the recess. Measured on the final (85%) head.
+EYE_PATCH = {"centre_x": 5.4, "eye_z": 150.6, "size": 7.6, "offset_px": 47, "grid": 28, "lift": 0.07}
+
+
+def eye_patches(verts, faces, morphs, names):
+    """One patch per eye that hugs the head surface in the eye recess.
+
+    Grid points are projected straight back onto the head; each takes the
+    head's shape-key movement at that spot, so the eyes follow the face
+    sliders. Returns (positions, faces, uvs, normals, {morph: deltas}).
+    """
+    head_faces = faces[(verts[faces][:, :, 2] > 133).all(1)]
+    mesh = trimesh.Trimesh(verts, head_faces, process=False)
+    p = EYE_PATCH
+    n = p["grid"]
+    centre_z = p["eye_z"] + p["offset_px"] / 400 * p["size"]
+    all_v, all_f, all_uv, all_n = [], [], [], []
+    all_d = {k: [] for k in names}
+    t = np.linspace(0, 1, n + 1)
+    uu, vv = np.meshgrid(t, t, indexing="ij")
+    uu, vv = uu.ravel(), vv.ravel()
+    for side in (1, -1):
+        # Image right is the outer corner: +x for the left eye, mirrored for the right.
+        x = side * (p["centre_x"] + (uu - 0.5) * p["size"])
+        z = centre_z + (vv - 0.5) * p["size"]
+        origins = np.c_[x, np.full_like(x, -40.0), z]
+        dirs = np.tile([0.0, 1.0, 0.0], (len(x), 1))
+        locs, ray, tri = mesh.ray.intersects_location(origins, dirs, multiple_hits=False)
+        hit = np.full((len(x), 3), np.nan)
+        tri_of = np.full(len(x), -1)
+        hit[ray], tri_of[ray] = locs, tri
+        ok = tri_of >= 0
+        hit[~ok] = origins[~ok] + [0, 40, 0]          # off the head: never seen (transparent)
+        fn = mesh.face_normals[np.maximum(tri_of, 0)]
+        fn[~ok] = [0, -1, 0]
+        pos = hit + fn * p["lift"]                    # just off the skin
+        # Barycentric weights of each hit in its triangle, to carry the shape keys.
+        tris = head_faces[np.maximum(tri_of, 0)]
+        bary = trimesh.triangles.points_to_barycentric(verts[tris], hit)
+        bary[~ok] = 0
+        for k in names:
+            all_d[k].append(np.einsum("ij,ijk->ik", bary, morphs[k][tris]))
+        quads = []
+        for i in range(n):
+            for j in range(n):
+                a_, b_ = i * (n + 1) + j, (i + 1) * (n + 1) + j
+                quad = [a_, b_, b_ + 1, a_ + 1]
+                if ok[quad].all():
+                    quads += [(a_, b_, b_ + 1), (a_, b_ + 1, a_ + 1)] if side > 0 else [(a_, b_ + 1, b_), (a_, a_ + 1, b_ + 1)]
+        base = sum(len(v_) for v_ in all_v)
+        all_v.append(pos)
+        all_f.append(np.array(quads) + base)
+        all_uv.append(np.c_[uu, 1 - vv])              # glTF UVs: v runs down the image
+        all_n.append(fn)
+    return (np.vstack(all_v), np.vstack(all_f), np.vstack(all_uv), np.vstack(all_n),
+            {k: np.vstack(d) for k, d in all_d.items()})
 
 
 # ---------------------------------------------------------------- teeth and tongue

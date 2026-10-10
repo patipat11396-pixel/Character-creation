@@ -117,6 +117,22 @@ the inside of the lip fold. The menu mixes the chosen lip colour over the
 skin by that mask times Intensity (`src/main.js`, skin shader). Presets:
 Natural, Nude, Pink, Rose, Coral, Red, Berry, or any custom colour.
 
+## Eyes
+
+Drawn eyes in 10 styles. The part sheets in `models/source/eyes/` (eye white,
+iris, pupil, open-eye lashes, closed-eye lashes; 5 x 2 grids where style N of
+every part lines up) are cut into `models/eyes/<part>_<1-10>.png` by
+`python3 tools/slice_eyes.py`.
+
+`tools/face.py` (`eye_patches`) builds a patch over each eye recess that hugs
+the head surface and carries the face shape keys, so the eye sliders move the
+eyes. The menu (`src/eyes.js`) composes the chosen parts into one texture:
+the white, the iris tinted with the eye colour and the pupil (both kept
+inside the white), then the lashes; the closed-eye lashes replace it all
+during a blink. **Style** picks all four parts at once; Shape, Iris, Pupil
+and Lashes mix and match. Eye colours: Brown, Dark brown, Hazel, Green,
+Blue, Grey, Amber, Black or custom.
+
 ## Face shape (test)
 
 `tools/face.py` (`face_shapes`) adds 16 shape keys, each a smooth weighted

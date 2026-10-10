@@ -130,6 +130,10 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 .sublabel { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
 .link { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
 
+.swatches.eyes { grid-template-columns: repeat(8, 1.6rem); gap: 6px; }
+.eye-parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 12px; color: var(--muted); }
+.eye-parts label { display: flex; flex-direction: column; gap: 4px; }
+.eye-parts select, .slider select { padding: 6px; }
 .face-shape { display: flex; flex-direction: column; gap: 6px; }
 
 .debug summary { cursor: pointer; color: var(--muted); font-size: 13px; }

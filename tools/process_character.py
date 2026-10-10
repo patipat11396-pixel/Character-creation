@@ -18,6 +18,7 @@ This script:
 * smooths the weights over the shoulders, upper back and neck, where the
   source's hard bone borders crease and wrinkle when the arms are raised,
 * adds face shape keys (nose, lips, forehead, chin, jaw, eye recesses),
+* adds eye patches on the recesses for the menu's drawn eyes,
 * stores a lip mask (_LIPMASK) for lip colour in the menu,
 * smooths the eye area (see face.py), cuts the lips apart and adds mouth
   shape keys (jawOpen, smile, frown, mouthRound) plus teeth and a tongue,
@@ -377,6 +378,26 @@ def main():
             "material": len(g["materials"]) - 1,
             "targets": targets,
         })
+    # ---- eye patches: drawn eyes on the recesses, textured by the menu
+    ev, ef, euv, en, ed = face.eye_patches(verts, faces, morphs, MORPH_NAMES)
+    joints = np.zeros((len(ev), 4), np.uint16)
+    joints[:, 0] = head
+    weights = np.zeros((len(ev), 4), np.float32)
+    weights[:, 0] = 1
+    g["materials"].append({"name": "Eyes", "alphaMode": "BLEND", "pbrMetallicRoughness": {
+        "baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0, "roughnessFactor": 0.45}})
+    g["meshes"][0]["primitives"].append({
+        "attributes": {"POSITION": out.append(ev.astype(np.float32), 34962),
+                       "NORMAL": out.append(en.astype(np.float32), 34962),
+                       "TEXCOORD_0": out.append(euv.astype(np.float32), 34962),
+                       "JOINTS_0": out.append(joints, 34962),
+                       "WEIGHTS_0": out.append(weights, 34962)},
+        "indices": out.append(ef.astype(np.uint32).reshape(-1, 1), 34963),
+        "material": len(g["materials"]) - 1,
+        "targets": [{"POSITION": out.append_sparse(ed[k]),
+                     "NORMAL": out.append_sparse(np.zeros_like(ed[k]))} for k in MORPH_NAMES],
+    })
+    print(f"eyes: {len(ev)} patch vertices")
     g["meshes"][0]["weights"] = [0] * len(MORPH_NAMES)
     g["meshes"][0]["extras"] = {"targetNames": MORPH_NAMES}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"

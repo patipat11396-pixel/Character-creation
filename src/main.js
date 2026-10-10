@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
+import { EYE_STYLES, EYE_COLORS, EYE_DEFAULTS, EyeTexture, Blinker } from './eyes.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
@@ -74,6 +75,7 @@ const state = {
   hair: { ...HAIR_DEFAULTS },
   hairFits: {}, // style id -> fit, for every style that has been fitted
   lips: { ...LIP_DEFAULTS },
+  eyes: { ...EYE_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
 let grip = RELAXED_GRIP;
@@ -271,6 +273,8 @@ float stubbleHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const hairMat = hairMaterial(HAIR_DEFAULTS.color);
+const eyeTex = new EyeTexture();
+const blinker = new Blinker();
 
 // ---------------------------------------------------------------- models
 
@@ -298,7 +302,8 @@ async function loadModel(kind) {
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (o.material.name === 'Eyes') o.material = eyeTex.material;
+      else if (!['Teeth', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -471,6 +476,47 @@ function buildFaceControls() {
 function setFace(values) {
   for (const k of FACE_KEYS) if (typeof values?.[k] === 'number') state.face[k] = values[k];
   document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face]; });
+}
+
+function buildEyeControls() {
+  const box = $('eye-colors');
+  for (const c of EYE_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch eye-swatch';
+    b.style.background = c.hex;
+    b.dataset.color = c.hex;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', c.name);
+    b.title = c.name;
+    b.addEventListener('click', () => setEyes({ color: c.hex }));
+    box.appendChild(b);
+  }
+  $('eye-custom').addEventListener('input', (e) => setEyes({ color: e.target.value }));
+  for (const part of ['style', 'white', 'iris', 'pupil', 'lash']) {
+    const sel = $(`eye-${part}`);
+    for (let i = 1; i <= EYE_STYLES; i++) sel.appendChild(new Option(`${i}`, i));
+    sel.addEventListener('change', () => {
+      const n = Number(sel.value);
+      // "Style" sets every part at once; the others mix and match.
+      setEyes(part === 'style' ? { white: n, iris: n, pupil: n, lash: n } : { [part]: n });
+    });
+  }
+  $('eye-blink').addEventListener('change', (e) => setEyes({ blink: e.target.checked }));
+  setEyes({});
+}
+
+function setEyes(change) {
+  Object.assign(state.eyes, change);
+  const e = state.eyes;
+  for (const part of ['white', 'iris', 'pupil', 'lash']) $(`eye-${part}`).value = e[part];
+  const same = e.white === e.iris && e.iris === e.pupil && e.pupil === e.lash;
+  $('eye-style').value = same ? e.white : '';
+  document.querySelectorAll('.eye-swatch').forEach((b) =>
+    b.setAttribute('aria-checked', String(b.dataset.color === e.color)));
+  $('eye-custom').value = e.color;
+  $('eye-blink').checked = e.blink;
+  eyeTex.draw(e);
 }
 
 function buildLipControls() {
@@ -713,6 +759,7 @@ function snapshot() {
     hair: { ...state.hair },
     hairFits: { ...state.hairFits, [state.hair.style]: pickFit(state.hair) },
     lips: { ...state.lips },
+    eyes: { ...state.eyes },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
@@ -732,6 +779,7 @@ function applySetup(setup, { withName = false } = {}) {
   }
   if (setup.lips) setLips({ ...LIP_DEFAULTS, ...setup.lips });
   if (setup.face) setFace(setup.face);
+  if (setup.eyes) setEyes({ ...EYE_DEFAULTS, ...setup.eyes });
   if (setup.hands) {
     state.hands = setup.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));
@@ -869,6 +917,7 @@ renderer.setAnimationLoop(() => {
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseHands(dt);
   poseMouth(dt);
+  eyeTex.setClosed(blinker.update(dt, state.eyes.blink));
   for (const ch of Object.values(characters)) {
     if (!ch.hair) continue;
     ch.root.updateMatrixWorld(true); // the physics reads this frame's head and spine
@@ -898,6 +947,7 @@ setExpression(state.expression);
 buildHairControls();
 buildLipControls();
 buildFaceControls();
+buildEyeControls();
 document.querySelectorAll('[data-hands]').forEach((b) =>
   b.addEventListener('click', () => {
     state.hands = b.dataset.hands;
