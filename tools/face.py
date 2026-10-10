@@ -281,12 +281,13 @@ def scalp_mask(verts, front_raise=0.0):
     hs = [158.5, 158.5, 156.5, 153, 148, 143.5, 142.5, 141, 140.5, 139.5]
     line = np.interp(y, ys, hs) + front_raise * smoothstep(12, 6, y)
     mask = smoothstep(line - 0.6, line + 0.6, z)
-    # Ears stay bare, with the hair cut close around them (as a barber does):
-    # an oval just larger than the ear (measured: 14.5-19.5 cm back,
-    # 142.5-151 cm high).
-    ey, ez = (y - 17.0) / 3.4, (z - 146.8) / 5.0
-    ear = smoothstep(1.15, 0.95, np.sqrt(ey ** 2 + ez ** 2)) * smoothstep(9.8, 10.4, np.abs(x))
-    mask *= 1 - ear
+    # Ears stay bare with a thin clean edge, as a barber leaves it: the ear
+    # is the part that stands out past the skull (|x| > 11 cm there).
+    ear_pts = verts[(np.abs(x) > 11.25) & (z > 142) & (z < 151.5) & (y > 13.5) & (y < 20.5)]
+    if len(ear_pts):
+        from scipy.spatial import cKDTree
+        near = cKDTree(ear_pts).query(verts)[0]
+        mask *= smoothstep(0.35, 0.9, near)
     # The nape tapers: narrower as it goes down the neck.
     nape = smoothstep(144, 141, z)
     mask *= 1 - nape * smoothstep(5.5, 7.5, np.abs(x))
