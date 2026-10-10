@@ -287,7 +287,11 @@ def scalp_mask(verts, front_raise=0.0):
     if len(ear_pts):
         from scipy.spatial import cKDTree
         near = cKDTree(ear_pts).query(verts)[0]
-        mask *= smoothstep(0.35, 0.9, near)
+        mask *= smoothstep(1.0, 1.8, near)
+    # The ear's hollow and the flap in front of its opening sit closer to the
+    # skull than the rim does; clear that lower front part too.
+    ey, ez = (y - 16.0) / 3.3, (z - 145.6) / 4.3
+    mask *= 1 - smoothstep(1.1, 0.85, np.sqrt(ey ** 2 + ez ** 2)) * smoothstep(9.2, 9.9, np.abs(x))
     # The nape tapers: narrower as it goes down the neck.
     nape = smoothstep(144, 141, z)
     mask *= 1 - nape * smoothstep(5.5, 7.5, np.abs(x))
