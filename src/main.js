@@ -329,7 +329,7 @@ async function buildCharacter(body, kind) {
   });
   // The unprocessed source is in centimetres.
   if (new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y > 10) root.scale.multiplyScalar(0.01);
-  mesh.material = skin;
+  mesh.material = kind === 'fixed' ? await paintedSkin(body) : skin;
   addWeightColors(mesh.geometry);
   const fingers = [];
   for (const bone of mesh.skeleton.bones) {
@@ -348,12 +348,47 @@ async function buildCharacter(body, kind) {
   const landmarks = root.userData.body ?? (kind === 'fixed' ? null : (await loadModel(body, 'fixed')).body);
   const character = {
     root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null,
-    body: landmarks, headMap: headMapWorld(landmarks.head_map),
+    body: landmarks, headMap: headMapWorld(landmarks.head_map), skin: mesh.material,
   };
   characters[charKey(body, kind)] = character;
   root.visible = false;
   scene.add(root);
   return character;
+}
+
+// The painted skin (tools/build_skin.py): one material per body, sharing the
+// skin shader. Skin tones tint it by tone / the texture's reference colour.
+const texLoader = new THREE.TextureLoader();
+async function paintedSkin(body) {
+  const load = async (name, srgb) => {
+    const t = await texLoader.loadAsync(`models/skin/${body}_${name}.jpg`);
+    t.flipY = false;                        // glTF texture coordinates run top-down
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = 4;
+    return t;
+  };
+  const [map, normalMap, roughnessMap, info] = await Promise.all([
+    load('color', true), load('normal', false), load('rough', false),
+    fetch(`models/skin/${body}.json`).then((r) => r.json()),
+  ]);
+  const m = skin.clone();
+  m.onBeforeCompile = skin.onBeforeCompile;
+  Object.assign(m, { map, normalMap, roughnessMap, roughness: 1, sheen: 0.25 });
+  m.userData.reference = new THREE.Color(info.reference);
+  return m;
+}
+
+/** Tint every body's skin for skin tone `tone` (an entry of SKIN_TONES). */
+function applyTone(tone) {
+  for (const ch of Object.values(characters)) {
+    const m = ch.skin;
+    if (!tone.hex) m.color.set(m.userData.reference ? 0xffffff : 0xd7bd96);
+    else if (m.userData.reference) {
+      const t = new THREE.Color(tone.hex), r = m.userData.reference;
+      m.color.setRGB(t.r / r.r, t.g / r.g, t.b / r.b);
+    } else m.color.set(tone.hex);
+    m.sheenColor.set(tone.hex ?? m.userData.reference ?? 0xd7bd96).lerp(new THREE.Color(0xffffff), 0.3);
+  }
 }
 
 // The build's head map (mesh cm: new = scale * old + offset) as a world-space
@@ -675,11 +710,12 @@ function buildSwatches() {
   SKIN_TONES.forEach((tone, i) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'swatch' + (i >= 5 ? ' dark' : '');
-    b.style.background = tone.hex;
+    b.className = 'swatch' + (i >= 6 ? ' dark' : '');
+    b.style.background = tone.hex ?? 'linear-gradient(135deg, #f0c4a4, #c98e6c)';
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-label', `Tone ${i + 1} of ${SKIN_TONES.length}`);
-    b.innerHTML = `<span>${i + 1}</span>`;
+    b.setAttribute('aria-label', tone.name ?? `Monk tone ${i}`);
+    b.title = tone.name ?? `Monk tone ${i}`;
+    b.innerHTML = `<span>${tone.hex ? i : 'P'}</span>`;
     b.addEventListener('click', () => setTone(i));
     b.addEventListener('keydown', (e) => {
       const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
@@ -694,13 +730,12 @@ function buildSwatches() {
 
 function setTone(i) {
   state.tone = i;
-  skin.color.set(SKIN_TONES[i].hex);
-  skin.sheenColor.set(SKIN_TONES[i].hex).lerp(new THREE.Color(0xffffff), 0.3);
+  applyTone(SKIN_TONES[i]);
   [...$('swatches').children].forEach((b, k) => {
     b.setAttribute('aria-checked', String(k === i));
     b.tabIndex = k === i ? 0 : -1;
   });
-  $('tone-value').textContent = `${i + 1} / ${SKIN_TONES.length}`;
+  $('tone-value').textContent = SKIN_TONES[i].name ?? `Monk ${i} / ${SKIN_TONES.length - 1}`;
 }
 
 function buildAnimationList(clips) {
@@ -769,6 +804,7 @@ async function setCharacter(body = state.body, model = state.model) {
   for (const [key, c] of Object.entries(characters)) c.root.visible = key === k;
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
   useBodyLandmarks(ch.body);
+  applyTone(SKIN_TONES[state.tone]);
   applyWeightView();
   if (hairStyles.length) {
     shownStyle = null;
@@ -779,7 +815,7 @@ async function setCharacter(body = state.body, model = state.model) {
 
 function applyWeightView() {
   for (const ch of Object.values(characters)) {
-    ch.mesh.material = state.weights ? weightMaterial : skin;
+    ch.mesh.material = state.weights ? weightMaterial : ch.skin;
   }
 }
 
@@ -796,7 +832,7 @@ function snapshot() {
   const tone = SKIN_TONES[state.tone];
   return {
     name: $('name').value.trim(),
-    skinTone: { index: state.tone + 1, id: tone.id, hex: tone.hex },
+    skinTone: { id: tone.id, hex: tone.hex },
     body: state.body,
     expression: state.expression,
     mouth: { ...state.mouth },
@@ -816,8 +852,8 @@ function snapshot() {
 function applySetup(setup, { withName = false } = {}) {
   if (!setup) return;
   if (withName) $('name').value = setup.name ?? '';
-  const i = (setup.skinTone?.index ?? 0) - 1;
-  if (i >= 0 && i < SKIN_TONES.length) setTone(i);
+  const i = SKIN_TONES.findIndex((t) => t.id === setup.skinTone?.id);
+  if (i >= 0) setTone(i);
   if (setup.body in BODIES && setup.body !== state.body) {
     state.body = setup.body;                  // the model follows in setCharacter
     if (characters[charKey()]) setCharacter();
@@ -875,7 +911,7 @@ function confirmCharacter() {
   }
   const character = save() ?? snapshot();
   window.dispatchEvent(new CustomEvent('character-confirmed', { detail: character }));
-  status(`Saved ${character.name} with skin tone ${character.skinTone.index}.`);
+  status(`Saved ${character.name}.`);
 }
 
 // ---------------------------------------------------------------- defaults for everyone

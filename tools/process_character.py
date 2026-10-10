@@ -9,8 +9,9 @@ Every body-specific position comes from tools/bodies.py.
 For each body this script:
 
 * welds the triangle soup into an indexed mesh,
-* flattens raised clothing seams on the torso (neckline, armholes); the rest
-  of the shape is unchanged,
+* smooths the body below the chin: flattens the bodysuit's ridges, removes
+  the female nipples, evens out dents and bumps, and smooths the shoulders,
+  underarms and buttocks (clean_body),
 * adds 15 finger bones per hand (Thumb, Index, Middle, Ring, Pinky, 3 each),
   placed on the measured finger centrelines, and splits each hand's weight
   between the palm and those bones by distance to each bone,
@@ -37,6 +38,7 @@ import numpy as np
 from scipy.sparse import coo_matrix, diags
 
 import face
+import skin as paint
 from bodies import BODIES
 from glb import GlbWriter, read_accessor, read_glb
 
@@ -156,33 +158,59 @@ def crease_angles(verts, faces):
     return score
 
 
-def smooth_seams(verts, faces, avg, body):
-    """Flatten the ridges left by a removed tank top and bikini.
+def clean_body(verts, faces, avg, body, bone_at):
+    """Smooth the body below the chin; returns (new verts, vertices moved).
 
-    The sources have raised edge loops around the neckline and the armholes. They show as hard lines that get worse in motion.
-    Only vertices on those ridges (and three rings around them) move; Taubin
-    smoothing keeps the surrounding volume. Below the waist the midline is left alone so
-    the buttock crease and the crotch keep their shape.
+    * Ridges: the sources carry raised edge loops where a bodysuit was
+      (neckline, armholes, side seams, cuffs). Every crease sharper than 12
+      degrees outside the hands, feet and the crotch is flattened with three
+      rings around it: a plain Laplacian pass on the ridge itself (a step
+      survives Taubin smoothing), then Taubin smoothing, which keeps volume.
+    * Nipples (bodies with "nipples": true): a plain Laplacian pass over 2.5 cm
+      around the most forward point of each breast flattens them.
+    * Shoulders, underarms and buttocks get full-strength Taubin smoothing;
+      the rest of the body a light pass that takes out small dents and bumps.
+    bone_at(name) is a bone's bind position in mesh space.
     """
-    z0, z1 = body["torso_z"]
-    torso = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 30)
-    torso &= (np.abs(verts[:, 0]) > 1.2) | (verts[:, 2] > body["crotch_z"])   # keep the crease and crotch
-    seam = (crease_angles(verts, faces) > 22) & torso
-    grow = seam.astype(float)
+    x, y, z = verts.T
+    region = (z > 9) & (z < body["chin_z"] - 2.5) & (np.abs(x) < body["hand_x"] - 1)
+    region &= ~((np.abs(x) < 2.5) & (z > 70) & (z < 100))          # crotch and buttock cleft
+    ridge = (crease_angles(verts, faces) > 12) & region
+    grow = ridge.astype(float)
     for _ in range(3):
         grow = np.maximum(grow, (avg @ grow > 0) * 1.0)
-    mask = (grow > 0) & torso
+    w = 0.3 * region + 0.7 * ((grow > 0) & region)
+
+    def zone(centre, radius):
+        d = np.linalg.norm(verts - centre, axis=1)
+        return np.clip(1.6 - 1.6 * d / radius, 0, 1) * region
+
+    for side in ("Left", "Right"):
+        arm = bone_at(f"{side}Arm")
+        s = np.sign(arm[0])
+        w = np.maximum(w, zone(arm + [0, 0, 1.5], 10))                       # shoulder
+        w = np.maximum(w, zone(arm + [-s * 2.5, 1.0, -7.0], 8))              # underarm
+        hip = bone_at(f"{side}UpLeg")
+        w = np.maximum(w, zone(hip + [s * 1.0, 7.0, -4.0], 10))              # buttock
+    w = np.clip(w, 0, 1)
     out = verts.copy()
-    # The neckline is a small step (the top sat above the skin), which Taubin
-    # smoothing keeps, so the ridge line itself and one ring around it get a
-    # plain Laplacian pass first.
-    core = (seam | (avg @ seam.astype(float) > 0)) & mask
+    core = (ridge | (avg @ ridge.astype(float) > 0)) & region
     for _ in range(8):
         out[core] = 0.5 * out[core] + 0.5 * (avg @ out)[core]
-    for _ in range(20):
+    if body.get("nipples"):
+        for s in (-1, 1):
+            breast = region & (x * s > 3) & (x * s < 14) & (np.abs(z - body["breast_z"]) < 6)
+            tip = verts[np.flatnonzero(breast)[verts[breast, 1].argmin()]]
+            near = np.linalg.norm(verts - tip, axis=1)
+            flat = near < 2.5
+            for _ in range(25):
+                out[flat] = 0.5 * out[flat] + 0.5 * (avg @ out)[flat]
+            w = np.maximum(w, np.clip(1.5 - near / 3.0, 0, 1) * region)
+    for _ in range(30):
         for factor in (0.5, -0.53):
-            out[mask] += factor * (avg @ out - out)[mask]
-    return out, mask
+            out += (factor * w)[:, None] * (avg @ out - out)
+    moved = np.linalg.norm(out - verts, axis=1) > 1e-4
+    return out, moved
 
 
 def vertex_normals(verts, faces):
@@ -237,6 +265,9 @@ def build(body):
     verts, faces, (normals, source_weights), upper_lip, lower_lip = face.cut_mouth(
         verts, faces, [normals, source_weights])
     print(f"mouth: lip line of {len(upper_lip)} vertices cut")
+    painted = paint.load_painted(ROOT / body["painted"], pos)
+    face_uv, projected = paint.corner_uvs(verts, faces, painted)
+    print(f"painted UVs: {len(faces) - projected} faces matched, {projected} projected")
     n = len(verts)
     lips = face.lip_mask(verts)
 
@@ -311,9 +342,10 @@ def build(body):
     shoulders = (verts[:, 2] > z0) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 30)
     dense = smooth_rows(dense, avg, shoulders, iterations=25)
 
-    # ---- flatten the leftover clothing seams; recompute normals around them
-    verts, moved = smooth_seams(verts, faces, avg, body)
-    print(f"seams: smoothed {moved.sum()} vertices")
+    # ---- smooth the body; recompute normals where it moved
+    bind = {nm: np.linalg.inv(ibm[i])[:3, 3] for nm, i in bone.items() if i < len(ibm)}
+    verts, moved = clean_body(verts, faces, avg, body, bind.__getitem__)
+    print(f"body: smoothed {moved.sum()} vertices")
     near = moved | (avg @ moved.astype(float) > 0)
     normals[near] = vertex_normals(verts, faces)[near]
 
@@ -330,12 +362,20 @@ def build(body):
     top[top < 0.01] = 0
     top /= top.sum(1, keepdims=True)
 
+    # ---- split vertices along the painted texture's UV seams
+    faces, old, uvs = paint.split_by_uv(faces, face_uv)
+    verts, normals, order, top, lips = verts[old], normals[old], order[old], top[old], lips[old]
+    morphs = {k: d[old] for k, d in morphs.items()}
+    morph_normals = {k: d[old] for k, d in morph_normals.items()}
+    print(f"uv seams: {len(old)} vertices")
+
     out = GlbWriter(gltf, binary)
     g = out.gltf
     out.replace(attr["POSITION"], verts.astype(np.float32), 34962)
     out.replace(attr["NORMAL"], normals.astype(np.float32), 34962)
     out.replace(attr["JOINTS_0"], order.astype(np.uint16), 34962)
     out.replace(attr["WEIGHTS_0"], top.astype(np.float32), 34962)
+    g["meshes"][0]["primitives"][0]["attributes"]["TEXCOORD_0"] = out.append(uvs.astype(np.float32), 34962)
     out.replace(skin["inverseBindMatrices"],
                 np.array([m.T.ravel() for m in new_ibm], np.float32))
     skinned = g["meshes"][0]["primitives"][0]

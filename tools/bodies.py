@@ -9,6 +9,7 @@ BODIES = {
     "female": {
         "label": "Female",
         "src": "models/source/f_base.glb",
+        "painted": "models/source/f_painted.glb",
         "out": "models/character_female.glb",
         # ---- hands (left hand; the right is mirrored)
         "hand_x": 44,                  # everything beyond this x is hand
@@ -21,8 +22,8 @@ BODIES = {
         "hip_back_y": (2.6, 8.6),      # buttocks: behind the hip joint
         "pelvis_z": (70, 106),
         "shoulders_z": (100, 129),     # stops below the jaw
-        "torso_z": (60, 128),          # clothing seams flattened in here
-        "crotch_z": 95,
+        "nipples": True,               # flattened by clean_body
+        "breast_z": 111.0,
         # ---- face
         "nose_tip": (-7.45, 136.3),    # (y, z)
         "nose_width": 1.6,
@@ -41,6 +42,7 @@ BODIES = {
     "male": {
         "label": "Male",
         "src": "models/source/m_base.glb",
+        "painted": "models/source/m_painted.glb",
         "out": "models/character_male.glb",
         "hand_x": 50,
         "wrist_x": 54,
@@ -51,8 +53,7 @@ BODIES = {
         "hip_back_y": (-0.6, 5.4),
         "pelvis_z": (70, 106),
         "shoulders_z": (104, 143),
-        "torso_z": (60, 141),
-        "crotch_z": 95,
+
         "nose_tip": (-14.85, 152.0),
         "nose_width": 1.9,
         "mouth": {"z": 148.45, "kz": 0.0, "half": 3.6, "y": -12.8, "ky": 0.147,

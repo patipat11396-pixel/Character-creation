@@ -81,7 +81,7 @@ input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outli
 
 .swatches {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
 }
 
