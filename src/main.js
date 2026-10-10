@@ -199,12 +199,14 @@ const lipUniforms = {
   lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount },
   // Buzz cut under the hair: the scalp (_SCALPMASK) takes the hair colour.
   scalpColor: { value: new THREE.Color(HAIR_DEFAULTS.color) }, scalpAmount: { value: HAIR_DEFAULTS.under },
+  // 1 while a hair mesh is worn: use the mask with the front hairline raised.
+  scalpUnderHair: { value: 1 },
 };
 skin.onBeforeCompile = (shader) => {
   Object.assign(shader.uniforms, lipUniforms);
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nattribute float _scalpmask;\nvarying float vLip;\nvarying float vScalp;\nvarying vec3 vSkinPos;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vScalp = _scalpmask;\n  vSkinPos = position;');
+    .replace('#include <common>', '#include <common>\nattribute float _lipmask;\nattribute float _scalpmask;\nattribute float _scalpmaskhair;\nuniform float scalpUnderHair;\nvarying float vLip;\nvarying float vScalp;\nvarying vec3 vSkinPos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLip = _lipmask;\n  vScalp = mix(_scalpmask, _scalpmaskhair, scalpUnderHair);\n  vSkinPos = position;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
@@ -460,6 +462,7 @@ async function showHairstyle(id) {
     ch.hair?.detach();
     ch.hair = null;
     shownStyle = id;
+    lipUniforms.scalpUnderHair.value = 0;
     return;
   }
   if (!ch.hairRigs[id]) {
@@ -486,6 +489,7 @@ async function showHairstyle(id) {
   ch.hair = ch.hairRigs[id];
   ch.hair.attach(scene);
   shownStyle = id;
+  lipUniforms.scalpUnderHair.value = 1;
   if (following) gizmo.attach(ch.hair.root);
 }
 

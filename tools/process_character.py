@@ -335,6 +335,7 @@ def main():
     body["indices"] = out.append(faces.astype(np.uint32).reshape(-1, 1), 34963)
     body["attributes"]["_LIPMASK"] = out.append(lips.reshape(-1, 1), 34962)
     body["attributes"]["_SCALPMASK"] = out.append(face.scalp_mask(verts).reshape(-1, 1), 34962)
+    body["attributes"]["_SCALPMASKHAIR"] = out.append(face.scalp_mask(verts, front_raise=2.5).reshape(-1, 1), 34962)
     body["targets"] = [{"POSITION": out.append(morphs[k].astype(np.float32)),
                         "NORMAL": out.append(morph_normals[k].astype(np.float32))} for k in face.MORPHS]
 

@@ -265,18 +265,21 @@ def lip_mask(verts):
     return mask.astype(np.float32)
 
 
-def scalp_mask(verts):
+def scalp_mask(verts, front_raise=0.0):
     """0..1 per vertex: the buzz-cut area under the hair, on the final (scaled) head.
 
     The hairline follows a short women's crop: the forehead line at the
     front, down past the temples to short sideburns, up and over the ears,
     then down behind them to a tapered nape. Ears stay bare.
+
+    `front_raise` (cm) lifts the front of the hairline, fading out by the
+    sideburns: worn under a hair mesh, the edge then stays hidden under it.
     """
     x, y, z = verts.T
     # Hairline height (cm) by depth from front (-y) to back (+y).
     ys = [-5, 2, 5, 8, 10, 12, 13.8, 21, 24, 40]
     hs = [158.5, 158.5, 156.5, 153, 148, 143.5, 142.5, 141, 140.5, 139.5]
-    line = np.interp(y, ys, hs)
+    line = np.interp(y, ys, hs) + front_raise * smoothstep(12, 6, y)
     mask = smoothstep(line - 0.6, line + 0.6, z)
     # Ears stay bare, with the hair cut close around them (as a barber does):
     # an oval just larger than the ear (measured: 14.5-19.5 cm back,
