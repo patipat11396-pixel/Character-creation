@@ -13,7 +13,8 @@ only the head, arms, hands and feet show painted skin. For each body this:
 * lifts the painted brows off the skin into their own image so the menu can
   move, resize, recolour and thicken them,
 * marks the irises and the painted lips in a feature mask (red: iris,
-  green: lips) for the menu's eye and lip colours,
+  green: lips, blue: the whole painted eye, which skin tones leave alone)
+  for the menu's eye and lip colours,
 * writes models/skin/<body>_color.jpg and _rough.jpg (glTF
   metallic-roughness: G roughness, B metal) at SIZE x SIZE, _mask.png,
   _brow.png, and models/skin/<body>.json with the reference skin colour
@@ -120,6 +121,26 @@ def iris_mask(color, covered, pos, body):
         r = np.hypot((x - ix) / i["rx"], (z - i["z"]) / i["rz"])
         out = np.maximum(out, smoothstep(1.05, 0.9, r) * front * coloured)
     return out
+
+
+def eye_area(color, covered, pos, iris, body):
+    """1 on the painted eyes (whites, lashes, irises), which skin tones leave alone."""
+    x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
+    e = body["eye"]
+    hsv = cv2.cvtColor(color, cv2.COLOR_RGB2HSV)
+    eye_like = np.maximum.reduce([smoothstep(0.28, 0.14, hsv[..., 1]) * smoothstep(0.22, 0.38, hsv[..., 2]),  # white, grey
+                                  smoothstep(0.4, 0.25, hsv[..., 2]),                                       # dark
+                                  iris])
+    if "eye_repaint" in body:                  # the repainted opening, with its lash line
+        o = body["eye_repaint"]["opening"]
+        cx, cz, ax, az = o["x"], o["z"], o["a"] + 0.4, o["b"] + 0.7
+    else:
+        cx, cz, ax, az = e["x"], e["z"], e["w"] / 2 + 0.3, e["h"] / 2 + 0.3
+    q = np.hypot((np.abs(x) - cx) / ax, (z - cz) / az)
+    # Grown a few texels so the edge where the eye blends into the skin is included.
+    eye_like = cv2.dilate(eye_like.astype(np.float32), np.ones((7, 7), np.uint8))
+    out = smoothstep(1.0, 0.9, q) * covered * (y < body["nose_tip"][0] + 8) * eye_like
+    return cv2.GaussianBlur(out.astype(np.float32), (0, 0), 1.0)
 
 
 def lip_mask(color, covered, pos, skin_rgb, body):
@@ -312,6 +333,7 @@ def build(key):
     mask = np.zeros((SIZE, SIZE, 3), np.float32)
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)
+    mask[..., 2] = eye_area(color, covered, pos, mask[..., 0], body)
 
     # Island borders hold texels blended with the painting's background; drop
     # one texel ring and grow the islands back out from their insides.

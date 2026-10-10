@@ -59,7 +59,8 @@ the same triangles in another order):
   openings are repainted (white, a round iris coloured from the lower half,
   highlights, lash shadow).
 - The brows are lifted off into their own image and painted out of the skin.
-- A feature mask marks the irises (red) and the painted lips (green).
+- A feature mask marks the irises (red), the painted lips (green) and the
+  whole painted eye (blue), which skin tones leave alone.
 
 Outputs in `models/skin/`: `<body>_color.jpg`, `_rough.jpg`, `_mask.png`,
 `_brow.png` and `<body>.json` (reference skin colour, brow box). It needs

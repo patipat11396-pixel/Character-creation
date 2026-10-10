@@ -250,10 +250,15 @@ varying vec3 vSkinPos;`)
     .replace('#include <color_fragment>', `#include <color_fragment>
   {
 #ifdef USE_MAP
-    // Painted skin: the feature mask marks the irises (red) and the lips (green).
+    // Painted skin: the feature mask marks the irises (red), the lips (green)
+    // and the whole painted eye (blue).
     vec3 fm = texture2D(featureMask, vMapUv).rgb;
 #else
     vec3 fm = vec3(0.0, vLip, 0.0);
+#endif
+#ifdef USE_MAP
+    // Skin tones tint the texture through the material colour; the eyes keep the painting.
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb / max(diffuse, vec3(1e-3)), fm.b);
 #endif
     float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
     diffuseColor.rgb = mix(diffuseColor.rgb, lipColor * (0.45 + 1.1 * lum), clamp(fm.g, 0.0, 1.0) * lipAmount);
