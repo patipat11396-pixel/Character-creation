@@ -44,10 +44,6 @@ from glb import GlbWriter, read_accessor, read_glb
 
 ROOT = Path(__file__).resolve().parent.parent
 FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
-# The old character's head (as the hairstyles and the menu's buzz-cut hairline
-# were fitted to it), in its mesh centimetres: the top, the half width and the
-# front and back 6 cm below the top, and the bottom of the chin.
-REF_HEAD = {"top": 164.63, "half": 10.31, "front": 2.6, "back": 26.75, "chin": 136.33}
 PALM_NORMAL = np.array([0.0, 0.0, -1.0])          # palms face down in the T-pose
 # Thumb curl direction per bone, found by searching for the axes and angles that
 # put the thumb tip on the curled index and middle fingers without bending the
@@ -58,20 +54,6 @@ THUMB_CURL = [np.array([0.0, 0.9, -0.45]), np.array([0.0, 0.37, -0.93]), np.arra
 def smoothstep(a, b, x):
     t = np.clip((x - a) / (b - a), 0, 1)
     return t * t * (3 - 2 * t)
-
-
-def head_map(verts, body):
-    """Per-axis scale and offset taking the old head onto this one:
-    new = scale * old + offset (mesh cm). Hairstyles and the hairline use it."""
-    top = verts[:, 2].max()
-    level = verts[np.abs(verts[:, 2] - (top - 6)) < 0.3]
-    half = np.abs(level[:, 0]).max()
-    front, back = level[:, 1].min(), level[:, 1].max()
-    r = REF_HEAD
-    scale = np.array([half / r["half"], (back - front) / (r["back"] - r["front"]),
-                      (top - body["chin_z"]) / (r["top"] - r["chin"])])
-    offset = np.array([0.0, front - scale[1] * r["front"], top - scale[2] * r["top"]])
-    return {"scale": [round(float(v), 4) for v in scale], "offset": [round(float(v), 3) for v in offset]}
 
 
 def matrix(acc_rows):
@@ -425,10 +407,8 @@ def build(body):
     g["materials"][0]["name"] = "Skin"
     g["nodes"][0]["scale"] = [0.01, 0.01, 0.01]  # centimetres -> metres
     # Landmarks the menu reads (gltf.scene.userData.body), in mesh centimetres.
-    extras = {k: body[k] for k in ("label", "ear", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
-    extras["head_map"] = head_map(verts, body)
+    extras = {k: body[k] for k in ("label", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
     g["scenes"][0].setdefault("extras", {})["body"] = extras
-    print(f"head map: {extras['head_map']}")
     for anim in g["animations"]:
         anim["name"] = anim["name"].removesuffix("_RT")
     g["asset"]["generator"] = "Character-creation tools/process_character.py"

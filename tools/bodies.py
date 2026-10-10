@@ -36,8 +36,6 @@ BODIES = {
         "top_z": 158.25,
         "eye": {"x": 5.65, "z": 141.2, "w": 5.3, "h": 4.3},
         "depth": 0.81,                 # head depth against the old reference head
-        # ---- scalp (menu buzz cut)
-        "ear": {"y": 7.8, "z": 139.6, "ry": 3.1, "rz": 4.4, "x": 8.6},
     },
     "male": {
         "label": "Male",
@@ -65,6 +63,5 @@ BODIES = {
         "top_z": 171.98,
         "eye": {"x": 5.4, "z": 156.4, "w": 5.2, "h": 3.8},
         "depth": 0.82,
-        "ear": {"y": 1.0, "z": 154.5, "ry": 3.0, "rz": 4.6, "x": 8.8},
     },
 }
