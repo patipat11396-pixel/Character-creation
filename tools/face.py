@@ -407,35 +407,54 @@ def _at(path, s, side):
 
 
 def _teeth(verts, top, inset, height, upper):
-    """A row of rounded teeth hanging from (upper) or standing on (lower) z=top."""
+    """One continuous row of teeth (as in stylised films): a smooth white
+    band along the arch, its root end running `height` past the visible part
+    into the gum and under the lip, its biting edge rounded and gently
+    scalloped where the teeth meet, with shallow grooves between them."""
     m = B["mouth"]
-    z0, z1 = (top - height, top) if upper else (top, top + height)
-    path = _arch_path(verts, z0, z1, inset, upper)
+    edge_z = top - height if upper else top + height             # biting edge
+    path = _arch_path(verts, min(edge_z, top), max(edge_z, top), inset, upper)
     unit = 0.82 * m["half"] / sum(t[1] for t in TEETH[:5]) * (1 if upper else 0.88)
-    pts0, f0 = _sphere()
-    verts_out, faces = [], []
-    for side in (-1, 1):
-        s = 0.0
-        for name, w, h, point in TEETH:
-            width = w * unit
-            (px, py), t, n = _at(path, s + width / 2, side)
-            s += width
-            th = height * h
-            depth = (0.3 if name != "molar" else 0.55) * height / 0.55
-            p = np.sign(pts0) * np.abs(pts0) ** 0.55                # rounded box
-            p = p * [width * 0.47, depth / 2, th / 2]
-            edge = -p[:, 2] if upper else p[:, 2]                # towards the biting edge
-            root = smoothstep(0, th / 2, -edge)
-            p[:, 0] *= 1 - 0.2 * root                            # narrower at the gum
-            p[:, 1] *= 1 - 0.3 * root
-            tip = smoothstep(0, th / 2, edge) * point * th * (1 - np.abs(p[:, 0]) / (width * 0.47))
-            p[:, 2] += -tip if upper else tip                    # canine point
-            p[:, 1] -= 0.1 * (p[:, 2] / th) ** 2                 # slight curve of the front face
-            xy = np.outer(p[:, 0], t * side) - np.outer(p[:, 1], n) + [px, py]
-            zz = top - th / 2 + p[:, 2] if upper else top + th / 2 + p[:, 2]
-            faces.append(f0 + sum(len(v_) for v_ in verts_out))
-            verts_out.append(np.c_[xy, zz])
-    return np.vstack(verts_out), np.vstack(faces), path
+    bounds = np.cumsum([0] + [w * unit for _, w, _, _ in TEETH])
+    s_end = min(bounds[-1], 0.97 * path[0][-1])
+    root_z = top + (0.6 if upper else -0.35)                    # hidden in the gum
+    thick, r = 0.32, 0.12
+    sgn = -1 if upper else 1                                     # from root towards the edge
+    # Cross-section (back from the front face, height from the edge towards the root).
+    prof = [(0.0, abs(root_z - edge_z))] + [(0.0, h) for h in np.linspace(abs(root_z - edge_z) * 0.6, r, 4)]
+    prof += [(r - r * np.cos(a), r - r * np.sin(a)) for a in np.linspace(0.3, np.pi / 2, 4)]
+    prof += [(thick - r + r * np.sin(a), r - r * np.cos(a)) for a in np.linspace(0, np.pi / 2, 4)]
+    prof += [(thick, abs(root_z - edge_z))]
+    ss = np.linspace(-s_end, s_end, 241)
+    rows = []
+    for s_ in ss:
+        (px, py), t, n = _at(path, abs(s_), 1 if s_ >= 0 else -1)
+        a_ = abs(s_)
+        k = min(np.searchsorted(bounds, a_, side="right") - 1, len(TEETH) - 1)
+        w = bounds[k + 1] - bounds[k]
+        f = (a_ - bounds[k]) / w                                 # 0..1 across this tooth
+        joint = np.exp(-((min(f, 1 - f) * w) / 0.07) ** 2)       # 1 where two teeth meet
+        # A soft scallop where teeth meet; the row gets shorter smoothly towards the back.
+        lift = 0.03 * joint + 0.35 * height * smoothstep(0.35 * s_end, s_end, a_)
+        if a_ < 0.04:
+            lift = 0.03 * np.exp(-(a_ / 0.07) ** 2)
+        groove = 0.03 * joint
+        row = []
+        for back, up in prof:
+            ez = edge_z - sgn * lift
+            zz = ez - sgn * up if up < abs(root_z - edge_z) - 1e-6 else root_z
+            zz = np.clip(zz, min(ez, root_z), max(ez, root_z))
+            b_ = back + (groove if back < thick / 2 else 0)
+            row.append([px - n[0] * b_, py - n[1] * b_, zz])
+        rows.append(row)
+    verts_out = np.array(rows).reshape(-1, 3)
+    pr = len(prof)
+    faces = []
+    for i in range(len(ss) - 1):
+        for k in range(pr - 1):
+            a0, b0, c0, d0 = i * pr + k, i * pr + k + 1, (i + 1) * pr + k + 1, (i + 1) * pr + k
+            faces += [(a0, c0, b0), (a0, d0, c0)] if upper else [(a0, b0, c0), (a0, c0, d0)]
+    return verts_out, np.array(faces), path
 
 
 def _gum(path, z, upper, height, s_end):
@@ -444,7 +463,7 @@ def _gum(path, z, upper, height, s_end):
     the teeth never look as if they float."""
     arc = path[0]
     ss = np.linspace(-s_end, s_end, 48)
-    prof = [(-0.05, 0.0), (0.05, 0.35), (0.2, 0.75), (0.6, 1.0), (1.6, 1.0), (1.6, 0.0)]   # (back, up) in cm / height
+    prof = [(0.05, 0.0), (0.0, 0.35), (0.1, 0.75), (0.5, 1.0), (1.6, 1.0), (1.6, 0.0)]   # (back, up) in cm / height
     verts, faces = [], []
     for s in ss:
         (px, py), t, n = _at(path, abs(s), 1 if s >= 0 else -1)
@@ -481,10 +500,10 @@ def mouth_parts(verts):
     z = m["z"]
     h = 0.55 * m["half"] / 3.1                                   # tooth height for this mouth
     ut, uf, upath = _teeth(verts, z + 0.05 + h, 0.95, h, True)
-    lt, lf, lpath = _teeth(verts, z - 0.05 - 0.85 * h, 1.1, 0.85 * h, False)
+    lt, lf, lpath = _teeth(verts, z - 0.05 - 0.85 * h, 1.4, 0.85 * h, False)
     s_end = 0.95 * upath[0][-1]
     ug, ugf = _gum(upath, z + 0.05 + 0.75 * h, True, 0.9, min(s_end, 0.82 * m["half"] * 1.75))
-    lg, lgf = _gum(lpath, z - 0.05 - 0.6 * 0.85 * h, False, 0.8, min(s_end, 0.82 * m["half"] * 1.6))
+    lg, lgf = _gum(lpath, z - 0.05 - 0.6 * 0.85 * h, False, 0.5, min(s_end, 0.82 * m["half"] * 1.4))
     tongue_v, tongue_f = _tongue()
     return [("UpperTeeth", ut, uf, 0.0),
             ("LowerTeeth", lt, lf, 1.0),

@@ -256,9 +256,9 @@ def shape_breasts(verts, avg, body):
 
     The chest wall under them is found by relaxing the chest with its edge
     held (a membrane over the breasts' base); each breast is then a dome on
-    that wall, its height (1 - u^2)^0.6 times `depth` over an ellipse that
-    reaches further up than down, so the upper slope is long and the
-    underside round. Points move forward or back only; the ellipse's rim
+    that wall shaped like a teardrop: from the fullest point an S-shaped
+    slope runs up into the chest (no point at the top), and below it the
+    breast rounds off; the ellipse reaches further up than down. Points move forward or back only; the ellipse's rim
     fades into the original surface.
     """
     b = body["breasts"]
@@ -272,13 +272,20 @@ def shape_breasts(verts, avg, body):
     wall = verts.copy()
     for _ in range(300):
         wall[region] = (avg @ wall)[region]
-    height = b["depth"] * np.clip(1 - u ** 2, 0, 1) ** 0.6
-    # Forward/back offset to the new shape, fading out over the ring, then
-    # smoothed near the edge (not on the dome) so the edge leaves no crease.
+    # Teardrop: above the fullest point the slope falls away in an S (no
+    # point at the top, blending into the chest), below it the breast rounds
+    # off; across, a soft round section.
+    sv = np.clip(np.abs(dz), 0, 1)
+    vert = np.where(dz > 0, 1 - 3 * sv ** 2 + 2 * sv ** 3, np.sqrt(np.clip(1 - sv ** 2, 0, 1)) ** 0.85)
+    across = np.clip(1 - dx ** 2, 0, 1) ** 0.7
+    height = b["depth"] * vert * across
     offset = (wall[:, 1] - height - y) * smoothstep(1.5, 0.95, u) * region
     edge = region & (u > 0.8)
     for _ in range(25):
         offset[edge] = 0.5 * offset[edge] + 0.5 * (avg @ offset)[edge]
+    # Even out the facets over the whole breast.
+    for _ in range(4):
+        offset[region] = 0.7 * offset[region] + 0.3 * (avg @ offset)[region]
     out = verts.copy()
     out[:, 1] += offset
     moved = np.abs(offset) > 1e-4
@@ -351,6 +358,18 @@ def build(body):
     verts, faces, (normals, source_weights), upper_lip, lower_lip = face.cut_mouth(
         verts, faces, [normals, source_weights])
     print(f"mouth: lip line of {len(upper_lip)} vertices cut")
+    # The cut follows mesh edges, so it zigzags; straighten both lips' edges
+    # onto the measured lip line (with one ring around them following
+    # halfway) so the open mouth has a clean edge.
+    line = np.unique(np.r_[upper_lip, lower_lip])
+    shift = np.zeros(len(verts))
+    shift[line] = face.lip_z(verts[line, 0]) - verts[line, 2]
+    ring = np.zeros(len(verts), bool)
+    ring[faces[np.isin(faces, line).any(1)].ravel()] = True
+    ring[line] = False
+    adj = adjacency(len(verts), faces)
+    shift[ring] = 0.5 * (adj @ shift)[ring] / np.maximum((adj @ np.isin(np.arange(len(verts)), line))[ring], 1e-6) * 0.5
+    verts[:, 2] += shift
     painted = paint.load_painted(ROOT / body["painted"], pos)
     face_uv, projected = paint.corner_uvs(verts, faces, painted)
     print(f"painted UVs: {len(faces) - projected} faces matched, {projected} projected")
@@ -504,7 +523,7 @@ def build(body):
         joints[:, 0] = head
         weights = np.zeros((len(pv), 4), np.float32)
         weights[:, 0] = 1
-        g["materials"].append({"name": name, "pbrMetallicRoughness": {
+        g["materials"].append({"name": name, "doubleSided": True, "pbrMetallicRoughness": {
             "baseColorFactor": color, "metallicFactor": 0, "roughnessFactor": roughness}})
         targets = []
         for k in MORPH_NAMES:
