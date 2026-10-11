@@ -1,0 +1,67 @@
+{
+  "task": "Create a 3D-ready dark fantasy wanderer's robe for a female game character, modelled ON the character standing in a T-POSE (arms straight out to the sides, horizontal, palms down). Render 5 orthographic reference views of the robe alone (no body, no head, no hands, no mannequin, no hanger), keeping the exact shape it has when worn in the T-pose.",
+  "reference_picture": "the attached robe picture / earlier robe model: keep its look (layered capelet, soft cowl, hood down on the back, long open cloak with ragged tattered hem, iron clasp at the throat, rust-brown worn edges) but re-shape it for the T-pose",
+  "style": "stylised 3D animated film look matching a stylised game character, clean 3D render, soft even studio lighting, plain white background, no floor shadow, whole garment in frame, identical scale and position in every view",
+  "worn_by": "an invisible slender stylised female body with a small bust and narrow shoulders, 159 cm tall, in a T-pose: arms horizontal at shoulder height (125 cm above the floor), each arm about 54.5 cm long from the shoulder joint to the fingertips",
+  "t_pose_shape": [
+    "the capelet and the cloak's shoulders drape OVER the horizontal arms like a tent: the cloth rests on top of the upper arms and hangs down from them, it does not cut through the arms",
+    "the capelet reaches along the upper arm to about the elbow and hangs straight down from there; nothing wraps around the forearms or hands",
+    "under each arm the cloth hangs down from the arm, leaving a clear open gap at the armpit; no cloth stretched between the arm and the body",
+    "keep a gap of 1-2 cm between the cloth and the body / arms everywhere (the cloth never touches or crosses the skin)",
+    "below the arms the cloak hangs straight down with gravity, open at the front"
+  ],
+  "design": {
+    "materials": "heavy brushed wool felt, near black (#1b1714) with rust-brown wear (#5a3420) along edges and folds, faint fibre texture; a small iron clasp and leather lacing at the throat",
+    "cowl": "soft loose cowl round the neck base, sits on the shoulders, does not cover the chin",
+    "hood": "deep hood worn DOWN, lying folded on the upper back between the shoulder blades (fits a head about 25.3 cm tall when raised)",
+    "capelet": "two-layer capelet with a V-point at the front centre and ragged fringed edges, draped over the shoulders and upper arms as described above",
+    "cloak": "long cloak from the shoulders, open at the front from the throat down (15-20 cm gap at the chest, widening to the hem), side slits from the armpit to the hem so the legs and arms move freely; hem at the lower calf, 20.7 cm above the floor, cut in jagged tatters",
+    "inside": "room for a fitted tank top and shorts underneath: at least 1.5 cm over the chest (chest girth 65.7 cm), the bust/pecs and the shoulder blades",
+    "holes": "wear holes and burns only painted on the surface, not cut through"
+  },
+  "construction_for_3d": [
+    "single-layer cloth with a little thickness (0.3-0.5 cm), every part a clean closed surface, no floating pieces",
+    "layers (cowl, capelet, cloak) separated by at least 0.5 cm and never passing through each other",
+    "even, fine triangles: edge length about 1 cm or less, especially over the chest, back and shoulders (large flat triangles let the body show through)",
+    "no belts, straps, gloves, boots, trousers or body inside",
+    "UV-mapped with one colour texture, one normal map and one roughness map"
+  ],
+  "views": [
+    {
+      "name": "front",
+      "description": "straight front view, orthographic, centred, arms of the T-pose to the left and right"
+    },
+    {
+      "name": "back",
+      "description": "straight back view, orthographic, centred, showing the lowered hood"
+    },
+    {
+      "name": "side",
+      "description": "straight left side view, orthographic, front facing left"
+    },
+    {
+      "name": "top",
+      "description": "straight top-down view, orthographic, onto the shoulders, arms and neck opening"
+    },
+    {
+      "name": "bottom",
+      "description": "straight bottom-up view, orthographic, into the robe from below, showing the open front, the slits, the armpit gaps and the empty inside"
+    }
+  ],
+  "measurements_cm": {
+    "body_height": 159.3,
+    "shoulder_width": 28.1,
+    "shoulder_top_height": 124.6,
+    "neck_base_height": 125.7,
+    "neck_base_width": 7.8,
+    "chest_girth": 65.7,
+    "waist_girth": 44.2,
+    "hip_girth": 86.1,
+    "armpit_height": 116.0,
+    "arm_length_shoulder_to_fingertip": 54.5,
+    "robe_top_height": 131.0,
+    "robe_hem_height": 20.7,
+    "head_height": 25.3
+  },
+  "output": "5 separate images (front, back, side, top, bottom): 1536x1024 landscape for front/back/top/bottom (the T-pose is wide), 1024x1536 portrait for side; same garment, same colours, same scale"
+}
