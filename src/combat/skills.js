@@ -17,6 +17,7 @@
 //             closed in on (up to 2 m) so the blade ends at its body
 //   stagger   true: the blow interrupts the target even if it is attacking
 //   poise     how much of the stagger gauge (100) it fills (default 2 x damage)
+//   trail     how long before the blow the blade leaves a trail (clip s; default 0.2)
 //   unblockable  true: holding parry does not help (red flash); only a dodge
 //                or (when parryable) a perfect parry avoids it
 
@@ -48,8 +49,10 @@ export const ARTS = {
       feint: {
         key: 'KeyE', name: 'Feint', name_cn: '虚招', cooldown: 4, stamina: 15,
         bait: { clip: 'Sword_Attack', speed: 1.3, until: 0.32 },
-        strike: { clip: 'Sword_Regular_A', speed: 1.4, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec',
-          damage: 16, range: 2.2, arc: 120, lunge: 0.6, guardBreak: true, unblockable: true },
+        // The real strike is a stab (made from the rig: the library has none).
+        strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.17, end: 0.45,
+          damage: 16, range: 2.4, arc: 70, lunge: 0.7, reach: 1.0, guardBreak: true, unblockable: true,
+          trail: 0.08 },   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).
@@ -60,7 +63,8 @@ export const ARTS = {
         damage: 14, range: 2.3, arc: 100, lunge: 0.5 },
       { name: 'heavy', clip: 'Sword_Attack', speed: 0.6, hit: 0.52, end: 1.1, damage: 28, range: 2.6, arc: 120,
         lunge: 0.9, reach: 0.95, unblockable: true, parryable: false },
-      { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.4, hit: 0.17, end: 0.75, damage: 20, range: 2.6, arc: 70,
+      // The spinning cut: quicker than it was (0.4x), still readable.
+      { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.8, hit: 0.17, end: 0.75, damage: 20, range: 2.6, arc: 70,
         lunge: 1.0, stagger: true },
     ],
   },
@@ -70,21 +74,22 @@ export const ARTS = {
 // panel changes these and the moves above (clip, speed, hit, end).
 export const ANIM_SLOTS = {
   idle: { clip: 'Idle_Sword', speed: 1 },
-  run: { clip: 'Jog', speed: 1 },
-  sprint: { clip: 'Sprint', speed: 1 },
-  walk: { clip: 'Walk', speed: 1 },                 // the enemy closing in
+  // Locomotion clips with the sword arm held in the stance (made at load).
+  run: { clip: 'Run_Sword', speed: 1 },
+  sprint: { clip: 'Sprint_Sword', speed: 1 },
+  walk: { clip: 'Walk_Sword', speed: 1 },                 // the enemy closing in
   guard: { clip: 'Sword_Block', speed: 1.4, hold: 0.45 },   // held at `hold` s while parry is held
-  guardForward: { clip: 'Walk', speed: 1 },         // legs while moving with the guard up
-  guardBack: { clip: 'Walk_Backwards', speed: 1 },
-  guardLeft: { clip: 'Strafe_left', speed: 1 },
-  guardRight: { clip: 'Strafe_right', speed: 1 },
+  guardForward: { clip: 'Walk_Sword', speed: 1 },         // legs while moving with the guard up
+  guardBack: { clip: 'Walk_Backwards_Sword', speed: 1 },
+  guardLeft: { clip: 'Strafe_left_Sword', speed: 1 },
+  guardRight: { clip: 'Strafe_right_Sword', speed: 1 },
   jump: { clip: 'Jump_air', speed: 1 },
   dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
   dodgeRight: { clip: 'Dodge_right', speed: 1.5 },
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
-  stagger: { clip: 'Hit_Chest', speed: 0.42 },   // reeling back (~1 s): a full gauge or a parried blow
+  stagger: { clip: 'Stagger', speed: 1 },   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
   death: { clip: 'Death_A', speed: 1 },
 };
 
