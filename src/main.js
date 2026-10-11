@@ -234,6 +234,9 @@ const skin = new THREE.MeshPhysicalMaterial({
 const lipUniforms = {
   lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount },
   mouthZ: { value: 133.5 },   // the shown body's mouth height (mesh cm)
+  // Its lip line (z, kz, y, ky: height z + kz x², front y + ky x²) and half width.
+  mouthLine: { value: new THREE.Vector4(133.55, 0.045, -5.95, 0.18) },
+  mouthHalf: { value: 3.1 },
   // Eye colour over the painted irises (the feature mask's red channel); 0 keeps the painting.
   eyeColor: { value: new THREE.Color(0x7a4a26) }, eyeTint: { value: 0 },
   browOffset: { value: new THREE.Vector2() }, browScale: { value: 1 }, browAngle: { value: 0 },
@@ -248,7 +251,7 @@ skin.onBeforeCompile = (shader) => {
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
-uniform float mouthZ;
+uniform float mouthZ; uniform vec4 mouthLine; uniform float mouthHalf;
 uniform vec3 eyeColor; uniform float eyeTint; uniform sampler2D featureMask;
 uniform vec3 toneColor; uniform vec3 skinRef; uniform float toneOn;
 uniform sampler2D browTex; uniform vec4 browBox; uniform float frontY;
@@ -294,9 +297,19 @@ varying vec3 vSkinPos;`)
 #endif
   }`)
     .replace('#include <dithering_fragment>',
-      // Back faces inside the open mouth read as a dark mouth; elsewhere (finger
-      // gaps, folds) the skin stays skin.
-      '#include <dithering_fragment>\n  if (!gl_FrontFacing && abs(vSkinPos.z - mouthZ) < 3.0 && abs(vSkinPos.x) < 5.0) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
+      // Inside the mouth is black: back faces round the mouth, skin by the lip
+      // line more than 0.9 cm behind the front of the lips (their inner sides),
+      // and skin further in (more than 1.8 cm back) a little above and below.
+      // Elsewhere (finger gaps, folds) the skin stays skin.
+      `#include <dithering_fragment>
+  float mx = vSkinPos.x * vSkinPos.x;
+  float mz = vSkinPos.z - mouthLine.x - mouthLine.y * mx;
+  float my = vSkinPos.y - mouthLine.z - mouthLine.w * mx;
+  float ax = abs(vSkinPos.x);
+  bool inMouth = (ax < mouthHalf + 0.3 && mz > -0.6 && mz < 0.5 && my > 0.9)
+    || (ax < mouthHalf + 1.5 && mz > -2.2 && mz < 1.2 && my > 1.8);
+  if ((!gl_FrontFacing && abs(vSkinPos.z - mouthZ) < 3.0 && abs(vSkinPos.x) < 5.0) || inMouth)
+    gl_FragColor.rgb = vec3(0.015);`);
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const hairMat = hairMaterial(HAIR_DEFAULTS.color);
@@ -1053,6 +1066,8 @@ async function setCharacter(body = state.body, model = state.model) {
   }
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
   lipUniforms.mouthZ.value = ch.body.mouth_z ?? lipUniforms.mouthZ.value;
+  const ml = ch.body.mouth;
+  if (ml) { lipUniforms.mouthLine.value.set(ml.z, ml.kz, ml.y, ml.ky); lipUniforms.mouthHalf.value = ml.half; }
   applyTone(SKIN_TONES[state.tone]);
   applyClothFits();
   buildClothControls();

@@ -313,45 +313,71 @@ def smooth_box(body):
     painted light and shade of the brow ridge."""
     x0, z0, x1, z1 = body["brow_box"]
     eye_top = body["eye"]["z"] + body["eye"]["h"] / 2      # down to just above the eyelid
-    return [max(x0 - 0.5, 0.3), min(z0 - 0.15, eye_top + 0.35), x1 + 1.0, z1 + 1.6]
+    if "eye_repaint" in body:                               # the repainted opening's top
+        o = body["eye_repaint"]["opening"]
+        eye_top = o["z"] + o["b"]
+    return [max(x0 - 0.5, 0.3), min(z0 - 0.15, eye_top + 0.3), x1 + 1.0, z1 + 1.6]
+
+
+def membrane(img, known):
+    """img with the unknown pixels filled smoothly from the known ones
+    (Laplace's equation, solved coarse to fine)."""
+    def solve(im, kn, init, iters):
+        f = np.where(kn[..., None], im, init)
+        for _ in range(iters):
+            p = np.pad(f, ((1, 1), (1, 1), (0, 0)), mode="edge")
+            avg = (p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:]) / 4
+            f = np.where(kn[..., None], im, avg)
+        return f
+    h, w = known.shape
+    if min(h, w) > 24:
+        small = cv2.resize(img * known[..., None], (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+        ks = cv2.resize(known.astype(np.float32), (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+        coarse = membrane(small / np.maximum(ks, 1e-6)[..., None], ks > 0.5)
+        init = cv2.resize(coarse, (w, h), interpolation=cv2.INTER_LINEAR)
+    else:
+        init = np.broadcast_to(img[known].mean(0) if known.any() else img.mean((0, 1)), img.shape)
+    return solve(img, known, init, 200)
 
 
 def smooth_brow_area(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
     """Paint the brow ridge's light and shade (brows already removed) out of
     the skin, so only the menu's brows remain there.
 
-    On a front view of the area with a margin round it, the box is filled
-    from the colours round it (a wide blur of the skin beside and above
-    it, not the eye below), a smooth fill that keeps the forehead's gradient. It fades
-    in over 1.2 cm at the top and outer side and 0.6 cm above the eyelid;
-    the inner side, where the two sides meet at the middle, is full.
+    The area is both brows' boxes, the strip between them and, between the
+    eyes, down the sides of the nose bridge. On one front view of it the area
+    is inpainted from the skin round it (Navier-Stokes, so the fill meets the
+    skin round it without a step; the eye and lashes are not used), and
+    blended in over 1.2 cm at the top and outer sides and 0.6 cm above the
+    eyelids.
     """
     x0, z0, x1, z1 = smooth_box(body)
-    m = 1.5                                        # margin round the box, cm
+    e = body["eye"]
+    inner = e["x"] - e["w"] / 2 - 0.3                 # inner eye corners
+    m = 1.5                                          # margin round the area, cm
+    ppc = 20                                         # fill resolution
     y_from = body["nose_tip"][0] - 20
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
-    ax = np.abs(x)
-    def weight(px, pz):
-        return (smoothstep(z0, z0 + 0.6, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, px)
-                * smoothstep(0.0, 0.3, px - x0 + 0.3))
+
+    def weight(ax, pz):
+        low = z0 - (z0 - (e["z"] - 1.2)) * smoothstep(inner, inner - 2.0, ax)
+        return smoothstep(low, low + 0.4, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, ax)
+
+    bz0, bz1, bx = e["z"] - 1.2 - m, z1 + m, x1 + m
+    view, hit = front_view(color, pv, uv, pf, -bx, bx, bz0, bz1, y_from, ppc)
+    h, w = hit.shape
+    cols, rows = np.meshgrid(-bx + np.arange(w) / ppc, bz1 - np.arange(h) / ppc)
+    inside = weight(np.abs(cols), rows) > 0.01
+    lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
+    ref = np.median(lum[hit & ~inside])
+    # Known: skin round the area (not the eyes' whites, lashes or shadows).
+    known = hit & ~inside & (np.abs(lum - ref) < 0.08)
+    fill = membrane(view, known)
+    sel = covered & (y < body["nose_tip"][0] + 8) & (np.abs(x) < bx) & (z > bz0) & (z < z1)
+    a = weight(np.abs(x[sel]), z[sel]) * smoothstep(-0.05, -0.3, nrm[..., 1][sel])
+    f = bilinear(fill, (x[sel] + bx) * ppc, (bz1 - z[sel]) * ppc)
     out = color.copy()
-    for side in (1, -1):
-        bx0, bx1 = 0.0, x1 + m
-        view, hit = front_view(color, pv, uv, pf, bx0, bx1, z0 - m, z1 + m, y_from, BROW_PPC) if side > 0 else \
-            [a[:, ::-1] for a in front_view(color, pv, uv, pf, -bx1, -bx0, z0 - m, z1 + m, y_from, BROW_PPC)]
-        h, w = hit.shape
-        cols, rows = np.meshgrid(np.arange(w) / BROW_PPC, np.arange(h) / BROW_PPC)
-        inside = weight(cols, z1 + m - rows)
-        # Known: round the box, but not below it (the eye and its lashes).
-        known = (hit * (1 - np.minimum(inside * 4, 1)) * (z1 + m - rows > z0)).astype(np.float32)
-        lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
-        known *= lum > np.median(lum[known > 0.5]) - 0.06            # no lashes or shadows
-        fill = cv2.GaussianBlur(view * known[..., None], (0, 0), 0.8 * BROW_PPC)
-        fill /= cv2.GaussianBlur(known, (0, 0), 0.8 * BROW_PPC)[..., None] + 1e-6
-        sel = covered & (y < body["nose_tip"][0] + 8) & (x * side > 0) & (ax < bx1) & (z > z0) & (z < z1)
-        a = weight(ax[sel], z[sel]) * smoothstep(-0.05, -0.3, nrm[..., 1][sel])
-        f = bilinear(fill, ax[sel] * BROW_PPC, (z1 + m - z[sel]) * BROW_PPC)
-        out[sel] = out[sel] * (1 - a[:, None]) + f * a[:, None]
+    out[sel] = out[sel] * (1 - a[:, None]) + f * a[:, None]
     return out
 
 

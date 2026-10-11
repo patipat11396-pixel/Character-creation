@@ -325,22 +325,40 @@ def shape_breasts(verts, faces, avg, body):
 
 def flatten_brows(verts, avg, body):
     """Relax the brow ridge (body["brow_box"], mirrored for the right brow)
-    on the front of the face, fading out over 2.5 cm around it, so the ridge
-    and the step at its top edge are gone (the menu draws the brows)."""
+    on the front of the face, so the ridge and the step at its edges are gone
+    (the menu draws the brows).
+
+    A heavily smoothed copy of the face around the brows is made (forward /
+    back only), and the face is blended towards it with a weight that is
+    full over the ridge, down to just above the eyelids, and fades out over
+    2.5 cm round it: the change is smooth, so it leaves no crease at the
+    edges of the area.
+    """
     x0, z0, x1, z1 = body["brow_box"]
     z1 += 1.5
     eye_top = body["eye"]["z"] + body["eye"]["h"] / 2
     x, y, z = verts.T
     ax = np.abs(x)
-    # Down to just above the eyelid, so the ridge's lower edge goes too.
-    w = (smoothstep(x0 - 2.5, x0, ax) * smoothstep(x1 + 2.5, x1, ax) * smoothstep(eye_top + 0.1, eye_top + 0.9, z)
-         * smoothstep(z1 + 2.5, z1, z) * (y < body["nose_tip"][0] + 8))
-    # Only forward/back: sliding the points sideways folded triangles at the
-    # box's edge (a dark line between the eye and the nose).
+    front = y < body["nose_tip"][0] + 8
+    # The nose bridge below the brows is held, so the relaxed brow area meets
+    # it instead of pulling it back (which folded its sides).
+    nose = (ax < 2.0) & (z < z0)
+    broad = ((ax < x1 + 6) & (z > eye_top - 3) & (z < z1 + 6) & front & ~nose).astype(float)
+    target = verts.copy()
+    # Only forward/back: sliding the points sideways folded triangles (a
+    # dark line between the eye and the nose).
+    for _ in range(300):
+        target[:, 1] += 0.5 * broad * (avg @ target - target)[:, 1]
+    w = (smoothstep(x1 + 2.5, x1, ax) * smoothstep(eye_top + 0.1, eye_top + 1.0, z)
+         * (1 - smoothstep(3.0, 1.2, ax) * smoothstep(z0 + 0.8, z0 - 1.2, z))
+         * smoothstep(z1 + 2.5, z1, z) * front)
+    # The change itself is smoothed too, so it bends the face gently.
+    d = w * (target[:, 1] - verts[:, 1])
+    for _ in range(60):
+        d = 0.5 * d + 0.5 * (avg @ d)
     out = verts.copy()
-    for _ in range(250):
-        out[:, 1] += 0.5 * w * (avg @ out - out)[:, 1]
-    return out, w > 0
+    out[:, 1] += d * (broad > 0)
+    return out, np.abs(d) > 0.01
 
 
 def tuck(cv, cf, ov, of, depth):
@@ -836,6 +854,7 @@ def build(body):
     extras = {k: body[k] for k in ("label", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
     extras["head_map"] = head_map(verts, body)
     extras["mouth_z"] = body["mouth"]["z"]
+    extras["mouth"] = {k: body["mouth"][k] for k in ("z", "kz", "y", "ky", "half")}
     if "thumb_fist" in body:
         extras["thumb_fist"] = body["thumb_fist"]
     extras["colliders"] = body_colliders(verts, bind.__getitem__, body)
