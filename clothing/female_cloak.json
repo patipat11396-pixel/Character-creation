@@ -1,0 +1,58 @@
+{
+  "task": "Design and render 5 orthographic reference views of a dark fantasy wanderer's cloak outfit for a female game character (no person, no mannequin, no head, no hands, no hanger): a long open-front cloak, a short layered capelet over the shoulders, a hood lying down on the back, and a soft cowl scarf round the neck. Inspired by the attached reference picture, but redesigned so the character can move its arms freely in animation without the cloth passing through the arms.",
+  "reference_picture": "the attached cloak photo: copy its mood, colours and ragged worn look, not its exact cut",
+  "style": "stylised 3D animated film look matching a stylised game character, clean 3D render, soft even studio lighting, plain white background, no floor shadow, whole garment in frame, identical scale and position in every view",
+  "worn_by": "an invisible slender female body with a small bust and narrow shoulders, 159 cm tall, standing in a T-pose (arms straight out to the sides, horizontal); the cloth hangs as if worn on that body, filled out, gravity down",
+  "design": {
+    "materials": "heavy brushed wool felt, near black (#1b1714) with rust-brown wear (#5a3420) along edges and folds, faint fibre texture; leather lacing and a small iron clasp at the throat",
+    "cowl": "soft loose cowl scarf round the neck, sits on the shoulders and neck base only, does not cover the chin",
+    "hood": "deep hood worn DOWN, folded and lying flat on the upper back between the shoulder blades; the hood opening fits a head about 25.3 cm tall when raised",
+    "capelet": "short two-layer capelet shaped over the bust and narrow shoulders, V-point at the front centre, ragged fringed edges; it ends at 110.0 cm above the floor, above the elbows, and is split open at the top of each arm so the shoulder and upper arm can rise without lifting it",
+    "cloak": "long cloak open at the front from the throat down (a 15-20 cm gap at the chest widening to the hem), fastened only by the throat clasp; hem at mid-calf, 31.9 cm above the floor, cut in large jagged tatters",
+    "arm_freedom": [
+      "NO sleeves: the arms come out through the open front and through long vertical side slits",
+      "each side of the cloak has a slit from the armpit (116 cm above the floor) down to the hem, so the cloak is three hanging panels: one back panel and two front panels",
+      "the panels hang straight down from the shoulders with a clear gap of at least 4 cm round the arm in the T-pose",
+      "no cloth under the arms, no cloth between the arm and the body, nothing attached to the arms or wrists"
+    ],
+    "leg_freedom": "the cloak stays clear of the legs for walking and running: open front, side slits, and a hem well above the feet",
+    "holes_and_tatters": "worn holes and burns are only painted or very shallow on the cloth surface, not cut through, so the cloth stays one closed surface; the ragged edge tatters are part of the silhouette",
+    "construction_for_3d": "single layer cloth about 0.4 cm thick, every part a clean closed surface, no floating pieces, no overlapping layers passing through each other, layers separated by at least 0.5 cm; no belts, straps, gloves, boots, trousers or body underneath"
+  },
+  "views": [
+    {
+      "name": "front",
+      "description": "straight front view, orthographic, centred"
+    },
+    {
+      "name": "back",
+      "description": "straight back view, orthographic, centred, showing the lowered hood"
+    },
+    {
+      "name": "side",
+      "description": "straight left side view, orthographic, front facing left, showing the side slit"
+    },
+    {
+      "name": "top",
+      "description": "straight top-down view, orthographic, looking down onto the shoulders, cowl and neck opening"
+    },
+    {
+      "name": "bottom",
+      "description": "straight bottom-up view, orthographic, looking up into the cloak from below, showing the open front, the slits and the empty inside"
+    }
+  ],
+  "measurements_cm": {
+    "body_height": 159.3,
+    "shoulder_width": 28.1,
+    "shoulder_top_height": 124.6,
+    "neck_base_height": 125.7,
+    "neck_base_width": 7.8,
+    "chest_girth": 65.7,
+    "hip_girth": 86.1,
+    "armpit_height": 116.0,
+    "capelet_bottom_height": 110.0,
+    "cloak_hem_height": 31.9,
+    "head_height": 25.3
+  },
+  "output": "5 separate images (front, back, side, top, bottom), 1024x1536 portrait for front/back/side and 1024x1024 for top/bottom, same garment, same colours, same scale"
+}

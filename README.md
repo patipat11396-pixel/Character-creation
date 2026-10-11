@@ -155,6 +155,10 @@ shorts cut from each body's own shape in four views
 and an image-generation prompt per garment (`<body>_<garment>.json`) with
 the measurements and the images to attach.
 
+`clothing/<body>_cloak.json` is a hand-written prompt for a wanderer's cloak
+(capelet, lowered hood, cowl; side slits and no sleeves so the arms move
+freely) in five views: front, back, side, top, bottom.
+
 ## Clothes
 
 Garments always worn are listed per body in `tools/bodies.py` ("clothes":
