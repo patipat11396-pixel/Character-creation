@@ -32,7 +32,8 @@ export const ARTS = {
         damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0 },
       { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
         damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75 },
-      { clip: 'Sword_Regular_C', speed: 0.9, hit: 0.17, end: 0.75, chainFrom: 0.5,
+      // Finisher: 0.75 s of clip at 1.8x takes 0.42 s, under 0.5 s with the hit-stop.
+      { clip: 'Sword_Regular_C', speed: 1.8, hit: 0.17, end: 0.75, chainFrom: 0.5,
         damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true },
     ],
     // Heavy attack (right click / Q): slow overhead blow; staggers, and a
@@ -83,7 +84,7 @@ export const ANIM_SLOTS = {
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
-  stun: { clip: 'Dizzy', speed: 1 },
+  stagger: { clip: 'Hit_Chest', speed: 0.42 },   // reeling back (~1 s): a full gauge or a parried blow
   death: { clip: 'Death_A', speed: 1 },
 };
 

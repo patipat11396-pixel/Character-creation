@@ -68,17 +68,21 @@ swordsman, with a third-person camera.
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
 | Alt | side step / dodge; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
-| Shift | hold: guard (−50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (1.5 m/s) with it up, the legs walking or strafing under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker is stunned) |
+| Shift | hold: guard (−50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (1.5 m/s) with it up, the legs walking or strafing under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
 | E | Feint 虚招 (skill): a fake heavy wind-up, then a fast cut that breaks a guard (cooldown 4 s) |
 
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
-for 1 s. Being hit shakes the camera; a dodge leaves a short motion blur.
+for 1 s (it reels back; no stun). Every blow that lands or is blocked, given
+or taken, shakes the camera; a dodge leaves a short motion blur. The third
+light hit, the finisher, is over in under 0.5 s.
 
 A perfect dodge or parry slows time briefly and gives a counter window
-(×1.5 damage). The enemy telegraphs: gold flash = blockable, red =
-unblockable; the ring under you (H) closes on the moment of the blow and
+(×1.5 damage), with a flash at the screen's edges, a shockwave and a burst
+of streaks at the blade (gold for a parry, blue for a dodge) and a quick
+zoom-in. The enemy telegraphs: gold flash = blockable, red =
+unblockable; a ring around the enemy's blade (H) closes on the moment of the blow and
 turns white in the perfect window.
 
 **Hit zones.** The blade has to touch the target: capsules on the bones

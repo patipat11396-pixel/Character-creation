@@ -537,6 +537,9 @@ function saveAnim() {
 }
 function applyAnim(data) {
   if (!data) return;
+  // Saves from before the finisher was sped up hold its old default; drop it.
+  const old3 = data.moves?.['Light 3'];
+  if (old3 && old3.clip === 'Sword_Regular_C' && old3.speed === 0.9 && old3.end === 0.75) delete data.moves['Light 3'];
   for (const [k, m] of MOVES) if (data.moves?.[k]) Object.assign(m, data.moves[k]);
   for (const [k, v] of Object.entries(data.slots ?? {})) if (ANIM_SLOTS[k]) Object.assign(ANIM_SLOTS[k], v);
 }
@@ -601,8 +604,9 @@ function initAnimPanel() {
 
 // ------------------------------------------------------------------ timing assist ring
 
-const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffc640, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
-ring.rotation.x = -Math.PI / 2;
+// Drawn around the attacker's blade, facing the camera, closing on it as the blow comes.
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffc640, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+ring.renderOrder = 10;
 ring.visible = false;
 scene.add(ring);
 let assist = true;
@@ -673,6 +677,7 @@ function resolveHit(att, def, zone) {
     sound('crit');
     floatText(zone.a.clone().lerp(zone.b, 0.5), `Guard Break ${Math.round(dmg)}`, 'crit');
     hitStop = 0.1;
+    fightShake(att, def, 0.09);
     if (def.hp <= 0) { die(def); return; }
     stagger(def, STAGGER.full, null);
     if (att.isPlayer) att.counterUntil = gameTime + 1.6;
@@ -683,6 +688,7 @@ function resolveHit(att, def, zone) {
     crit = false;
     def.stamina -= move.guardDamage ?? stats.blockCost;
     sound('block');
+    fightShake(att, def, 0.04);
     sparks(zone.a.clone().lerp(zone.b, 0.5), 0xfff0b0);
     if (def.stamina <= 0) { def.stamina = 0; stagger(def, STAGGER.full, 'Guard Break'); }
     else floatText(zone.a, `Blocked ${Math.round(dmg)}`, 'blocked');
@@ -691,18 +697,24 @@ function resolveHit(att, def, zone) {
     sound(crit ? 'crit' : 'hit');
     floatText(zone.a.clone().lerp(zone.b, 0.5), `${crit ? 'CRIT ' : ''}${zone.label} ${Math.round(dmg)}`, crit ? 'crit' : def.isPlayer ? 'taken' : '');
     hitStop = crit ? 0.1 : 0.05;
+    fightShake(att, def, crit ? 0.09 : 0.06);
   }
   def.hp = Math.max(0, def.hp - dmg);
   if (def.hp <= 0) { die(def); return; }
   if (!blocking || move.unblockable) {
     addPoise(def, move, dmg);
-    if (def.isPlayer) shake(crit ? 0.09 : 0.06);
     // Flinch, unless attacking with armour (the enemy's heavy blows) and not a
     // staggering blow; a full stagger gauge staggers anyway.
     const armoured = def.state === 'attack' && def.move?.unblockable;
     if (def.poise >= STAGGER.gauge) flinch(def, att, true);
     else if (!armoured && (def.state !== 'attack' || move.stagger || def.isPlayer)) flinch(def, att, move.stagger);
   }
+}
+
+/** Shake the screen when the player lands a blow or takes one (blocked too); landing one shakes a little less. */
+function fightShake(att, def, amount) {
+  if (def.isPlayer) shake(amount);
+  else if (att.isPlayer) shake(amount * 0.6);
 }
 
 function perfect(def, att, text, parry = false) {
@@ -712,10 +724,15 @@ function perfect(def, att, text, parry = false) {
   def.counterUntil = gameTime + 1.6;
   slowUntil = gameTime + (parry ? 0.35 : 0.6);
   if (parry) {
-    sparks(def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6)), 0xffffff);
-    stagger(att, STAGGER.perfect, 'Stunned');
+    const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
+    stagger(att, STAGGER.perfect, null);
+    att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
+    hitStop = 0.08;
+    shake(0.05);
+    perfectFx(at, 0xf0a800, true);
   } else {
     att.exposedUntil = gameTime + 1.2;
+    perfectFx(def.zones[2].a.clone(), 0x1e9bff, false);
   }
 }
 
@@ -742,7 +759,7 @@ function stagger(f, dur, text) {
   f.move = null;
   f.setState('stagger');
   f.hitDur = dur;
-  f.playSlot('stun', { loop: true, fade: 0.1 });
+  f.playSlot('stagger', { loop: false, fade: 0.06 });
   if (text) floatText(f.zones[0].a, text, 'status');
 }
 
@@ -752,6 +769,70 @@ function die(f) {
   f.playSlot('death', { loop: false, fade: 0.1 });
   over = true;
   message(f.isPlayer ? 'Defeated — press R to try again' : 'Victory — press R to fight again', f.isPlayer ? 'bad' : 'good');
+}
+
+// ------------------------------------------------------------------ perfect parry / dodge effects
+// A flash over the screen, a shockwave and a burst of streaks at the point,
+// and a quick zoom-in of the camera; they run on real time (through the slow motion).
+const fxList = [];
+const flashEl = document.createElement('div');
+flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;opacity:0';
+document.getElementById('view').after(flashEl);   // under the HUD and panels
+let flashLife = 1, fovKick = 0;
+function perfectFx(pos, color, parry) {
+  const c = new THREE.Color(color);
+  // The room is white: the effects are strong colours drawn normally (additive light would vanish).
+  flashEl.style.background = `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 35%, #${c.getHexString()}cc 100%)`;
+  flashLife = 0;
+  fovKick = parry ? 7 : 5;
+  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
+  for (const [delay, thick] of [[0, 0.82], [0.07, 0.9]]) {
+    const wave = new THREE.Mesh(new THREE.RingGeometry(thick, 1, 64), ringMat.clone());
+    wave.position.copy(pos);
+    wave.renderOrder = 11;
+    wave.visible = false;
+    scene.add(wave);
+    fxList.push({ kind: 'wave', m: wave, life: -delay, dur: 0.4, size: parry ? 1.6 : 2.2 });
+  }
+  const n = parry ? 22 : 12;
+  for (let i = 0; i < n; i++) {
+    const streak = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, parry ? 0.22 : 0.3),
+      new THREE.MeshBasicMaterial({ color: i % 3 ? color : 0xfff4c0, transparent: true, depthWrite: false, depthTest: false }));
+    const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * (parry ? 1 : 0.4) - 0.2, Math.random() - 0.5).normalize();
+    streak.position.copy(pos);
+    streak.lookAt(pos.clone().add(dir));
+    streak.renderOrder = 11;
+    scene.add(streak);
+    fxList.push({ kind: 'streak', m: streak, life: 0, dur: 0.35 + Math.random() * 0.15, vel: dir.multiplyScalar(parry ? 5 + Math.random() * 4 : 3 + Math.random() * 2) });
+  }
+  if (parry) sparks(pos, 0xffd040);
+}
+function updateFx(real) {
+  for (let i = fxList.length - 1; i >= 0; i--) {
+    const f = fxList[i];
+    f.life += real;
+    if (f.life < 0) continue;
+    const k = f.life / f.dur;
+    if (k >= 1) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.dispose(); fxList.splice(i, 1); continue; }
+    if (f.kind === 'wave') {
+      f.m.visible = true;
+      f.m.quaternion.copy(camera.quaternion);
+      f.m.scale.setScalar(0.1 + f.size * (1 - (1 - k) ** 3));
+      f.m.material.opacity = 1 - k;
+    } else {
+      f.m.position.addScaledVector(f.vel, real);
+      f.vel.multiplyScalar(Math.exp(-real * 6));
+      f.vel.y -= 4 * real;
+      f.m.material.opacity = 1 - k;
+    }
+  }
+  flashLife += real;
+  flashEl.style.opacity = String(Math.max(0, 0.75 * (1 - flashLife / 0.35)));
+  if (fovKick > 0.01) {
+    camera.fov = 55 - fovKick * Math.min(1, flashLife / 0.06);
+    fovKick *= Math.exp(-real * 5);
+    camera.updateProjectionMatrix();
+  } else if (camera.fov !== 55) { camera.fov = 55; camera.updateProjectionMatrix(); }
 }
 
 const sparkPool = [];
@@ -1094,8 +1175,9 @@ function updateRing() {
   const total = e.move.hit / e.move.speed;
   if (left < -0.05) { ring.visible = false; return; }
   ring.visible = true;
-  ring.position.set(player.pos.x, 0.02, player.pos.z);
-  const s = 0.6 + Math.max(0, left / total) * 1.8;
+  e.sword.localToWorld(ring.position.set(0, 0.6, 0));
+  ring.quaternion.copy(camera.quaternion);
+  const s = 0.14 + Math.max(0, left / total) * 0.9;
   ring.scale.setScalar(s);
   const inWindow = left >= 0 && left <= stats.dodgeWindow;
   ring.material.color.setHex(inWindow ? 0xffffff : e.move.unblockable ? 0xff3030 : 0xffc640);
@@ -1189,9 +1271,10 @@ function tick(real) {
     if (f.poise > 0 && gameTime - (f.poiseAt ?? 0) > STAGGER.decayAfter) f.poise = Math.max(0, f.poise - STAGGER.decay * dt);
   }
   // Dodge motion blur: trails while dodging, fading out quickly after.
-  const want = player.state === 'dodge' && player.t < 0.4 ? 0.7 : 0;
+  const want = player.state === 'dodge' && (player.t < 0.4 || gameTime < slowUntil) ? 0.7 : 0;
   blur.uniforms.damp.value += (want - blur.uniforms.damp.value) * Math.min(1, real * (want ? 30 : 12));
   updateRing();
+  updateFx(real);
   updateZoneDebug();
   updateCamera(real);
   updateFloaters(real);
@@ -1268,7 +1351,7 @@ async function main() {
 
 // For scripted tests: press a key or click for one frame, hold keys.
 window.combat = {
-  get player() { return player; }, get enemy() { return enemy; }, get time() { return gameTime; }, hitLog, stats, camera, scene,
+  get player() { return player; }, get enemy() { return enemy; }, get time() { return gameTime; }, get shake() { return shakeAmp; }, hitLog, stats, camera, scene,
   press(code) { pressed.add(code); keys.add(code); setTimeout(() => keys.delete(code), 60); },
   hold(code, on) { if (on) keys.add(code); else keys.delete(code); },
   click() { clicked = true; },
