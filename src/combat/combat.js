@@ -392,6 +392,12 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) { mouseDown = true; clicked = true; }
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// The "Click to fight" box covers the view: clicking it starts the fight.
+$('start').addEventListener('click', () => {
+  active = true;
+  $('start').hidden = true;
+  try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed */ }
+});
 addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
@@ -925,6 +931,8 @@ function frame() {
   requestAnimationFrame(frame);
   const real = Math.min(clock.getDelta(), 0.05);
   if (!player || stepping) return;
+  // Nothing moves until the fight is started (the enemy waits too).
+  if (!active) { player.finishPose(); enemy.finishPose(); updateCamera(real); renderer.render(scene, camera); return; }
   tick(real);
   renderer.render(scene, camera);
 }
@@ -1042,6 +1050,7 @@ window.combat = {
   look(yaw) { camYaw = yaw; },
   grip(g) { Object.assign(GRIP, g); player.gripSword(GRIP); enemy.gripSword(GRIP); },
   /** Run n fixed steps (no rendering in between), then draw once. */
+  start() { active = true; $('start').hidden = true; },
   step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } renderer.render(scene, camera); },
   release() { stepping = false; },
   startEnemyMove(name) { enemy.timedChecked = false; startMove(enemy, ART.enemy.find((m) => m.name === name)); },

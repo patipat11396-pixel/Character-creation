@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HAIR_DEFAULTS, HairRig, hairMaterial } from '../hair.js';
+import { HAIR_DEFAULTS, HairRig, hairMaterial, makeHairCollision } from '../hair.js';
 
 // The character's look in the fight, from the setup the menu saved: painted
 // skin with its tone, lips, eye colour and brows (the menu's skin shader),
@@ -135,7 +135,10 @@ export async function hairFor(fighter, body, setup, loadGLB, scene) {
   const m = new THREE.Matrix4().makeScale(...extras.head_map.scale).setPosition(...extras.head_map.offset);
   const headMap = MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
   const rig = new HairRig(gltf.scene, fighter.mesh, head, head.matrixWorld.clone(), headMap, extras.head_map, extras.colliders);
-  rig.mesh.material = hairMaterial(hair.color);
+  // Its own ellipsoid uniforms: with one shared set, each hairstyle was pushed
+  // out of the other fighter's body (and floated off its head).
+  rig.collision = makeHairCollision();
+  rig.mesh.material = hairMaterial(hair.color, rig.collision);
   rig.attach(scene);
   // The fit saved for this style and body wins over the general one.
   let fit = setup?.hairFits?.[body]?.[hair.style];

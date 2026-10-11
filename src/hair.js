@@ -36,11 +36,15 @@ const COLLIDERS = [
 // tools/process_character.py), as world matrices of a unit sphere and their
 // inverses, filled in each frame by the hairstyle that is worn.
 const MAX_ELLIPSOIDS = 12;
-export const hairCollision = {
-  hairEllipsoids: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
-  hairEllipsoidsInv: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
-  hairEllipsoidCount: { value: 0 },
-};
+/** Uniforms for one body's ellipsoids (each body on screen needs its own). */
+export function makeHairCollision() {
+  return {
+    hairEllipsoids: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
+    hairEllipsoidsInv: { value: Array.from({ length: MAX_ELLIPSOIDS }, () => new THREE.Matrix4()) },
+    hairEllipsoidCount: { value: 0 },
+  };
+}
+export const hairCollision = makeHairCollision();   // the menu's (one body shown at a time)
 const ELLIPSOID_MARGIN = 0.5; // cm the hair keeps off the skin
 
 // Mesh centimetres (Z up, front -Y) -> world metres (Y up, front +Z).
@@ -144,7 +148,7 @@ export class HairRig {
 
   /** Point the hair shader's ellipsoids at this body's current pose. */
   collide(enabled) {
-    const u = hairCollision;
+    const u = this.collision ?? hairCollision;
     u.hairEllipsoidCount.value = enabled ? this.ellipsoids.length : 0;
     this.ellipsoids.forEach((e, k) => {
       u.hairEllipsoids.value[k].multiplyMatrices(e.bone.matrixWorld, e.bind);
@@ -287,7 +291,7 @@ export class HairRig {
   }
 }
 
-export function hairMaterial(hex) {
+export function hairMaterial(hex, collision = hairCollision) {
   // A soft sheen: a strong, whitish one lit the thin edges of the strands
   // as white lines.
   const m = new THREE.MeshPhysicalMaterial({ roughness: 0.5, sheen: 0.25, sheenRoughness: 0.6, specularIntensity: 0.6 });
@@ -295,7 +299,7 @@ export function hairMaterial(hex) {
   // After skinning, push every hair vertex that sits inside a body ellipsoid
   // out to its surface (along the ellipsoid's own radius).
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, hairCollision);
+    Object.assign(shader.uniforms, collision);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 uniform mat4 hairEllipsoids[${MAX_ELLIPSOIDS}];
