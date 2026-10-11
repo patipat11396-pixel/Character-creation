@@ -24,36 +24,37 @@ export const ARTS = {
     name: 'Basic Sword',
     name_cn: '基础剑法',
     weapon: 'sword',
-    // Hit times are where the blade reaches furthest in front (measured on the clips).
+    // Hit times are where the blade reaches furthest in front (measured on the
+    // clips with the sword held in the fist).
     combo: [
-      { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.38, end: 0.46, rec: 'Sword_Regular_A_Rec', chainFrom: 0.15,
+      { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec', chainFrom: 0.15,
         damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0 },
-      { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.42, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
+      { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
         damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75 },
-      { clip: 'Sword_Regular_C', speed: 0.9, hit: 0.2, end: 0.75, chainFrom: 0.5,
+      { clip: 'Sword_Regular_C', speed: 0.9, hit: 0.17, end: 0.75, chainFrom: 0.5,
         damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true },
     ],
-    air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.8, end: 1.2, damage: 20, range: 2.2, arc: 120, stagger: true },
-    dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.5, end: 0.95, damage: 18, range: 2.4, arc: 90, lunge: 0 },
+    air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
+    dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows the heavy wind-up, then cuts in fast: it
     // breaks a guard (the target is staggered) and cannot be blocked.
     skills: {
       feint: {
         key: 'KeyE', name: 'Feint', name_cn: '虚招', cooldown: 4, stamina: 15,
         bait: { clip: 'Sword_Attack', speed: 1.3, until: 0.32 },
-        strike: { clip: 'Sword_Regular_A', speed: 1.4, hit: 0.38, end: 0.46, rec: 'Sword_Regular_A_Rec',
+        strike: { clip: 'Sword_Regular_A', speed: 1.4, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec',
           damage: 16, range: 2.2, arc: 120, lunge: 0.6, guardBreak: true, unblockable: true },
       },
     },
     // The sparring partner's moves (the same art, read from the other side).
     enemy: [
-      { name: 'slash', clip: 'Sword_Regular_A', speed: 0.7, hit: 0.38, end: 0.46, rec: 'Sword_Regular_A_Rec',
+      { name: 'slash', clip: 'Sword_Regular_A', speed: 0.55, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec',
         damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6 },
-      { name: 'slash2', clip: 'Sword_Regular_B', speed: 0.75, hit: 0.42, end: 0.54, rec: 'Sword_Regular_B_Rec',
+      { name: 'slash2', clip: 'Sword_Regular_B', speed: 0.6, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec',
         damage: 14, range: 2.3, arc: 100, lunge: 0.5 },
-      { name: 'heavy', clip: 'Sword_Attack', speed: 0.75, hit: 0.8, end: 1.25, damage: 28, range: 2.6, arc: 120,
+      { name: 'heavy', clip: 'Sword_Attack', speed: 0.6, hit: 0.52, end: 1.1, damage: 28, range: 2.6, arc: 120,
         lunge: 0.9, reach: 0.95, unblockable: true, parryable: false },
-      { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.5, hit: 0.2, end: 0.75, damage: 20, range: 2.6, arc: 70,
+      { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.4, hit: 0.17, end: 0.75, damage: 20, range: 2.6, arc: 70,
         lunge: 1.0, stagger: true },
     ],
   },

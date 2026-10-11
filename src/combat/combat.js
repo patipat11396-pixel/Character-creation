@@ -16,8 +16,6 @@ const ROOM = 14;       // half size of the room (m)
 const HEAD_SCALE = 0.88;
 const FIST = { Thumb: [0, 25, 55], Index: [75, 95, 60], Middle: [75, 95, 60], Ring: [75, 95, 60], Pinky: [75, 95, 60] };
 const ART = ARTS.basicSword;
-// The sword's place in the right fist (see Fighter.gripSword).
-const GRIP = { dir: [-1, 0, 0], offset: [0, 0.08, 0] };
 
 const $ = (id) => document.getElementById(id);
 const stats = { ...DEFAULT_STATS, ...readStats() };
@@ -171,7 +169,7 @@ class Fighter {
     this.root.updateMatrixWorld(true);
     this.sword = makeSword(opts.tint);
     this.bones.RightHand.add(this.sword);
-    this.gripSword(GRIP);
+    this.gripSword();
     this.bladePrev = null;
     // Hit zones: capsules on the bones.
     this.zones = HIT_ZONES.filter((z) => this.bones[z.from] && (!z.to || this.bones[z.to]))
@@ -197,17 +195,38 @@ class Fighter {
   }
 
   /**
-   * Put the sword in the right fist. The fingers curl about the hand bone's
-   * local X, so the grip runs along X; `grip.dir` is the blade's direction in
-   * the hand bone's frame, `grip.offset` the grip's place (metres, in the
-   * hand's frame scaled to metres: +Y towards the fingers).
+   * Put the sword in the right fist, from the hand's own bones: the handle's
+   * centre in the hole of the fist (between the knuckles and the curled
+   * finger tips), its axis along the knuckle line (little finger to index,
+   * the blade out of the thumb side) at exactly 90 degrees to the hand's
+   * length, and the blade's edge facing the way the knuckles point.
    */
-  gripSword(grip) {
+  gripSword() {
     const hand = this.bones.RightHand;
-    const s = hand.getWorldScale(new THREE.Vector3()).x;          // the bones are in centimetres
-    this.sword.position.copy(new THREE.Vector3(...grip.offset)).divideScalar(s);
-    this.sword.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...grip.dir).normalize());
+    const names = ['Index', 'Middle', 'Ring', 'Pinky'];
+    // Curl the fingers into the fist for the measurement, then put them back.
+    const saved = this.fingers.map((f) => f.bone.quaternion.clone());
+    const q = new THREE.Quaternion();
+    for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle));
+    hand.updateMatrixWorld(true);
+    const local = (name) => hand.worldToLocal(this.bones[`RightHand${name}`].getWorldPosition(new THREE.Vector3()));
+    const knuckles = names.map((n) => local(`${n}1`));
+    const tips = names.map((n) => local(`${n}3`));
+    this.fingers.forEach((f, i) => f.bone.quaternion.copy(saved[i]));
+    const centre = new THREE.Vector3();
+    for (const v of [...knuckles, ...tips]) centre.add(v);
+    centre.divideScalar(8);
+    const along = knuckles[1].clone().normalize();                        // wrist to middle knuckle
+    const axis = knuckles[0].clone().sub(knuckles[3]);                    // little finger to index
+    axis.addScaledVector(along, -axis.dot(along)).normalize();            // at 90 degrees to the hand
+    const edge = along.clone().addScaledVector(axis, -along.dot(axis)).normalize();
+    const basis = new THREE.Matrix4().makeBasis(edge, axis, edge.clone().cross(axis));   // sword X = edge, Y = blade
+    this.sword.quaternion.setFromRotationMatrix(basis);
+    // The handle (sword y -0.1..0.1) centred in the fist.
+    const s = hand.getWorldScale(new THREE.Vector3()).x;
+    this.sword.position.copy(centre);
     this.sword.scale.setScalar(1 / s);
+    this.sword.updateMatrix();
   }
 
   get pos() { return this.root.position; }
@@ -481,15 +500,15 @@ function resolveHit(att, def, zone) {
   hitLog.push(`${att.isPlayer ? 'P' : 'E'}>${zone.name}`);
   att.moveHit = true;
   if (def.state === 'dead') return;
-  // Perfect dodge: the dodge started within the window before the blow.
-  const sinceDodge = att.hitAt - (def.dodgeAt ?? -99);
+  // Timing is judged at the moment the blade touches (what the player sees).
+  const sinceDodge = gameTime - (def.dodgeAt ?? -99);
   if (def.state === 'dodge' && sinceDodge >= 0 && sinceDodge <= stats.dodgeWindow + 0.02) {
     perfect(def, att, 'Perfect Dodge!');
     return;
   }
   if (gameTime < def.invulnUntil) return;
   // Perfect parry: a tap of parry within the window before the blow.
-  const sinceParry = att.hitAt - (def.parryAt ?? -99);
+  const sinceParry = gameTime - (def.parryAt ?? -99);
   const facing = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) < THREE.MathUtils.degToRad(70);
   if (def.isPlayer && facing && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) {
     perfect(def, att, 'Perfect Parry!', true);
@@ -932,7 +951,13 @@ function frame() {
   const real = Math.min(clock.getDelta(), 0.05);
   if (!player || stepping) return;
   // Nothing moves until the fight is started (the enemy waits too).
-  if (!active) { player.finishPose(); enemy.finishPose(); updateCamera(real); renderer.render(scene, camera); return; }
+  if (!active) {
+    // Waiting to start: both stand in the sword idle (nothing else moves).
+    for (const f of [player, enemy]) { f.mixer.update(real); f.finishPose(); f.hair?.rig.update(real, f.hair.state); }
+    updateCamera(real);
+    renderer.render(scene, camera);
+    return;
+  }
   tick(real);
   renderer.render(scene, camera);
 }
@@ -1048,7 +1073,6 @@ window.combat = {
   hold(code, on) { if (on) keys.add(code); else keys.delete(code); },
   click() { clicked = true; },
   look(yaw) { camYaw = yaw; },
-  grip(g) { Object.assign(GRIP, g); player.gripSword(GRIP); enemy.gripSword(GRIP); },
   /** Run n fixed steps (no rendering in between), then draw once. */
   start() { active = true; $('start').hidden = true; },
   step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } renderer.render(scene, camera); },
