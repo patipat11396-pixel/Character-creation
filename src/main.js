@@ -456,9 +456,9 @@ function headMapWorld(map) {
 // The animations were made for a wider-hipped figure; the female legs come
 // out set too far apart. While a clip plays, both thighs are turned inward
 // about the body's forward axis by state.legs[body] degrees (negative: wider).
-const _q = new THREE.Quaternion();
-const _pw = new THREE.Quaternion();
-const FORWARD = new THREE.Vector3(0, 0, 1);
+const _legQ = new THREE.Quaternion();
+const _legPW = new THREE.Quaternion();
+const LEG_AXIS = new THREE.Vector3(0, 0, 1);
 
 function poseLegs() {
   if (!state.anim) return;
@@ -469,10 +469,10 @@ function poseLegs() {
     for (const [name, sign] of [['LeftUpLeg', -1], ['RightUpLeg', 1]]) {
       const bone = ch.legBones?.[name] ?? ((ch.legBones ??= {})[name] = ch.mesh.skeleton.bones.find((b) => b.name === name));
       if (!bone) continue;
-      bone.parent.getWorldQuaternion(_pw);
-      _q.setFromAxisAngle(FORWARD, THREE.MathUtils.degToRad(sign * deg));
-      // world turn about FORWARD, expressed in the parent's space
-      bone.quaternion.premultiply(_pw.clone().invert().multiply(_q).multiply(_pw));
+      bone.parent.getWorldQuaternion(_legPW);
+      _legQ.setFromAxisAngle(LEG_AXIS, THREE.MathUtils.degToRad(sign * deg));
+      // world turn about LEG_AXIS, expressed in the parent's space
+      bone.quaternion.premultiply(_legPW.clone().invert().multiply(_legQ).multiply(_legPW));
     }
   }
 }
