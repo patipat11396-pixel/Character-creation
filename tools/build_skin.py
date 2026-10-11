@@ -305,47 +305,54 @@ def brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
         col = (np.abs(x[sel]) - x0) * BROW_PPC
         row = (z1 - z[sel]) * BROW_PPC
         out[sel] = out[sel] * (1 - bilinear(fill, col, row)) + bilinear(clean, col, row) * bilinear(fill, col, row)
-    out, patch = brow_patch(out, covered, pos, nrm, pv, uv, pf, body)
-    return out, brow, patch
+    return smooth_brow_area(out, covered, pos, nrm, pv, uv, pf, skin_rgb, body), brow
 
 
-def patch_box(body):
-    """The brow area that moves with the brows: the brow box grown to take in
-    the painted light and shade of the brow ridge."""
+def smooth_box(body):
+    """The brow area painted smooth: the brow box grown to take in the
+    painted light and shade of the brow ridge."""
     x0, z0, x1, z1 = body["brow_box"]
-    return [max(x0 - 0.5, 0.3), z0 - 0.15, x1 + 0.8, z1 + 1.0]
+    eye_top = body["eye"]["z"] + body["eye"]["h"] / 2      # down to just above the eyelid
+    return [max(x0 - 0.5, 0.3), min(z0 - 0.15, eye_top + 0.35), x1 + 1.0, z1 + 1.6]
 
 
-def brow_patch(color, covered, pos, nrm, pv, uv, pf, body):
-    """Lift the painted brow area (its light and shade, brows already removed)
-    into an image that moves with the brows, and leave smooth skin under it.
+def smooth_brow_area(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
+    """Paint the brow ridge's light and shade (brows already removed) out of
+    the skin, so only the menu's brows remain there.
 
-    The skin left behind is the area's low-frequency colour (a wide blur),
-    so the painted ridge shading no longer stays put when the brows move.
-    The image's alpha fades out over the last 0.6 cm of the box.
+    On a front view of the area with a margin round it, the box is filled
+    from the colours round it (a wide blur of the skin beside and above
+    it, not the eye below), a smooth fill that keeps the forehead's gradient. It fades
+    in over 1.2 cm at the top and outer side and 0.6 cm above the eyelid;
+    the inner side, where the two sides meet at the middle, is full.
     """
-    x0, z0, x1, z1 = patch_box(body)
+    x0, z0, x1, z1 = smooth_box(body)
+    m = 1.5                                        # margin round the box, cm
     y_from = body["nose_tip"][0] - 20
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
+    ax = np.abs(x)
+    def weight(px, pz):
+        return (smoothstep(z0, z0 + 0.6, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, px)
+                * smoothstep(0.0, 0.3, px - x0 + 0.3))
     out = color.copy()
     for side in (1, -1):
-        view, hit = front_view(color, pv, uv, pf, x0, x1, z0, z1, y_from, BROW_PPC) if side > 0 else \
-            [a[:, ::-1] for a in front_view(color, pv, uv, pf, -x1, -x0, z0, z1, y_from, BROW_PPC)]
+        bx0, bx1 = 0.0, x1 + m
+        view, hit = front_view(color, pv, uv, pf, bx0, bx1, z0 - m, z1 + m, y_from, BROW_PPC) if side > 0 else \
+            [a[:, ::-1] for a in front_view(color, pv, uv, pf, -bx1, -bx0, z0 - m, z1 + m, y_from, BROW_PPC)]
         h, w = hit.shape
         cols, rows = np.meshgrid(np.arange(w) / BROW_PPC, np.arange(h) / BROW_PPC)
-        edge = np.minimum.reduce([cols, (w - 1) / BROW_PPC - cols, rows, (h - 1) / BROW_PPC - rows])
-        alpha = smoothstep(0.0, 0.6, edge) * hit
-        if side > 0:
-            patch = np.dstack([view, alpha])
-        weight = cv2.GaussianBlur(hit.astype(np.float32), (0, 0), 30) + 1e-6
-        base = cv2.GaussianBlur(view * hit[..., None], (0, 0), 30) / weight[..., None]
-        sel = covered & (nrm[..., 1] < -0.2) & (y < body["nose_tip"][0] + 8) & (z > z0) & (z < z1)
-        sel &= (x * side > x0) & (x * side < x1)
-        col = (np.abs(x[sel]) - x0) * BROW_PPC
-        row = (z1 - z[sel]) * BROW_PPC
-        a = bilinear(alpha[..., None], col, row)
-        out[sel] = out[sel] * (1 - a) + bilinear(base, col, row) * a
-    return out, patch
+        inside = weight(cols, z1 + m - rows)
+        # Known: round the box, but not below it (the eye and its lashes).
+        known = (hit * (1 - np.minimum(inside * 4, 1)) * (z1 + m - rows > z0)).astype(np.float32)
+        lum = view @ np.array([0.299, 0.587, 0.114], np.float32)
+        known *= lum > np.median(lum[known > 0.5]) - 0.06            # no lashes or shadows
+        fill = cv2.GaussianBlur(view * known[..., None], (0, 0), 0.8 * BROW_PPC)
+        fill /= cv2.GaussianBlur(known, (0, 0), 0.8 * BROW_PPC)[..., None] + 1e-6
+        sel = covered & (y < body["nose_tip"][0] + 8) & (x * side > 0) & (ax < bx1) & (z > z0) & (z < z1)
+        a = weight(ax[sel], z[sel]) * smoothstep(-0.05, -0.3, nrm[..., 1][sel])
+        f = bilinear(fill, ax[sel] * BROW_PPC, (z1 + m - z[sel]) * BROW_PPC)
+        out[sel] = out[sel] * (1 - a[:, None]) + f * a[:, None]
+    return out
 
 
 def smooth_bands(color, covered, pos, nrm, pv, uv, pf, body):
@@ -483,7 +490,7 @@ def build(key):
 
     if "eye_repaint" in body:
         color = repaint_eyes(color, covered, pos, nrm, body)
-    color, brow, patch = brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body)
+    color, brow = brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body)
     color = smooth_bands(color, covered, pos, nrm, pv, uv, pf, body)
     mask = np.zeros((SIZE, SIZE, 3), np.float32)
     mask[..., 0] = iris_mask(color, covered, pos, body)
@@ -500,12 +507,11 @@ def build(key):
     Image.fromarray(np.clip(grow(mask, covered) * 255 + 0.5, 0, 255).astype(np.uint8)).resize(
         (SIZE // 2, SIZE // 2), Image.LANCZOS).save(out / f"{key}_mask.png", optimize=True)
     Image.fromarray(np.clip(brow * 255 + 0.5, 0, 255).astype(np.uint8), "RGBA").save(out / f"{key}_brow.png", optimize=True)
-    Image.fromarray(np.clip(patch * 255 + 0.5, 0, 255).astype(np.uint8), "RGBA").save(out / f"{key}_browarea.png", optimize=True)
     info = {
         "reference": "#%02x%02x%02x" % tuple(np.round(skin_rgb * 255).astype(int)),
         # The brow image covers this box (left brow; x0, z0, x1, z1 in mesh cm)
         # on the front of the face, which is in front of front_y.
-        "browBox": body["brow_box"], "frontY": body["nose_tip"][0] + 8, "patchBox": patch_box(body),
+        "browBox": body["brow_box"], "frontY": body["nose_tip"][0] + 8,
     }
     (out / f"{key}.json").write_text(json.dumps(info) + "\n")
     print(f"wrote models/skin/{key}_*.jpg and {key}.json")

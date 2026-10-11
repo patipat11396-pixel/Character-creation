@@ -323,69 +323,22 @@ def shape_breasts(verts, faces, avg, body):
     return out, moved
 
 
-BROW_MORPHS = ("browRidgeUp", "browRidgeOut", "browRidgeTilt")
-
-
-def brow_ridge_morphs(verts, faces, body):
-    """Shape keys that carry the sculpted brow ridge with the menu's brows.
-
-    The front of the face around the brows is sampled as a depth map; each
-    key moves that relief across the face, front/back only:
-    browRidgeUp 1 cm up, browRidgeOut 1 cm outwards (away from the middle),
-    browRidgeTilt 10 degrees outer end up, about the brow box's centre.
-    The menu sets them from the brow height, spacing and angle sliders.
-    """
-    from scipy.interpolate import RegularGridInterpolator
-    x0, z0, x1, z1 = body["brow_box"]
-    mx0, mx1, mz0, mz1 = x0 - 1.0, x1 + 1.5, z0 - 0.4, z1 + 2.0
-    step = 0.1
-    gx = np.arange(-(mx1 + 3), mx1 + 3 + step, step)
-    gz = np.arange(mz0 - 3, mz1 + 3 + step, step)
-    X, Z = np.meshgrid(gx, gz, indexing="ij")
-    mesh = trimesh.Trimesh(verts, faces, process=False)
-    origins = np.c_[X.ravel(), np.full(X.size, body["nose_tip"][0] - 20), Z.ravel()]
-    loc, ray, _ = mesh.ray.intersects_location(origins, np.tile([0, 1.0, 0], (len(origins), 1)), multiple_hits=False)
-    depth = np.full(len(origins), np.nan)
-    depth[ray] = loc[:, 1]
-    depth = depth.reshape(X.shape)
-    depth = np.where(np.isnan(depth), np.nanmax(depth), depth)
-    D = RegularGridInterpolator((gx, gz), depth, bounds_error=False, fill_value=None)
-    x, y, z = verts.T
-    ax, sx = np.abs(x), np.sign(x) + (x == 0)
-    w = (smoothstep(mx0 - 1.5, mx0, ax) * smoothstep(mx1 + 1.5, mx1, ax)
-         * smoothstep(mz0 - 0.8, mz0, z) * smoothstep(mz1 + 1.5, mz1, z) * (y < body["nose_tip"][0] + 8))
-    sel = w > 0
-    here = D(np.c_[x[sel], z[sel]])
-    out = {}
-    up = D(np.c_[x[sel], z[sel] - 1.0]) - here
-    outw = D(np.c_[sx[sel] * np.maximum(ax[sel] - 1.0, 0), z[sel]]) - here
-    cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
-    a = np.radians(10)
-    px, pz = ax[sel] - cx, z[sel] - cz
-    rx, rz = np.cos(a) * px + np.sin(a) * pz, -np.sin(a) * px + np.cos(a) * pz
-    tilt = D(np.c_[sx[sel] * (rx + cx), rz + cz]) - here
-    for name, dy in zip(BROW_MORPHS, (up, outw, tilt)):
-        d = np.zeros_like(verts)
-        d[sel, 1] = np.clip(dy, -1.5, 1.5) * w[sel]
-        out[name] = d
-    print(f"brow ridge keys on {sel.sum()} vertices")
-    return out
-
-
 def flatten_brows(verts, avg, body):
     """Relax the brow ridge (body["brow_box"], mirrored for the right brow)
     on the front of the face, fading out over 2.5 cm around it, so the ridge
     and the step at its top edge are gone (the menu draws the brows)."""
     x0, z0, x1, z1 = body["brow_box"]
     z1 += 1.5
+    eye_top = body["eye"]["z"] + body["eye"]["h"] / 2
     x, y, z = verts.T
     ax = np.abs(x)
-    w = (smoothstep(x0 - 2.5, x0, ax) * smoothstep(x1 + 2.5, x1, ax) * smoothstep(z0 - 2.0, z0, z)
+    # Down to just above the eyelid, so the ridge's lower edge goes too.
+    w = (smoothstep(x0 - 2.5, x0, ax) * smoothstep(x1 + 2.5, x1, ax) * smoothstep(eye_top + 0.1, eye_top + 0.9, z)
          * smoothstep(z1 + 2.5, z1, z) * (y < body["nose_tip"][0] + 8))
     # Only forward/back: sliding the points sideways folded triangles at the
     # box's edge (a dark line between the eye and the nose).
     out = verts.copy()
-    for _ in range(80):
+    for _ in range(250):
         out[:, 1] += 0.5 * w * (avg @ out - out)[:, 1]
     return out, w > 0
 
@@ -409,7 +362,7 @@ def tuck(cv, cf, ov, of, depth):
     cv = cv[used].copy()
     # What is left inside sits a little closer to the body than the outer
     # garment, so the two do not show through each other.
-    under = smoothstep(1.0, 0.0, cv[:, 2] - tops[np.digitize(angle(cv), bins)])
+    under = smoothstep(0.5, -0.1, cv[:, 2] - tops[np.digitize(angle(cv), bins)])
     my = ov[:, 1].mean()
     radial = np.c_[cv[:, 0], cv[:, 1] - my]
     r = np.linalg.norm(radial, axis=1) + 1e-9
@@ -755,15 +708,18 @@ def build(body):
         near = shaped | (avg @ shaped.astype(float) > 0)
         normals[near] = vertex_normals(verts, faces)[near]
 
-    # ---- brows: the sculpted brow ridges stay behind when the menu moves the
-    # painted brows, so the brow area is relaxed flat (both sides, front only)
-    # (flatten_brows is off: the sculpted brow ridge is kept as made.)
+    # ---- brows: the sculpted brow ridges would stay behind when the menu
+    # moves the painted brows, so the brow area is relaxed flat (both sides,
+    # front only) and only the brows move.
+    verts, flat = flatten_brows(verts, avg, body)
+    print(f"brows: relaxed {flat.sum()} vertices")
+    near = flat | (avg @ flat.astype(float) > 0)
+    normals[near] = vertex_normals(verts, faces)[near]
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
     morphs.update(face.face_shapes(verts))
-    morphs.update(brow_ridge_morphs(verts, faces, body))
-    MORPH_NAMES = face.MORPHS + list(face.FACE_SHAPES) + list(BROW_MORPHS)
+    MORPH_NAMES = face.MORPHS + list(face.FACE_SHAPES)
     base_n = vertex_normals(verts, faces)
     morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
 

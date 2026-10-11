@@ -55,7 +55,7 @@ BODIES = {
         # source GLB (from the FBX), and the body heights its top and bottom go to.
         "clothes": [
             {"id": "tank_top", "name": "Tank top", "src": "models/source/clothing/female_tank_top.glb",
-             "top": 124.9, "bottom": 89.5, "color": [0.86, 0.86, 0.84],
+             "top": 124.9, "bottom": 89.5, "color": [0.86, 0.86, 0.84], "inflate": True,
              "tuck_into": "shorts", "tuck_depth": 1.2},   # its hidden part is cut away
             {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/female_shorts.glb",
              "top": 100.5, "bottom": 69.5, "color": [0.3, 0.32, 0.36], "snug": ["top"]},

@@ -252,7 +252,6 @@ uniform float mouthZ;
 uniform vec3 eyeColor; uniform float eyeTint; uniform sampler2D featureMask;
 uniform vec3 toneColor; uniform vec3 skinRef; uniform float toneOn;
 uniform sampler2D browTex; uniform vec4 browBox; uniform float frontY;
-uniform sampler2D browArea; uniform vec4 patchBox;
 uniform vec2 browOffset; uniform float browScale; uniform float browAngle; uniform float browThick;
 uniform float browAmount; uniform vec3 browColor; uniform float browTint;
 varying vec3 vSkinPos;`)
@@ -283,15 +282,6 @@ varying vec3 vSkinPos;`)
     vec2 d = vec2(abs(vSkinPos.x) - c.x - browOffset.x, vSkinPos.z - c.y - browOffset.y);
     float ca = cos(browAngle), sa = sin(browAngle);
     d = vec2(ca * d.x + sa * d.y, -sa * d.x + ca * d.y) / browScale;
-    // The brow area's painted light and shade (patchBox), moved the same way.
-    vec2 pu = vec2((d.x + c.x - patchBox.x) / (patchBox.z - patchBox.x), (patchBox.w - (d.y + c.y)) / (patchBox.w - patchBox.y));
-    if (vSkinPos.y < frontY && pu.x > 0.0 && pu.x < 1.0 && pu.y > 0.0 && pu.y < 1.0) {
-      vec4 pa = texture2D(browArea, pu);
-      // Same skin-tone handling as the texture: recolour by brightness.
-      vec3 pc = pa.rgb;
-      if (toneOn > 0.5) pc = toneColor * dot(pc, vec3(0.299, 0.587, 0.114)) / max(dot(skinRef, vec3(0.299, 0.587, 0.114)), 1e-3);
-      diffuseColor.rgb = mix(diffuseColor.rgb, pc, pa.a);
-    }
     vec2 size = browBox.zw - browBox.xy;
     vec2 bu = vec2(d.x / size.x + 0.5, 0.5 - d.y / size.y);
     if (vSkinPos.y < frontY && bu.x > 0.0 && bu.x < 1.0 && bu.y > 0.0 && bu.y < 1.0) {
@@ -401,11 +391,10 @@ async function paintedSkin(body) {
     t.anisotropy = 4;
     return t;
   };
-  const [map, roughnessMap, featureMask, browTex, browArea, info] = await Promise.all([
+  const [map, roughnessMap, featureMask, browTex, info] = await Promise.all([
     load('color', true), load('rough', false),
     texLoader.loadAsync(`models/skin/${body}_mask.png`).then((t) => Object.assign(t, { flipY: false })),
     load('brow', true, 'png'),
-    load('browarea', true, 'png'),
     fetch(`models/skin/${body}.json`).then((r) => r.json()),
   ]);
   const m = skin.clone();
@@ -417,8 +406,6 @@ async function paintedSkin(body) {
     shader.uniforms.toneOn = m.userData.toneOn;
     shader.uniforms.browTex = { value: browTex };
     shader.uniforms.browBox = { value: new THREE.Vector4(...info.browBox) };
-    shader.uniforms.browArea = { value: browArea };
-    shader.uniforms.patchBox = { value: new THREE.Vector4(...info.patchBox) };
     shader.uniforms.frontY = { value: info.frontY };
   };
   Object.assign(m, { map, roughnessMap, roughness: 1, sheen: 0.25 });
@@ -628,12 +615,6 @@ function poseMouth(dt) {
       for (const key in mouthNow) {
         const i = m.morphTargetDictionary[key];
         if (i !== undefined) m.morphTargetInfluences[i] = mouthNow[key];
-      }
-      // The sculpted brow ridge follows the brows (cm, and 10-degree steps).
-      const br = { browRidgeUp: state.brows.height, browRidgeOut: state.brows.spacing, browRidgeTilt: state.brows.angle / 10 };
-      for (const key in br) {
-        const i = m.morphTargetDictionary[key];
-        if (i !== undefined) m.morphTargetInfluences[i] = br[key];
       }
       for (const key of FACE_KEYS) {
         const i = m.morphTargetDictionary[key];
