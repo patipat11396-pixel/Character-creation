@@ -77,6 +77,7 @@ class GlbWriter:
             return len(views) - 1
 
         sparse = getattr(self, "sparse", {})
+        zero_views = {}
         for i, acc in enumerate(gltf["accessors"]):
             if i in sparse:
                 count, width, rows, values = sparse[i]
@@ -86,7 +87,10 @@ class GlbWriter:
                                      "indices": {"bufferView": add_view(rows.tobytes()), "componentType": 5125},
                                      "values": {"bufferView": add_view(values.tobytes())}}
                 else:
-                    new["bufferView"] = add_view(np.zeros((count, width), np.float32).tobytes())
+                    # All-zero: one shared zero buffer per size.
+                    if (count, width) not in zero_views:
+                        zero_views[(count, width)] = add_view(np.zeros((count, width), np.float32).tobytes())
+                    new["bufferView"] = zero_views[(count, width)]
                 if width == 3:
                     full = values if len(rows) else np.zeros((1, 3), np.float32)
                     new["min"] = np.minimum(full.min(0), 0).tolist()

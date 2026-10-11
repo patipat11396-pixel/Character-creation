@@ -390,6 +390,35 @@ def flatten_brows(verts, avg, body):
     return out, w > 0
 
 
+def fit_cloth(cloth, verts, faces, normals, margin=0.5):
+    """A garment (glTF axes, any scale) placed on the body in mesh cm.
+
+    Scaled so it spans cloth["top"] to cloth["bottom"], centred on the body
+    across, its middle front to back set to the body's middle at that
+    height, then every point inside the body or closer than `margin` cm is
+    pushed out along the body's normal. A rough fit: the menu's sliders
+    adjust it.
+    """
+    gl, bin_ = read_glb(ROOT / cloth["src"])
+    p = read_accessor(gl, bin_, gl["meshes"][0]["primitives"][0]["attributes"]["POSITION"]).astype(float)
+    v = np.c_[p[:, 0], -p[:, 2], p[:, 1]]                       # Y up, front +Z -> Z up, front -Y
+    v, inv = np.unique(np.round(v, 6), axis=0, return_inverse=True)
+    f = inv.ravel().reshape(-1, 3)
+    s = (cloth["top"] - cloth["bottom"]) / np.ptp(v[:, 2])
+    v = v * s
+    v[:, 2] += cloth["bottom"] - v[:, 2].min()
+    v[:, 0] -= (v[:, 0].max() + v[:, 0].min()) / 2
+    band = (verts[:, 2] > cloth["bottom"]) & (verts[:, 2] < cloth["top"]) & (np.abs(verts[:, 0]) < 20)
+    v[:, 1] += (verts[band, 1].max() + verts[band, 1].min()) / 2 - (v[:, 1].max() + v[:, 1].min()) / 2
+    tree = cKDTree(verts)
+    for _ in range(3):
+        _, k = tree.query(v)
+        gap = ((v - verts[k]) * normals[k]).sum(1)
+        push = np.clip(margin - gap, 0, None)
+        v += normals[k] * push[:, None]
+    return v, f
+
+
 def vertex_normals(verts, faces):
     fn = np.cross(verts[faces[:, 1]] - verts[faces[:, 0]], verts[faces[:, 2]] - verts[faces[:, 0]])
     normals = np.zeros_like(verts)
@@ -660,6 +689,31 @@ def build(body):
             "material": len(g["materials"]) - 1,
             "targets": targets,
         })
+    # ---- clothes: separate primitives skinned like the body under them
+    for cloth in body.get("clothes", []):
+        cv, cf = fit_cloth(cloth, verts, faces, normals)
+        _, near = cKDTree(verts).query(cv, k=4)
+        # Weights: the four nearest body points' weights, averaged.
+        dense_w = np.zeros((len(cv), len(names)))
+        for k in range(4):
+            np.add.at(dense_w, (np.repeat(np.arange(len(cv)), 4), order[near[:, k]].ravel()), top[near[:, k]].ravel() / 4)
+        c_order = np.argsort(-dense_w, axis=1)[:, :4]
+        c_top = np.take_along_axis(dense_w, c_order, axis=1)
+        c_top /= c_top.sum(1, keepdims=True)
+        cn = vertex_normals(cv, cf)
+        g["materials"].append({"name": f"Cloth_{cloth['id']}", "doubleSided": True, "pbrMetallicRoughness": {
+            "baseColorFactor": cloth["color"] + [1], "metallicFactor": 0, "roughnessFactor": 0.85}})
+        zero = np.zeros_like(cv, dtype=np.float32)
+        g["meshes"][0]["primitives"].append({
+            "attributes": {"POSITION": out.append(cv.astype(np.float32), 34962),
+                           "NORMAL": out.append(cn.astype(np.float32), 34962),
+                           "JOINTS_0": out.append(c_order.astype(np.uint16), 34962),
+                           "WEIGHTS_0": out.append(c_top.astype(np.float32), 34962)},
+            "indices": out.append(cf.astype(np.uint32).reshape(-1, 1), 34963),
+            "material": len(g["materials"]) - 1,
+            "targets": [{"POSITION": out.append_sparse(zero), "NORMAL": out.append_sparse(zero)} for _ in MORPH_NAMES],
+        })
+        print(f"cloth {cloth['id']}: {len(cv)} vertices")
     g["meshes"][0]["weights"] = [0] * len(MORPH_NAMES)
     g["meshes"][0]["extras"] = {"targetNames": MORPH_NAMES}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"

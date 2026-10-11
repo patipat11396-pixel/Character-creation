@@ -51,6 +51,14 @@ BODIES = {
         # Thin painted strokes to remove (left side, mirrored): x0, z0, x1, z1.
         "paint_out": [[0.6, 140.4, 4.4, 144.4]],
         "depth": 0.81,                 # head depth against the old reference head
+        # Clothes always worn (process_character.py fits and skins them): the
+        # source GLB (from the FBX), and the body heights its top and bottom go to.
+        "clothes": [
+            {"id": "tank_top", "name": "Tank top", "src": "models/source/clothing/female_tank_top.glb",
+             "top": 124.9, "bottom": 89.5, "color": [0.86, 0.86, 0.84]},
+            {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/female_shorts.glb",
+             "top": 100.5, "bottom": 69.5, "color": [0.3, 0.32, 0.36]},
+        ],
     },
     "male": {
         "label": "Male",

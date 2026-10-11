@@ -93,6 +93,7 @@ const state = {
   hairFits: {}, // body -> style id -> fit, for every style fitted on that body
   eyes: { ...EYE_DEFAULTS },
   brows: { ...BROW_DEFAULTS },
+  clothFits: {}, // body -> garment id -> fit
   lips: { ...LIP_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
@@ -343,9 +344,11 @@ async function buildCharacter(body, kind) {
   const root = gltf.scene;
   let mesh;
   const faceMeshes = []; // every part with mouth shape keys: body, teeth, tongue
+  const clothes = [];    // garments always worn (separate parts, skinned like the body)
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
-      if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name)) mesh = o;
+      if (o.material.name.startsWith('Cloth_')) clothes.push(o);
+      else if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name)) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -376,7 +379,9 @@ async function buildCharacter(body, kind) {
   const character = {
     root, mesh, mixer, clips, fingers, faceMeshes, hair, headBone, headBindWorld, hairRigs: {}, action: null,
     body: landmarks, headMap: headMapWorld(landmarks.head_map), skin: mesh.material,
+    clothes: clothes.map(clothPart),
   };
+  character.bodyKey = body;
   characters[charKey(body, kind)] = character;
   root.visible = false;
   scene.add(root);
@@ -442,6 +447,81 @@ const MESH_TO_WORLD = new THREE.Matrix4().makeRotationX(-Math.PI / 2).multiply(n
 function headMapWorld(map) {
   const m = new THREE.Matrix4().makeScale(...map.scale).setPosition(...map.offset);
   return MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
+}
+
+// ---------------------------------------------------------------- clothes
+//
+// Garments built into the body file (tools/process_character.py, roughly
+// fitted). Each one's fit moves it in the body's bind pose before skinning:
+// scaled about its own centre, then offset (mesh cm: x side, y back, z up).
+const CLOTH_FIT_DEFAULTS = { size: 1, width: 1, height: 1, depth: 1, up: 0, forward: 0 };
+
+function clothPart(o) {
+  const id = o.material.name.slice('Cloth_'.length);
+  o.geometry.computeBoundingBox();
+  const centre = o.geometry.boundingBox.getCenter(new THREE.Vector3());
+  const u = { clothScale: { value: new THREE.Vector3(1, 1, 1) }, clothOffset: { value: new THREE.Vector3() },
+    clothCentre: { value: centre } };
+  const m = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide });
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 clothScale; uniform vec3 clothOffset; uniform vec3 clothCentre;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed = (transformed - clothCentre) * clothScale + clothCentre + clothOffset;');
+  };
+  o.material = m;
+  return { id, mesh: o, uniforms: u };
+}
+
+function applyClothFits() {
+  for (const ch of Object.values(characters)) {
+    for (const c of ch.clothes ?? []) {
+      const f = { ...CLOTH_FIT_DEFAULTS, ...state.clothFits[ch.bodyKey]?.[c.id] };
+      c.uniforms.clothScale.value.set(f.size * f.width, f.size * f.depth, f.size * f.height);
+      c.uniforms.clothOffset.value.set(0, -f.forward, f.up);
+    }
+  }
+}
+
+function buildClothControls() {
+  const box = $('cloth-controls');
+  box.innerHTML = '';
+  const ch = current();
+  if (!ch?.clothes?.length) {
+    box.innerHTML = '<p class="note">No clothes for this body yet.</p>';
+    return;
+  }
+  const labels = [['size', 'Size', 0.7, 1.4, 0.005], ['width', 'Width', 0.7, 1.4, 0.005], ['height', 'Height', 0.7, 1.4, 0.005],
+    ['depth', 'Depth', 0.7, 1.4, 0.005], ['up', 'Up / down', -10, 10, 0.1], ['forward', 'Back / forward', -5, 5, 0.05]];
+  for (const c of ch.clothes) {
+    const f = { ...CLOTH_FIT_DEFAULTS, ...state.clothFits[state.body]?.[c.id] };
+    const field = document.createElement('div');
+    field.className = 'field';
+    field.innerHTML = `<span class="label">${c.id.replace(/_/g, ' ')}</span>`;
+    for (const [k, name, min, max, step] of labels) {
+      const row = document.createElement('label');
+      row.className = 'slider';
+      row.innerHTML = `<span>${name}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${f[k]}">`;
+      row.querySelector('input').addEventListener('input', (e) => {
+        const fits = (state.clothFits[state.body] ??= {});
+        (fits[c.id] ??= { ...CLOTH_FIT_DEFAULTS })[k] = Number(e.target.value);
+        applyClothFits();
+      });
+      field.appendChild(row);
+    }
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'link';
+    reset.textContent = 'Reset fit';
+    reset.addEventListener('click', () => {
+      const d = defaults?.clothFits?.[state.body]?.[c.id];
+      (state.clothFits[state.body] ??= {})[c.id] = { ...CLOTH_FIT_DEFAULTS, ...d };
+      applyClothFits();
+      buildClothControls();
+    });
+    field.appendChild(reset);
+    box.appendChild(field);
+  }
 }
 
 // A colour per bone, blended by each vertex's skin weights, for the debug view.
@@ -606,6 +686,7 @@ function setTab(name) {
   document.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== name; });
   if (name !== 'hair') setGizmo('off');
   if (HEAD_TABS.includes(name)) setView('head');
+  else if (name === 'clothes') setView('body');
 }
 
 function setFace(values) {
@@ -956,6 +1037,8 @@ async function setCharacter(body = state.body, model = state.model) {
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
   lipUniforms.mouthZ.value = ch.body.mouth_z ?? lipUniforms.mouthZ.value;
   applyTone(SKIN_TONES[state.tone]);
+  applyClothFits();
+  buildClothControls();
   applyWeightView();
   if (hairStyles.length) {
     shownStyle = null;
@@ -996,6 +1079,7 @@ function snapshot() {
     lips: { ...state.lips },
     eyes: { ...state.eyes },
     brows: { ...state.brows },
+    clothFits: JSON.parse(JSON.stringify(state.clothFits)),
     face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
@@ -1025,6 +1109,11 @@ function applySetup(setup, { withName = false } = {}) {
   // (Older saves hold the removed drawn eyes' settings under "eyes"; skip those.)
   setEyes({ ...EYE_DEFAULTS, ...(setup.eyes && !('white' in setup.eyes) ? setup.eyes : {}) });
   setBrows({ ...BROW_DEFAULTS, ...setup.brows });
+  if (setup.clothFits) {
+    for (const [b, f] of Object.entries(setup.clothFits)) state.clothFits[b] = { ...state.clothFits[b], ...f };
+    applyClothFits();
+    if (current()) buildClothControls();
+  }
   if (setup.hands) {
     state.hands = setup.hands;
     document.querySelectorAll('[data-hands]').forEach((o) => o.classList.toggle('on', o.dataset.hands === state.hands));

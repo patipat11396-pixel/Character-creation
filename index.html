@@ -49,6 +49,7 @@
     <nav class="tabs" role="tablist" aria-label="Customise">
       <button type="button" role="tab" data-tab="basic" aria-selected="true">Basic</button>
       <button type="button" role="tab" data-tab="hair">Hair</button>
+      <button type="button" role="tab" data-tab="clothes">Clothes</button>
       <button type="button" role="tab" data-tab="nose">Nose</button>
       <button type="button" role="tab" data-tab="lips">Lips</button>
       <button type="button" role="tab" data-tab="forehead">Forehead</button>
@@ -148,6 +149,11 @@
         <label class="check"><input type="checkbox" id="hair-collide" checked> Keep hair outside the body</label>
         <button type="button" id="hair-reset" class="link">Reset hair fit and movement</button>
       </div>
+    </section>
+
+    <section class="tab-panel" role="tabpanel" data-panel="clothes" hidden>
+      <p class="note">Always worn. Adjust the fit; it is saved per body with the character.</p>
+      <div id="cloth-controls"></div>
     </section>
 
     <section class="tab-panel" role="tabpanel" data-panel="nose" hidden>
