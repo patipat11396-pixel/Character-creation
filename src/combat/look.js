@@ -131,15 +131,27 @@ export async function hairFor(fighter, body, setup, loadGLB, scene) {
   const gltf = await loadGLB(entry.file);
   const extras = fighter.root.userData.body;
   const head = fighter.bones.Head;
+  // Fitted against the head as modelled (as in the menu): the fight draws the
+  // head 12% smaller every frame, and fitting against that scaled head made
+  // the hair 1/0.88 too big and pushed it off the head.
+  const shown = head.scale.clone();
+  head.scale.setScalar(1);
   fighter.root.updateMatrixWorld(true);
   const m = new THREE.Matrix4().makeScale(...extras.head_map.scale).setPosition(...extras.head_map.offset);
   const headMap = MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
-  const rig = new HairRig(gltf.scene, fighter.mesh, head, head.matrixWorld.clone(), headMap, extras.head_map, extras.colliders);
+  // The head's bind pose from the skeleton (whatever pose the body is in now),
+  // relative to the fighter's root: the hair map is in the root's space.
+  const sk = fighter.mesh.skeleton;
+  const headBind = fighter.mesh.bindMatrix.clone().multiply(sk.boneInverses[sk.bones.indexOf(head)].clone().invert());
+  const rootInv = fighter.root.matrixWorld.clone().invert();
+  const meshInRoot = rootInv.multiply(fighter.mesh.matrixWorld);
+  const rig = new HairRig(gltf.scene, fighter.mesh, head, meshInRoot.multiply(headBind), headMap, extras.head_map, extras.colliders);
   // Its own ellipsoid uniforms: with one shared set, each hairstyle was pushed
   // out of the other fighter's body (and floated off its head).
   rig.collision = makeHairCollision();
   rig.mesh.material = hairMaterial(hair.color, rig.collision);
   rig.attach(scene);
+  head.scale.copy(shown);
   // The fit saved for this style and body wins over the general one.
   let fit = setup?.hairFits?.[body]?.[hair.style];
   if (!fit) {
