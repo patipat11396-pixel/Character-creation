@@ -631,13 +631,16 @@ def build(body):
         # The whole buttock follows the pelvis down to below the gluteal fold,
         # handing over to the thigh gradually (a sharp hand-over folded it to
         # a point when sitting).
-        h = back * (1 - smoothstep(4, 26, t))
+        # At most 60 % to the pelvis: the rest stays with the thigh, so a deep
+        # bend (sitting, crouching) stretches the buttock round instead of
+        # folding it to a point between the two bones.
+        h = 0.6 * back * (1 - smoothstep(0, 26, t))
         moved = dense[:, up] * h
         dense[:, up] -= moved
         dense[:, hips] += moved
     z0, z1 = body["pelvis_z"]
     pelvis = (verts[:, 2] > z0 - 12) & (verts[:, 2] < z1) & (np.abs(verts[:, 0]) < 26)
-    dense = smooth_rows(dense, avg, pelvis, iterations=40)
+    dense = smooth_rows(dense, avg, pelvis, iterations=90)
 
     # ---- shoulders, upper back and neck: the source hands off between Spine2,
     # the shoulders, the upper arms and the neck along hard lines, which crease
