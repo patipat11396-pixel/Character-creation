@@ -12,21 +12,22 @@
   },
   "hands": "fist",
   "hair": {
-    "style": "ponytail",
+    "style": "space_buns",
     "color": "#1d1a19",
     "size": 1,
-    "width": 0.7750833961242242,
-    "height": 0.7362225656460535,
-    "depth": 0.63833975452219,
-    "up": 2.204924171080175,
-    "forward": -0.06197643273226516,
-    "side": 1.3011008795315262,
+    "width": 0.8808357855228094,
+    "height": 0.8599617824620438,
+    "depth": 0.9014882628441194,
+    "up": 0.5773298222434298,
+    "forward": -0.6535016017072927,
+    "side": -1.0016167510951135e-06,
     "tilt": 0,
     "turn": 0,
     "roll": 0,
     "weight": 1,
     "stiffness": 0.5,
-    "bounce": 0.5
+    "bounce": 0.5,
+    "collide": true
   },
   "hairFits": {
     "female": {
@@ -116,12 +117,12 @@
       },
       "low_ponytail": {
         "size": 1,
-        "width": 0.8119341495359825,
+        "width": 0.8470605633891168,
         "height": 0.9628303433472029,
         "depth": 0.8881247298064702,
-        "up": -4.359100534175187,
-        "forward": 6.282422544412469e-06,
-        "side": 6.5376270894090815e-06,
+        "up": -4.359099087411672,
+        "forward": 6.994437471430359e-06,
+        "side": 7.266582766160545e-06,
         "tilt": 0,
         "turn": 0,
         "roll": 0
@@ -134,6 +135,18 @@
         "up": -4.176031211611253e-06,
         "forward": 3.9213403930151043,
         "side": 0.0886616615840281,
+        "tilt": 0,
+        "turn": 0,
+        "roll": 0
+      },
+      "space_buns": {
+        "size": 1,
+        "width": 0.8808357855228094,
+        "height": 0.8599617824620438,
+        "depth": 0.9014882628441194,
+        "up": 0.5773298222434298,
+        "forward": -0.6535016017072927,
+        "side": -1.0016167510951135e-06,
         "tilt": 0,
         "turn": 0,
         "roll": 0
@@ -247,30 +260,56 @@
         "tilt": 0,
         "turn": 0,
         "roll": 0
+      },
+      "space_buns": {
+        "size": 1,
+        "width": 0.8524248837203328,
+        "height": 0.8599617824620437,
+        "depth": 0.8759283582436072,
+        "up": 1.259879135038156,
+        "forward": -3.4326405484730316e-07,
+        "side": -3.6785092434599154e-07,
+        "tilt": 0,
+        "turn": 0,
+        "roll": 0
       }
     }
   },
   "lips": {
-    "color": "#d9798a",
-    "amount": 0.47
+    "color": "#b5596a",
+    "amount": 0.51
   },
+  "eyes": {
+    "color": null
+  },
+  "brows": {
+    "color": "hair",
+    "height": 0.4,
+    "spacing": -0.2,
+    "size": 1,
+    "angle": 0,
+    "thickness": 0.76,
+    "amount": 1
+  },
+  "clothFits": {},
   "face": {
     "noseWidth": 0,
     "noseLength": 0,
     "noseBridge": 0,
     "lipsFull": 0,
-    "lipsWidth": 0,
-    "foreheadFull": 0,
+    "lipsWidth": -1,
+    "foreheadFull": -0.05,
     "foreheadSlope": 0,
     "chinLength": 0,
     "chinForward": 0,
     "chinWidth": 0,
     "jawWidth": 0,
     "jawSquare": 0,
+    "jawForward": 0,
     "eyeSize": 0,
     "eyeSpacing": 0,
     "eyeHeight": 0,
     "eyeTilt": 0
   },
-  "savedAt": "2026-10-10T15:31:15.556Z"
+  "savedAt": "2026-10-11T02:29:22.586Z"
 }
