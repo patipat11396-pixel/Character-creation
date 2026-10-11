@@ -5,6 +5,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
+import { ClothSim, bodyCapsules, CLOTH_VERTEX } from './cloth.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
@@ -96,6 +97,7 @@ const state = {
   eyes: { ...EYE_DEFAULTS },
   brows: { ...BROW_DEFAULTS },
   clothFits: {}, // body -> garment id -> fit
+  robe: true,    // the robe (category "robe") is worn
   legs: { ...LEG_DEFAULTS },   // body -> thighs turned inward (degrees) while animating
   lips: { ...LIP_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
@@ -388,6 +390,8 @@ async function buildCharacter(body, kind) {
     body: landmarks, headMap: headMapWorld(landmarks.head_map), skin: mesh.material,
     clothes: clothes.map(clothPart),
   };
+  startClothSims(character);
+  for (const c of character.clothes) if (c.category === 'robe') c.mesh.visible = state.robe;
   character.bodyKey = body;
   characters[charKey(body, kind)] = character;
   root.visible = false;
@@ -493,6 +497,7 @@ const CLOTH_FIT_DEFAULTS = { size: 1, width: 1, height: 1, depth: 1, up: 0, forw
 
 function clothPart(o) {
   const id = o.material.name.slice('Cloth_'.length);
+  const extras = o.material.userData ?? {};
   o.geometry.computeBoundingBox();
   const centre = o.geometry.boundingBox.getCenter(new THREE.Vector3());
   const u = { clothScale: { value: new THREE.Vector3(1, 1, 1) }, clothOffset: { value: new THREE.Vector3() },
@@ -501,21 +506,77 @@ function clothPart(o) {
   // faces only (two-sided shadows speckle the fabric with light patches).
   const m = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide,
     shadowSide: THREE.FrontSide });
+  const sim = o.geometry.userData.physics;
+  if (extras.textures) {
+    // Textured garments (robes): colour, normal and roughness/metal maps from models/clothes/.
+    const tex = (name, srgb) => {
+      const t = texLoader.load(`models/clothes/${extras.textures}_${name}.jpg`);
+      t.flipY = false;
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    };
+    m.color.set(0xffffff);
+    m.map = tex('color', true);
+    m.normalMap = tex('normal', false);
+    m.roughnessMap = m.metalnessMap = tex('mr', false);
+    m.roughness = 1;
+    m.metalness = 1;
+  }
+  if (sim) {
+    // Drawn in front of the garments under it where they come close (the
+    // simulation and the different weights let them touch).
+    m.polygonOffset = true;
+    m.polygonOffsetFactor = -6;
+    m.polygonOffsetUnits = -40;
+    u.clothOffsets = { value: null };
+    u.clothWidth = { value: 64 };
+    o.castShadow = false;   // its shadow would not follow the simulation
+  }
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 clothScale; uniform vec3 clothOffset; uniform vec3 clothCentre;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed = (transformed - clothCentre) * clothScale + clothCentre + clothOffset;');
+      .replace('#include <common>', '#include <common>\nuniform vec3 clothScale; uniform vec3 clothOffset; uniform vec3 clothCentre;'
+        + (sim ? '\n' + CLOTH_VERTEX.common : ''))
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed = (transformed - clothCentre) * clothScale + clothCentre + clothOffset;')
+      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\n' + (sim ? CLOTH_VERTEX.skinning : ''));
   };
   o.material = m;
-  return { id, mesh: o, uniforms: u };
+  return { id, mesh: o, uniforms: u, category: extras.category ?? null };
+}
+
+/** Start each simulated garment's cloth simulation (needs the body, in its bind pose). */
+function startClothSims(ch) {
+  let capsules = null;
+  for (const c of ch.clothes) {
+    if (!c.mesh.geometry.userData.physics) continue;
+    capsules ??= bodyCapsules(ch.mesh);
+    c.sim = new ClothSim(c.mesh, capsules, { centre: c.uniforms.clothCentre.value, scale: c.uniforms.clothScale.value,
+      offset: c.uniforms.clothOffset.value });
+    c.uniforms.clothOffsets.value = c.sim.texture;
+    c.uniforms.clothWidth.value = c.sim.width;
+  }
+}
+
+function setRobe(on) {
+  state.robe = on;
+  for (const ch of Object.values(characters)) {
+    for (const c of ch.clothes ?? []) if (c.category === 'robe') { c.mesh.visible = on; if (c.sim) c.sim.ready = false; }
+  }
+  applyClothFits();
+  document.querySelectorAll('[data-robe]').forEach((b) => {
+    const sel = (b.dataset.robe === 'robe') === on;
+    b.classList.toggle('on', sel);
+    b.setAttribute('aria-checked', String(sel));
+  });
 }
 
 function applyClothFits() {
   for (const ch of Object.values(characters)) {
     for (const c of ch.clothes ?? []) {
       const f = { ...CLOTH_FIT_DEFAULTS, ...state.clothFits[ch.bodyKey]?.[c.id] };
-      c.uniforms.clothScale.value.set(f.size * f.width, f.size * f.depth, f.size * f.height);
+      // Under a robe the other garments sit a little tighter, so they stay under it.
+      const tight = state.robe && !c.category && ch.clothes.some((o) => o.category === 'robe') ? 0.96 : 1;
+      c.uniforms.clothScale.value.set(f.size * f.width * tight, f.size * f.depth * tight, f.size * f.height);
       c.uniforms.clothOffset.value.set(0, -f.forward, f.up);
     }
   }
@@ -1033,7 +1094,9 @@ function applyAnimation() {
 /** Show `body` ("female" / "male") as `model` ("fixed" or its "original" source). */
 async function setCharacter(body = state.body, model = state.model) {
   document.querySelectorAll('[data-model]').forEach((b) => b.classList.toggle('on', b.dataset.model === model));
-  document.querySelectorAll('[data-body]').forEach((b) => {
+  document.querySelectorAll('[data-robe]').forEach((b) =>
+  b.addEventListener('click', () => setRobe(b.dataset.robe === 'robe')));
+document.querySelectorAll('[data-body]').forEach((b) => {
     b.setAttribute('aria-checked', String(b.dataset.body === body));
     b.classList.toggle('on', b.dataset.body === body);
   });
@@ -1117,6 +1180,7 @@ function snapshot() {
     eyes: { ...state.eyes },
     brows: { ...state.brows },
     clothFits: JSON.parse(JSON.stringify(state.clothFits)),
+    robe: state.robe,
     legs: { ...state.legs },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
@@ -1151,6 +1215,7 @@ function applySetup(setup, { withName = false } = {}) {
     Object.assign(state.legs, setup.legs);
     $('legs').value = state.legs[state.body] ?? 0;
   }
+  if (typeof setup.robe === 'boolean') setRobe(setup.robe);
   if (setup.clothFits) {
     for (const [b, f] of Object.entries(setup.clothFits)) state.clothFits[b] = { ...state.clothFits[b], ...f };
     applyClothFits();
@@ -1395,11 +1460,17 @@ function resize() {
 window.addEventListener('resize', resize);
 
 renderer.setAnimationLoop(() => {
-  const dt = clock.getDelta();
+  // (Tests can set characterCreation.fixedStep to step the animation evenly.)
+  const dt = window.characterCreation?.fixedStep ?? clock.getDelta();
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseLegs();
   // The head is 12% smaller than modelled (after the animation, which may key its scale).
   for (const ch of Object.values(characters)) ch.headBone.scale.setScalar(HEAD_SCALE);
+  // Robes: the cloth simulation runs for the body on screen.
+  for (const ch of Object.values(characters)) {
+    if (!ch.root.visible) continue;
+    for (const c of ch.clothes) if (c.sim && c.mesh.visible) c.sim.update(dt);
+  }
   poseHands(dt);
   poseMouth(dt);
   for (const ch of Object.values(characters)) {

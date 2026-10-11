@@ -517,6 +517,80 @@ def inflate(v, cloth, verts, normals, tree, margin):
     return out
 
 
+def fit_robe(cloth, verts, normals, collide, margin=0.8, extra=None):
+    """A textured garment (indexed, with UVs; the node's rotation applied)
+    placed on the body like fit_cloth: scaled to span cloth["top"] to
+    cloth["bottom"], centred, then pushed `margin` cm out of the body points
+    in `collide` (the arms are left out: in the T-pose they stand out through
+    the cloth, and the menu's cloth simulation keeps it off them).
+    Returns (vertices, faces, uvs)."""
+    gl, bin_ = read_glb(ROOT / cloth["src"])
+    prim = gl["meshes"][0]["primitives"][0]
+    p = read_accessor(gl, bin_, prim["attributes"]["POSITION"]).astype(float)
+    uv = read_accessor(gl, bin_, prim["attributes"]["TEXCOORD_0"]).astype(np.float32)
+    f = read_accessor(gl, bin_, prim["indices"]).reshape(-1, 3).astype(np.int64)
+    q = gl["nodes"][0].get("rotation")
+    if q:                                                         # glTF node rotation (x, y, z, w)
+        x, y, z, w = q
+        R = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                      [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                      [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+        p = p @ R.T
+    v = np.c_[p[:, 0], -p[:, 2], p[:, 1]]                       # Y up, front +Z -> Z up, front -Y
+    v = v * (cloth["top"] - cloth["bottom"]) / np.ptp(v[:, 2])
+    v[:, 2] += cloth["bottom"] - v[:, 2].min()
+    v[:, 0] -= (v[:, 0].max() + v[:, 0].min()) / 2
+    band = collide & (verts[:, 2] > cloth["bottom"]) & (verts[:, 2] < cloth["top"])
+    v[:, 1] += (verts[band, 1].max() + verts[band, 1].min()) / 2 - (v[:, 1].max() + v[:, 1].min()) / 2 + cloth.get("back", 0)
+    cv, cn = verts[collide], normals[collide]
+    if extra is not None:                                         # the garments under it too
+        cv, cn = np.r_[cv, extra[0]], np.r_[cn, extra[1]]
+    tree = cKDTree(cv)
+    for _ in range(4):
+        _, k = tree.query(v)
+        gap = ((v - cv[k]) * cn[k]).sum(1)
+        v += cn[k] * np.clip(margin - gap, 0, None)[:, None]
+    return v, f, uv
+
+
+def cloth_physics(v, f, spacing, pin_low, pin_high):
+    """A coarse particle net for the menu's cloth simulation.
+
+    Particles are garment points about `spacing` cm apart (voxel picks);
+    two particles are joined where a garment edge links points nearest to
+    each (so layers lying close together stay apart in the net). Each
+    particle's pin is 1 above pin_high (it follows the skinning) fading to 0
+    at pin_low (free). Each garment point is moved by up to 4 particles: its
+    own and the ones joined to it, weighted by inverse distance.
+    Returns (particle vertex ids, edges (n, 2), pins, point joints, point weights).
+    """
+    key = np.floor(v / spacing).astype(np.int64)
+    _, first = np.unique(key, axis=0, return_index=True)
+    parts = np.sort(first)
+    tree = cKDTree(v[parts])
+    _, own = tree.query(v)
+    e = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
+    pe = own[e]
+    pe = pe[pe[:, 0] != pe[:, 1]]
+    edges = np.unique(np.sort(pe, axis=1), axis=0)
+    # Bending: also join particles two steps apart.
+    n = len(parts)
+    adj = [set() for _ in range(n)]
+    for a, b in edges:
+        adj[a].add(b); adj[b].add(a)
+    bend = {(min(a, c), max(a, c)) for a in range(n) for b in adj[a] for c in adj[b] if c != a and c not in adj[a]}
+    pin = smoothstep(pin_low, pin_high, v[parts, 2]).astype(np.float32)
+    joints = np.zeros((len(v), 4), np.float32)
+    weights = np.zeros((len(v), 4), np.float32)
+    for i in range(len(v)):
+        c = [own[i]] + sorted(adj[own[i]], key=lambda j: np.sum((v[parts[j]] - v[i]) ** 2))[:3]
+        d = np.linalg.norm(v[parts[c]] - v[i], axis=1)
+        wgt = 1 / (d + 0.3 * spacing)
+        joints[i, :len(c)] = c
+        weights[i, :len(c)] = wgt / wgt.sum()
+    return parts, edges, np.array(sorted(bend), np.int64).reshape(-1, 2), pin, joints, weights
+
+
 def fit_cloth(cloth, verts, faces, normals, margin=0.5):
     """A garment (glTF axes, any scale) placed on the body in mesh cm.
 
@@ -828,8 +902,10 @@ def build(body):
             "targets": targets,
         })
     # ---- clothes: separate primitives skinned like the body under them
-    fitted = {c["id"]: fit_cloth(c, verts, faces, normals) for c in body.get("clothes", [])}
+    fitted = {c["id"]: fit_cloth(c, verts, faces, normals) for c in body.get("clothes", []) if "textures" not in c}
     for cloth in body.get("clothes", []):
+        if "textures" in cloth:
+            continue
         cv, cf = fitted[cloth["id"]]
         if "tuck_into" in cloth:                   # hidden under another garment: cut away
             cv, cf = tuck(cv, cf, *fitted[cloth["tuck_into"]], cloth.get("tuck_depth", 1.0))
@@ -855,6 +931,61 @@ def build(body):
             "targets": [{"POSITION": out.append_sparse(zero), "NORMAL": out.append_sparse(zero)} for _ in MORPH_NAMES],
         })
         print(f"cloth {cloth['id']}: {len(cv)} vertices")
+    # Robes: textured, worn over everything, moved by the menu's cloth
+    # simulation. Skinned only to the trunk (the simulation does the rest).
+    dom = np.array(names)[order[:, 0]]
+    trunk = np.isin(dom, ["Hips", "Spine", "Spine1", "Spine2", "Neck", "LeftShoulder", "RightShoulder"])
+    limb = np.char.find(dom.astype(str), "Arm") >= 0
+    limb |= np.char.find(dom.astype(str), "Hand") >= 0
+    for cloth in [c for c in body.get("clothes", []) if "textures" in c]:
+        under = [fitted[c["id"]] for c in body.get("clothes", []) if c["id"] in fitted]
+        extra = (np.concatenate([u[0] for u in under]), np.concatenate([vertex_normals(*u) for u in under])) if under else None
+        cv, cf, cuv = fit_robe(cloth, verts, normals, ~limb, extra=extra)
+        # The rig: mostly the trunk's weights, blended towards the nearest
+        # limb where the cloth lies over it (the skirt a third towards the
+        # legs below the crotch, the cloth over an upper arm half towards
+        # it), so it already follows the arms and legs before the cloth
+        # simulation adds the swing.
+        def nearest_weights(ids):
+            _, nr = cKDTree(verts[ids]).query(cv, k=4)
+            nr = ids[nr]
+            w = np.zeros((len(cv), len(names)))
+            for k in range(4):
+                np.add.at(w, (np.repeat(np.arange(len(cv)), 4), order[nr[:, k]].ravel()), top[nr[:, k]].ravel() / 4)
+            return w
+        dense_w = nearest_weights(np.flatnonzero(trunk))
+        all_ids = np.arange(len(verts))
+        d_all, n_all = cKDTree(verts).query(cv)
+        limb_w = nearest_weights(all_ids)
+        crotch = body.get("crotch_z", body["pelvis_z"][0] + 10)
+        f = 0.35 * smoothstep(crotch + 4, crotch - 20, cv[:, 2])
+        f = np.maximum(f, 0.5 * limb[n_all] * smoothstep(9.0, 3.0, d_all))
+        dense_w = dense_w * (1 - f[:, None]) + limb_w * f[:, None]
+        c_order = np.argsort(-dense_w, axis=1)[:, :4]
+        c_top = np.take_along_axis(dense_w, c_order, axis=1)
+        c_top /= c_top.sum(1, keepdims=True)
+        cn = vertex_normals(cv, cf)
+        parts, edges, bend, pin, pj, pw = cloth_physics(cv, cf, cloth.get("spacing", 5.0),
+                                                        body["armpit_z"] - 26, body["armpit_z"] - 8)
+        g["materials"].append({"name": f"Cloth_{cloth['id']}", "doubleSided": True,
+                               "extras": {"textures": cloth["textures"], "category": cloth.get("category", cloth["id"])},
+                               "pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0, "roughnessFactor": 1}})
+        zero = np.zeros_like(cv, dtype=np.float32)
+        g["meshes"][0]["primitives"].append({
+            "attributes": {"POSITION": out.append(cv.astype(np.float32), 34962),
+                           "NORMAL": out.append(cn.astype(np.float32), 34962),
+                           "TEXCOORD_0": out.append(cuv, 34962),
+                           "JOINTS_0": out.append(c_order.astype(np.uint16), 34962),
+                           "WEIGHTS_0": out.append(c_top.astype(np.float32), 34962),
+                           "_PROXY_J": out.append(pj, 34962),
+                           "_PROXY_W": out.append(pw, 34962)},
+            "indices": out.append(cf.astype(np.uint32).reshape(-1, 1), 34963),
+            "material": len(g["materials"]) - 1,
+            "targets": [{"POSITION": out.append_sparse(zero), "NORMAL": out.append_sparse(zero)} for _ in MORPH_NAMES],
+            "extras": {"physics": {"particles": parts.tolist(), "edges": edges.ravel().tolist(),
+                                   "bend": bend.ravel().tolist(), "pin": np.round(pin, 3).tolist()}},
+        })
+        print(f"robe {cloth['id']}: {len(cv)} vertices, {len(parts)} particles, {len(edges)} edges, {len(bend)} bends")
     g["meshes"][0]["weights"] = [0] * len(MORPH_NAMES)
     g["meshes"][0]["extras"] = {"targetNames": MORPH_NAMES}
     g["meshes"][0]["name"] = g["nodes"][1]["name"] = "Body"

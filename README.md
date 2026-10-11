@@ -159,6 +159,25 @@ the measurements and the images to attach.
 (capelet, lowered hood, cowl; side slits and no sleeves so the arms move
 freely) in five views: front, back, side, top, bottom.
 
+## Robe
+
+A robe (category "robe", `models/source/clothing/robe.glb`, textures in
+`models/clothes/`) can be worn over the tank top and shorts; Clothes →
+Robe switches it on and off (saved with the character). It does not
+overlap the other garments: it is fitted outside them, they sit 4% tighter
+while it is worn, and it is drawn in front of them where they touch.
+
+**Rig and physics.** The robe is skinned to the trunk and, partly, to the
+limbs it lies over (the skirt a third towards the legs, the cloth over the
+upper arms half towards them), so it already follows the arms and legs.
+On top of that `src/cloth.js` simulates it: a net of about 1,000 particles
+(built by `process_character.py`, stored in the primitive's extras) moved by
+Verlet integration, pinned to the skinned pose at the shoulders and free
+lower down, kept in shape by distance and bending constraints, and pushed
+out of capsules round the arms, legs and trunk, so it swings when running
+and gives way to the arms and legs. The render mesh follows the net on the
+GPU. About 4 ms per frame.
+
 ## Clothes
 
 Garments always worn are listed per body in `tools/bodies.py` ("clothes":

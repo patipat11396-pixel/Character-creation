@@ -157,7 +157,14 @@
     </section>
 
     <section class="tab-panel" role="tabpanel" data-panel="clothes" hidden>
-      <p class="note">Always worn. Adjust the fit; it is saved per body with the character.</p>
+      <div class="field">
+        <span class="label">Robe</span>
+        <div class="segmented" role="radiogroup" aria-label="Robe">
+          <button type="button" role="radio" data-robe="none" aria-checked="false">None</button>
+          <button type="button" role="radio" data-robe="robe" aria-checked="true" class="on">Robe</button>
+        </div>
+      </div>
+      <p class="note">The tank top and shorts are always worn; the robe goes over them. Adjust the fit; it is saved per body with the character.</p>
       <div id="cloth-controls"></div>
     </section>
 
