@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sword Combat Demo</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root { --ink: #1d1f24; --gold: #c9a227; --red: #c8323c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f4f4f2; font: 14px/1.4 system-ui, sans-serif; color: var(--ink); }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .bar { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 24, 0.55); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; transition: width 0.12s; }
+  #hp { bottom: 54px; width: min(420px, 80vw); height: 12px; }
+  #hp-fill { background: linear-gradient(#e2525a, #a8232d); }
+  #st { bottom: 38px; width: min(420px, 80vw); height: 6px; }
+  #st-fill { background: linear-gradient(#f2d36b, #c9a227); }
+  #player-name { position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); font-weight: 600; font-size: 13px; }
+  #hp-text { position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%); font-size: 12px; color: #fff; text-shadow: 0 1px 2px #000; }
+  #combo { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: 0.08em; color: #555; text-transform: uppercase; }
+  #enemy { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); width: min(520px, 86vw); text-align: center; }
+  #enemy-name { font-weight: 600; font-size: 13px; letter-spacing: 0.04em; }
+  #enemy .bar { position: relative; left: auto; transform: none; height: 10px; margin-top: 4px; }
+  #enemy-fill { background: linear-gradient(#e2525a, #8a1c1c); }
+  #enemy-text { font-size: 11px; color: #666; }
+  #message { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.96); font-size: 30px; font-weight: 700; letter-spacing: 0.04em;
+    opacity: 0; transition: opacity 0.15s, transform 0.15s; text-shadow: 0 2px 8px rgba(255,255,255,0.8); white-space: nowrap; }
+  #message.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #message.good { color: #b8860b; }
+  #message.bad { color: var(--red); }
+  .dmg { position: absolute; left: 0; top: 0; font-weight: 700; font-size: 16px; color: #333; text-shadow: 0 1px 3px #fff; white-space: nowrap; }
+  .dmg.crit { color: #e07000; font-size: 22px; }
+  .dmg.taken { color: var(--red); }
+  .dmg.blocked { color: #777; font-size: 14px; }
+  .dmg.status { color: #b8860b; font-size: 18px; }
+  #help { position: fixed; left: 12px; bottom: 12px; background: rgba(255,255,255,0.86); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; max-width: 290px; }
+  #help div { margin-top: 2px; }
+  #help p { margin: 6px 0 0; color: #666; }
+  #back { position: fixed; left: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px; color: var(--ink); text-decoration: none; font-size: 13px; }
+  #settings { position: fixed; right: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; width: 250px; }
+  #settings summary { cursor: pointer; font-weight: 600; }
+  #settings label { display: grid; grid-template-columns: 1fr 44px; gap: 2px 8px; margin-top: 8px; }
+  #settings label span { grid-column: 1 / -1; color: #555; }
+  #settings input { width: 100%; }
+  #start, #loading { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(244,244,242,0.72); font-size: 18px; cursor: pointer; text-align: center; }
+  #start div { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 22px 28px; box-shadow: 0 6px 24px rgba(0,0,0,0.08); }
+  #start small { display: block; color: #777; font-size: 13px; margin-top: 6px; }
+  #skills { position: absolute; bottom: 30px; left: calc(50% + min(210px, 40vw) + 14px); display: flex; gap: 6px; }
+  .skill { position: relative; width: 52px; height: 52px; border-radius: 6px; background: rgba(255,255,255,0.9); border: 1px solid #c9a227; display: grid; place-items: center; text-align: center; font-size: 10px; line-height: 1.15; }
+  .skill b { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c9a227; }
+  .skill.cool { opacity: 0.45; }
+  .skill i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 15px; }
+  @media (max-width: 900px) { #skills { left: auto; right: 12px; } }
+  [hidden] { display: none !important; }
+  @media (max-width: 700px) { #help { display: none; } #settings { width: 200px; } }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud">
+  <div id="enemy"><div id="enemy-name">Sparring Swordsman</div><div class="bar"><i id="enemy-fill"></i></div><div id="enemy-text"></div></div>
+  <div id="message"></div>
+  <div id="player-name"></div>
+  <div id="hp-text"></div>
+  <div class="bar" id="hp"><i id="hp-fill"></i></div>
+  <div class="bar" id="st"><i id="st-fill"></i></div>
+  <div id="combo"></div>
+  <div id="skills"><div class="skill" id="skill-e"><b>E</b><span>Feint<br>虚招</span><i id="skill-e-cd"></i></div></div>
+</div>
+<div id="help">
+  <div><b>WASD</b> move · <b>Mouse</b> look</div>
+  <div><b>Left click</b> attack (3-hit combo; in the air: plunge; while sprinting: dash strike)</div>
+  <div><b>Space</b> jump · <b>Ctrl</b> / <b>C</b> sprint</div>
+  <div><b>Alt</b> side step — perfect if pressed just before the blow</div>
+  <div><b>Shift</b> hold to block (−50%), tap just before the blow to parry</div>
+  <div><b>E</b> Feint 虚招 — fake heavy wind-up, then a fast cut that breaks a guard (cooldown 4 s)</div>
+  <p>Gold flash: blockable. <span style="color:#c8323c">Red flash: unblockable</span> — dodge it. The ring under you closes on the blow and turns white in the perfect window.
+  H: timing ring · B: hit zones · F: fullscreen (lets Ctrl through) · R: restart</p>
+</div>
+<a id="back" href="index.html">← Character</a>
+<details id="settings"><summary>Stats (timing)</summary><div id="settings-rows"></div></details>
+<div id="loading">Loading the fighters…</div>
+<div id="start" hidden><div>Click to fight<small>The mouse is captured; Esc to release it. (If it cannot be, right-drag to look.)</small></div></div>
+<script type="module" src="src/combat/combat.js"></script>
+</body>
+</html>

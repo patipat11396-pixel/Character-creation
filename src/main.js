@@ -1369,7 +1369,9 @@ function confirmCharacter() {
   }
   const character = save() ?? snapshot();
   window.dispatchEvent(new CustomEvent('character-confirmed', { detail: character }));
-  status(`Saved ${character.name}.`);
+  status(`Saved ${character.name}. Entering the fight…`);
+  // On to the sword combat demo, which reads the saved character.
+  setTimeout(() => { location.href = 'combat.html'; }, 400);
 }
 
 // ---------------------------------------------------------------- defaults for everyone

@@ -45,13 +45,47 @@ that button writes to the page's shared store, and only the owner or an
 editor can use it; run from the repo it downloads a `defaults.json` to put
 in `models/` and commit. A person's own Save still wins in their browser.
 
-**Save** stores the whole setup in the browser's `localStorage` under
+**Confirm & fight** saves (a name is required) and opens the sword combat
+demo with this character. **Save** stores the whole setup in the browser's `localStorage` under
 `character-creation:character`; it is loaded again the next time the page
 opens. **Confirm** does the same (a name is required) and also fires a
 `character-confirmed` event on `window` with the data: name, `body`,
 `skinTone`, `expression`, `mouth`, `hands`, `hair` (style, colour, fit,
 movement), `hairFits` (every style's fit, per body), `lips`, `eyes`,
 `brows` and `face` (the shape sliders).
+
+## Sword combat demo
+
+`combat.html` (opened by **Confirm & fight** in the menu, which saves the
+character first): a white room, your character against one sparring
+swordsman, with a third-person camera.
+
+| Input | Action |
+|---|---|
+| WASD, mouse | move, look (the mouse is captured on click; else right-drag looks) |
+| Left click | Basic Sword 3-hit combo; in the air a plunge; while sprinting a dash strike |
+| Space | jump |
+| Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
+| Alt | side step / dodge; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
+| Shift | hold: block (−50% damage, costs stamina; red attacks cannot be blocked); tap within the parry window before the blow: **perfect parry** (no damage, the attacker is stunned) |
+| E | Feint 虚招 (skill): a fake heavy wind-up, then a fast cut that breaks a guard (cooldown 4 s) |
+
+A perfect dodge or parry slows time briefly and gives a counter window
+(×1.5 damage). The enemy telegraphs: gold flash = blockable, red =
+unblockable; the ring under you (H) closes on the moment of the blow and
+turns white in the perfect window.
+
+**Hit zones.** The blade has to touch the target: capsules on the bones
+(B shows them). Vital zones take more damage and crit more: head ×2.0
+(+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,
+legs ×0.7–0.8; base crit 5%, crit ×1.8.
+
+Martial arts are data (`src/combat/skills.js`): each move names its clip,
+when the blade lands (measured where the blade reaches furthest in front),
+damage, reach and flags (stagger, unblockable, guard break). The look comes
+from the menu's save (`src/combat/look.js`: skin tone, lips, eyes, brows,
+face shapes, hair). Stats (timing windows, block reduction) are adjustable
+in the Stats panel and kept in the browser.
 
 ## Skin
 
