@@ -462,7 +462,10 @@ function clothPart(o) {
   const centre = o.geometry.boundingBox.getCenter(new THREE.Vector3());
   const u = { clothScale: { value: new THREE.Vector3(1, 1, 1) }, clothOffset: { value: new THREE.Vector3() },
     clothCentre: { value: centre } };
-  const m = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide });
+  // Double-sided so the inside shows at the openings; shadows from the front
+  // faces only (two-sided shadows speckle the fabric with light patches).
+  const m = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide,
+    shadowSide: THREE.FrontSide });
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader

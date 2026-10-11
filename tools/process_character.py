@@ -390,6 +390,72 @@ def flatten_brows(verts, avg, body):
     return out, w > 0
 
 
+def tuck(cv, cf, ov, of, depth):
+    """Cut a garment where it is tucked into another (ov, of): faces lower
+    than `depth` cm under the outer garment's top edge at the same angle
+    round the body are removed."""
+    def angle(p):
+        return np.arctan2(p[:, 1] - ov[:, 1].mean(), p[:, 0])
+    bins = np.linspace(-np.pi, np.pi, 73)
+    top_edge = ov[:, 2] > ov[:, 2].max() - 4
+    ob = np.digitize(angle(ov[top_edge]), bins)
+    tops = np.full(len(bins) + 1, -np.inf)
+    np.maximum.at(tops, ob, ov[top_edge, 2])
+    for _ in range(3):                            # fill empty bins from neighbours
+        tops = np.where(np.isfinite(tops), tops, np.maximum(np.roll(tops, 1), np.roll(tops, -1)))
+    centre = cv[cf].mean(1)
+    keep = centre[:, 2] > tops[np.digitize(angle(centre), bins)] - depth
+    used, nf = np.unique(cf[keep], return_inverse=True)
+    cv = cv[used].copy()
+    # What is left inside sits a little closer to the body than the outer
+    # garment, so the two do not show through each other.
+    under = smoothstep(0.6, -0.2, cv[:, 2] - tops[np.digitize(angle(cv), bins)])
+    radial = np.c_[cv[:, 0], cv[:, 1] - ov[:, 1].mean()]
+    radial /= np.linalg.norm(radial, axis=1, keepdims=True) + 1e-9
+    cv[:, :2] -= radial * (0.35 * under)[:, None]
+    return cv, nf.reshape(-1, 3)
+
+
+def snug_edges(v, cloth, verts, normals, tree, margin):
+    """Pull a garment's edges (cloth["snug"]: "top" and/or "bottom") in to
+    the body, keeping the fabric's thickness.
+
+    In slices 0.5 cm high and 15 degrees round, the inside of the garment
+    (its smallest gap to the body) is brought to `margin` cm by moving the
+    whole slice towards the body's middle; the pull fades out over `fade`
+    cm from the edge.
+    """
+    band, fade = cloth.get("snug_band", 3.0), cloth.get("snug_fade", 4.0)
+    z = v[:, 2]
+    w = np.zeros(len(v))
+    if "top" in cloth.get("snug", []):
+        w = np.maximum(w, smoothstep(band + fade, band, z.max() - z))
+    if "bottom" in cloth.get("snug", []):
+        w = np.maximum(w, smoothstep(band + fade, band, z - z.min()))
+    if not w.any():
+        return v
+    _, k = tree.query(v)
+    gap = ((v - verts[k]) * normals[k]).sum(1)
+    # The body's middle at each height (front to back).
+    cy = np.zeros(len(v))
+    for zz in np.unique(np.round(z)):
+        s = np.abs(verts[:, 2] - zz) < 1.0
+        s &= np.abs(verts[:, 0]) < 25
+        cy[np.round(z) == zz] = (verts[s, 1].max() + verts[s, 1].min()) / 2 if s.any() else 0
+    ang = np.arctan2(v[:, 1] - cy, v[:, 0])
+    key = np.c_[np.floor(z / 0.5), np.floor(ang / np.radians(15))].astype(int)
+    _, bin_id = np.unique(key, axis=0, return_inverse=True)
+    bin_id = bin_id.ravel()
+    inner = np.full(bin_id.max() + 1, np.inf)
+    np.minimum.at(inner, bin_id, gap)
+    move = np.clip(inner[bin_id] - margin, 0, None) * w
+    out = v.copy()
+    radial = np.c_[v[:, 0], v[:, 1] - cy]
+    r = np.linalg.norm(radial, axis=1, keepdims=True) + 1e-9
+    out[:, :2] -= radial / r * move[:, None]
+    return out
+
+
 def fit_cloth(cloth, verts, faces, normals, margin=0.5):
     """A garment (glTF axes, any scale) placed on the body in mesh cm.
 
@@ -411,6 +477,7 @@ def fit_cloth(cloth, verts, faces, normals, margin=0.5):
     band = (verts[:, 2] > cloth["bottom"]) & (verts[:, 2] < cloth["top"]) & (np.abs(verts[:, 0]) < 20)
     v[:, 1] += (verts[band, 1].max() + verts[band, 1].min()) / 2 - (v[:, 1].max() + v[:, 1].min()) / 2
     tree = cKDTree(verts)
+    v = snug_edges(v, cloth, verts, normals, tree, margin)
     for _ in range(3):
         _, k = tree.query(v)
         gap = ((v - verts[k]) * normals[k]).sum(1)
@@ -665,10 +732,17 @@ def build(body):
         jaw_n = vertex_normals(pv + jaw, pf) - pn
         _, nearest = cKDTree(verts).query(pv)
         zero = np.zeros_like(pv, dtype=np.float32)
-        joints = np.zeros((len(pv), 4), np.uint16)
-        joints[:, 0] = head
-        weights = np.zeros((len(pv), 4), np.float32)
-        weights[:, 0] = 1
+        # Bone weights: the face skin's around the mouth (the lips also follow
+        # the neck a little; bound to Head alone the teeth slid out of them).
+        _, near4 = cKDTree(verts[(np.abs(verts[:, 0]) < 5) & (np.abs(verts[:, 2] - body["mouth"]["z"]) < 3)]).query(pv, k=6)
+        mouth_ids = np.flatnonzero((np.abs(verts[:, 0]) < 5) & (np.abs(verts[:, 2] - body["mouth"]["z"]) < 3))
+        dense_t = np.zeros((len(pv), len(names)))
+        for k in range(6):
+            ids = mouth_ids[near4[:, k]]
+            np.add.at(dense_t, (np.repeat(np.arange(len(pv)), 4), order[ids].ravel()), top[ids].ravel() / 6)
+        joints = np.argsort(-dense_t, axis=1)[:, :4].astype(np.uint16)
+        weights = np.take_along_axis(dense_t, joints.astype(np.int64), axis=1).astype(np.float32)
+        weights /= weights.sum(1, keepdims=True)
         g["materials"].append({"name": name, "doubleSided": True, "pbrMetallicRoughness": {
             "baseColorFactor": color, "metallicFactor": 0, "roughnessFactor": roughness}})
         targets = []
@@ -690,8 +764,11 @@ def build(body):
             "targets": targets,
         })
     # ---- clothes: separate primitives skinned like the body under them
+    fitted = {c["id"]: fit_cloth(c, verts, faces, normals) for c in body.get("clothes", [])}
     for cloth in body.get("clothes", []):
-        cv, cf = fit_cloth(cloth, verts, faces, normals)
+        cv, cf = fitted[cloth["id"]]
+        if "tuck_into" in cloth:                   # hidden under another garment: cut away
+            cv, cf = tuck(cv, cf, *fitted[cloth["tuck_into"]], cloth.get("tuck_depth", 1.0))
         _, near = cKDTree(verts).query(cv, k=4)
         # Weights: the four nearest body points' weights, averaged.
         dense_w = np.zeros((len(cv), len(names)))
