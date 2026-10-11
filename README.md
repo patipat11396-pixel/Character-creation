@@ -64,7 +64,10 @@ the same triangles in another order):
 - The male's painted eyes do not match above and below a seam; the eye
   openings are repainted (white, a round iris coloured from the lower half,
   highlights, lash shadow).
-- The brows are lifted off into their own image and painted out of the skin.
+- The brows are lifted off into their own image and painted out of the skin;
+  the brow area's painted light and shade is lifted into a second image
+  (`_browarea.png`) so it moves with the brows, and shape keys
+  (browRidgeUp, browRidgeOut, browRidgeTilt) move the sculpted ridge too.
 - A feature mask marks the irises (red), the painted lips (green) and the
   whole painted eye (blue), which skin tones leave alone.
 
