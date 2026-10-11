@@ -265,7 +265,7 @@ def lip_mask(verts):
 # face around the body's landmarks.
 FACE_SHAPES = {
     "noseWidth": "Nose width", "noseLength": "Nose length", "noseBridge": "Nose bridge",
-    "lipsFull": "Lip fullness", "lipsWidth": "Lip width",
+    "lipsFull": "Lip fullness", "lipsWidth": "Lip width", "mouthCorners": "Mouth corners",
     "foreheadFull": "Forehead fullness", "foreheadSlope": "Forehead slope",
     "chinLength": "Chin length", "chinForward": "Chin forward", "chinWidth": "Chin width",
     "jawWidth": "Jaw width", "jawSquare": "Jaw angle", "jawForward": "Jaw forward",
@@ -340,6 +340,12 @@ def face_shapes(verts):
     # Width: moved sideways over a wider, gentler area than the lips, so the
     # skin beside the corners stretches evenly instead of folding into a groove.
     out["lipsWidth"] = delta(dx=0.16 * x * _wide_lips(verts))
+    # Corners: both lips and the skin beside them move up (down below 0)
+    # together, more towards the corners, so the mouth stays closed; the
+    # middle of the lips stays put.
+    wide = _wide_lips(verts)
+    toward = smoothstep(0.15 * m["half"], 1.0 * m["half"], np.abs(x))
+    out["mouthCorners"] = delta(dz=0.45 * toward * wide, dy=-0.1 * toward * wide)   # (front is -y)
 
     # Forehead: between the brows and the top of the head, front only.
     brow, top = B["brow_z"], B["top_z"]

@@ -67,7 +67,7 @@ const BROW_DEFAULTS = { color: 'hair', height: 0, spacing: 0, size: 1, angle: 0,
 // Each slider runs -1 … 1; 0 is the model as made.
 const FACE_GROUPS = [
   ['Nose', [['noseWidth', 'Width'], ['noseLength', 'Length'], ['noseBridge', 'Bridge']]],
-  ['Lips', [['lipsFull', 'Fullness'], ['lipsWidth', 'Width']]],
+  ['Lips', [['lipsFull', 'Fullness'], ['lipsWidth', 'Width'], ['mouthCorners', 'Corners']]],
   ['Forehead', [['foreheadFull', 'Fullness'], ['foreheadSlope', 'Slope']]],
   ['Chin', [['chinLength', 'Length'], ['chinForward', 'Forward'], ['chinWidth', 'Width']]],
   ['Jaw', [['jawWidth', 'Width'], ['jawSquare', 'Angle'], ['jawForward', 'Forward / back']]],

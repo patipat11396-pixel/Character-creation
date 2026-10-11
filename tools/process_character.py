@@ -814,7 +814,7 @@ def build(body):
             d, dn = (jaw, jaw_n) if k == "jawOpen" else (zero, zero)
             if k == "jawForward":                  # teeth and tongue go with the lower face
                 d = (morphs[k][nearest] * jw[:, None]).astype(np.float32)
-            elif k in ("lipsWidth", "lipsFull"):   # and stay inside the lips as they change
+            elif k in ("lipsWidth", "lipsFull", "mouthCorners"):   # and stay inside the lips as they change
                 d = morphs[k][nearest].astype(np.float32)
             targets.append({"POSITION": out.append_sparse(np.asarray(d, np.float32)),
                             "NORMAL": out.append_sparse(np.asarray(dn, np.float32))})

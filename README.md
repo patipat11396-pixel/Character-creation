@@ -110,7 +110,7 @@ positions) is in `tools/bodies.py`. `tools/process_character.py`:
 4. **Mouth:** the lip area is refined and cut along the lip line, with shape
    keys `jawOpen`, `smile`, `frown`, `mouthRound`, plus teeth and a tongue.
 5. **Face shape keys** (`tools/face.py`): nose width, length and bridge; lip
-   fullness and width; forehead fullness and slope; chin length, forward and
+   fullness, width and corners; forehead fullness and slope; chin length, forward and
    width; jaw width and angle; eye socket size, spacing, height and tilt.
 6. **Painted UVs** are carried over from the painted bodies (`tools/skin.py`).
 7. **For the menu** the scene's extras hold the body's landmarks, a head map
