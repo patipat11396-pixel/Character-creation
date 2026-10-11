@@ -3,7 +3,8 @@
     python3 tools/build_hair.py            # every style in tools/hairstyles.json
     python3 tools/build_hair.py braid bob  # just these
 
-Reads the head from models/character.glb (run process_character.py first) and
+Reads the head from models/source/reference_character.glb (the earlier
+character every hairstyle is fitted to; the menu moves them onto each body) and
 each source mesh from models/source/hair/<id>.glb, and writes
 models/hair/<id>.glb plus models/hair/index.json for the menu.
 
@@ -169,7 +170,7 @@ def build(style, head_verts, head_faces):
 def main():
     styles = json.loads(STYLES.read_text())
     wanted = set(sys.argv[1:])
-    gltf, binary = read_glb(ROOT / "models/character.glb")
+    gltf, binary = read_glb(ROOT / "models/source/reference_character.glb")
     prim = gltf["meshes"][0]["primitives"][0]
     verts = read_accessor(gltf, binary, prim["attributes"]["POSITION"]).astype(float)
     faces = read_accessor(gltf, binary, prim["indices"]).reshape(-1, 3)
