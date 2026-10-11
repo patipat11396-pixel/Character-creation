@@ -340,18 +340,20 @@ def flatten_brows(verts, avg, body):
     x, y, z = verts.T
     ax = np.abs(x)
     front = y < body["nose_tip"][0] + 8
-    # The nose bridge below the brows is held, so the relaxed brow area meets
-    # it instead of pulling it back (which folded its sides).
-    nose = (ax < 2.0) & (z < z0)
-    broad = ((ax < x1 + 6) & (z > eye_top - 3) & (z < z1 + 6) & front & ~nose).astype(float)
-    target = verts.copy()
-    # Only forward/back: sliding the points sideways folded triangles (a
-    # dark line between the eye and the nose).
-    for _ in range(300):
-        target[:, 1] += 0.5 * broad * (avg @ target - target)[:, 1]
     w = (smoothstep(x1 + 2.5, x1, ax) * smoothstep(eye_top + 0.1, eye_top + 1.0, z)
-         * (1 - smoothstep(3.0, 1.2, ax) * smoothstep(z0 + 0.8, z0 - 1.2, z))
-         * smoothstep(z1 + 2.5, z1, z) * front)
+         * smoothstep(z1 + 2.5, z1, z) * front
+         * smoothstep(0.6, 2.2, ax))     # not between the eyes: relaxing there fanned out into streaks
+    # The face without the ridge: a smooth surface (thin-plate spline, depth
+    # over x and z) through the face round the area, which follows no
+    # triangle layout (relaxing along the triangles fanned out into streaks).
+    ring = front & (w < 0.02) & (ax < x1 + 4.5) & (z > eye_top - 1.0) & (z < z1 + 5) & (np.abs(y - y[w > 0.5].mean()) < 6)
+    ring &= ~((z < eye_top + 0.3) & (ax > 1.5) & (ax < x1))   # not the eyes
+    from scipy.interpolate import RBFInterpolator
+    fit = RBFInterpolator(np.c_[x[ring], z[ring]], y[ring], kernel="thin_plate_spline", smoothing=2.0, neighbors=300)
+    target = verts.copy()
+    on = w > 0
+    target[on, 1] = fit(np.c_[x[on], z[on]])
+    broad = front.astype(float)
     # The change itself is smoothed too, so it bends the face gently.
     d = w * (target[:, 1] - verts[:, 1])
     for _ in range(60):

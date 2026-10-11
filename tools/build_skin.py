@@ -199,7 +199,8 @@ def repaint_eyes(color, covered, pos, nrm, body):
         q_old = np.hypot((x - side * pe["x"]) / pe["a"], (z - pe["z"]) / pe["b"])
         under = front & (np.abs(x - side * pe["x"]) < pe["a"] + 0.5) & (z < pe["z"] - pe["b"]) & (z > pe["z"] - pe["b"] - 0.8)
         skin_near = np.median(color[under], 0)
-        sw = (smoothstep(1.08, 0.95, q_old) * front)[..., None]
+        # Faded out over a wide ring, so the patch shows no edge.
+        sw = (smoothstep(1.4, 0.98, q_old) * front)[..., None]
         out = out * (1 - sw) + skin_near * sw
         wgt = (smoothstep(1.05, 0.95, q) * inside)[..., None]
         out = out * (1 - wgt) + eye * wgt
@@ -360,10 +361,10 @@ def smooth_brow_area(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
 
     def weight(ax, pz):
-        low = z0 - (z0 - (e["z"] - 1.2)) * smoothstep(inner, inner - 2.0, ax)
+        low = z0 - (z0 - (e["z"] - 2.4)) * smoothstep(inner, inner - 0.8, ax)
         return smoothstep(low, low + 0.4, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, ax)
 
-    bz0, bz1, bx = e["z"] - 1.2 - m, z1 + m, x1 + m
+    bz0, bz1, bx = e["z"] - 2.4 - m, z1 + m, x1 + m
     view, hit = front_view(color, pv, uv, pf, -bx, bx, bz0, bz1, y_from, ppc)
     h, w = hit.shape
     cols, rows = np.meshgrid(-bx + np.arange(w) / ppc, bz1 - np.arange(h) / ppc)
@@ -374,7 +375,7 @@ def smooth_brow_area(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
     known = hit & ~inside & (np.abs(lum - ref) < 0.08)
     fill = membrane(view, known)
     sel = covered & (y < body["nose_tip"][0] + 8) & (np.abs(x) < bx) & (z > bz0) & (z < z1)
-    a = weight(np.abs(x[sel]), z[sel]) * smoothstep(-0.05, -0.3, nrm[..., 1][sel])
+    a = weight(np.abs(x[sel]), z[sel]) * smoothstep(0.3, 0.0, nrm[..., 1][sel])
     f = bilinear(fill, (x[sel] + bx) * ppc, (bz1 - z[sel]) * ppc)
     out = color.copy()
     out[sel] = out[sel] * (1 - a[:, None]) + f * a[:, None]
@@ -518,6 +519,8 @@ def build(key):
         color = repaint_eyes(color, covered, pos, nrm, body)
     color, brow = brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body)
     color = smooth_bands(color, covered, pos, nrm, pv, uv, pf, body)
+    # The roughness has the ridge's strokes too (they shone as streaks).
+    rough = smooth_brow_area(rough, covered, pos, nrm, pv, uv, pf, skin_rough, body)
     mask = np.zeros((SIZE, SIZE, 3), np.float32)
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)

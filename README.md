@@ -67,8 +67,9 @@ the same triangles in another order):
   openings are repainted (white, a round iris coloured from the lower half,
   highlights, lash shadow).
 - The brows are lifted off into their own image and painted out of the skin;
-  the brow ridge's painted light and shade is painted out too (filled from
-  the skin beside and above it), so only the movable brows remain there.
+  the brow ridge's painted light and shade (colour and roughness) is painted
+  out too, filled smoothly from the skin round it, so only the movable brows
+  remain there. The male's old painted eye is painted out with a wide fade.
 - A feature mask marks the irises (red), the painted lips (green) and the
   whole painted eye (blue), which skin tones leave alone.
 
@@ -104,7 +105,8 @@ positions) is in `tools/bodies.py`. `tools/process_character.py`:
 3. **Body cleanup** (`clean_body`): the bodysuit's ridges are flattened, the
    female nipples removed, shoulders, underarms and buttocks smoothed, and a
    light pass evens out small dents and bumps. The sculpted brow ridges are
-   relaxed flat (down to just above the eyelids) so the movable brows leave
+   replaced by a smooth surface fitted through the face round them (down to
+   just above the eyelids, not between the eyes) so the movable brows leave
    nothing behind.
 4. **Mouth:** the lip area is refined and cut along the lip line, with shape
    keys `jawOpen`, `smile`, `frown`, `mouthRound`, plus teeth and a tongue.

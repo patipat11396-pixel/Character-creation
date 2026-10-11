@@ -288,7 +288,9 @@ export class HairRig {
 }
 
 export function hairMaterial(hex) {
-  const m = new THREE.MeshPhysicalMaterial({ roughness: 0.45, sheen: 0.6, sheenRoughness: 0.4 });
+  // A soft sheen: a strong, whitish one lit the thin edges of the strands
+  // as white lines.
+  const m = new THREE.MeshPhysicalMaterial({ roughness: 0.5, sheen: 0.25, sheenRoughness: 0.6, specularIntensity: 0.6 });
   setHairColor(m, hex);
   // After skinning, push every hair vertex that sits inside a body ellipsoid
   // out to its surface (along the ellipsoid's own radius).
@@ -316,5 +318,5 @@ uniform int hairEllipsoidCount;`)
 
 export function setHairColor(material, hex) {
   material.color.set(hex);
-  material.sheenColor.set(hex).lerp(new THREE.Color(0xffffff), 0.35);
+  material.sheenColor.set(hex).lerp(new THREE.Color(0xffffff), 0.12);
 }

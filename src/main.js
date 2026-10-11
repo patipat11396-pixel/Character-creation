@@ -297,18 +297,19 @@ varying vec3 vSkinPos;`)
 #endif
   }`)
     .replace('#include <dithering_fragment>',
-      // Inside the mouth is black: back faces round the mouth, skin by the lip
-      // line more than 0.9 cm behind the front of the lips (their inner sides),
-      // and skin further in (more than 1.8 cm back) a little above and below.
+      // Inside the mouth is black: back faces round the mouth, and skin round
+      // the lip line that lies deeper than the face's own surface there.
       // Elsewhere (finger gaps, folds) the skin stays skin.
       `#include <dithering_fragment>
   float mx = vSkinPos.x * vSkinPos.x;
   float mz = vSkinPos.z - mouthLine.x - mouthLine.y * mx;
   float my = vSkinPos.y - mouthLine.z - mouthLine.w * mx;
   float ax = abs(vSkinPos.x);
-  bool inMouth = (ax < mouthHalf + 0.3 && mz > -0.6 && mz < 0.5 && my > 0.9)
-    || (ax < mouthHalf + 1.5 && mz > -2.2 && mz < 1.2 && my > 1.8);
-  if ((!gl_FrontFacing && abs(vSkinPos.z - mouthZ) < 3.0 && abs(vSkinPos.x) < 5.0) || inMouth)
+  // How far behind the lip front counts as inside: 0.9 cm by the lip line,
+  // more above and below it (the chin and the skin over the lip recede).
+  float deep = 0.9 + max(0.0, -mz - 0.6) + max(0.0, mz - 0.5) + (ax > mouthHalf + 0.3 ? 0.9 : 0.0);
+  bool inMouth = ax < mouthHalf + 1.5 && mz > -2.4 && mz < 1.4 && my > deep && my < 4.0;
+  if ((!gl_FrontFacing && abs(vSkinPos.z - mouthZ) < 2.2 && abs(vSkinPos.x) < 7.0) || inMouth)
     gl_FragColor.rgb = vec3(0.015);`);
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
