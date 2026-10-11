@@ -96,5 +96,12 @@ BODIES = {
                         "sample": {"x": 4.68, "z": 156.37, "r": 1.15},
                         "painted": {"x": 4.75, "z": 156.4, "a": 3.0, "b": 2.2}},   # the old eye, painted out
         "depth": 0.82,
+        "clothes": [
+            {"id": "tank_top", "name": "Tank top", "src": "models/source/clothing/male_tank_top.glb",
+             "top": 139.5, "bottom": 94.0, "color": [0.86, 0.86, 0.84],
+             "tuck_into": "shorts", "tuck_depth": 1.2},
+            {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/male_shorts.glb",
+             "top": 105.0, "bottom": 73.0, "color": [0.3, 0.32, 0.36], "snug": ["top"]},
+        ],
     },
 }

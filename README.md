@@ -27,7 +27,9 @@ Back returns to the setup as it was when the slot was last loaded or saved.
 Basic starts with quick "‹ ›" choices for hair style, hair colour, eye
 colour, lipstick and eyebrows:
 
-- **Basic:** skin tone, preview animation, expression, hands, model check.
+- **Basic:** skin tone, preview animation, expression, stance ("Legs
+  together" turns the thighs inward during animations; female 6°, male 0°
+  by default), hands, model check.
 - **Hair:** a picture of each style, colour, fit (handles in the view and
   sliders), movement of the swinging parts, and "Keep hair outside the body".
 - **Nose, Lips, Forehead, Chin, Jaw:** shape sliders (Lips also has the lip
@@ -155,5 +157,5 @@ one on the body, pushes it 0.5 cm out of the skin, gives it the nearest
 body points' skin weights and writes it as its own part of the model, so it
 moves with every animation. The menu's Clothes tab fits each garment (size,
 width, height, depth, up/down, back/forward), saved per body with the
-character. The female body wears the tank top and shorts from
-`models/source/clothing/`.
+character. Both bodies wear a tank top and shorts from
+`models/source/clothing/` (`female_*.glb`, `male_*.glb`).

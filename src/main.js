@@ -79,6 +79,7 @@ const FACE_NEG_SCALE = { lipsFull: 0.5, lipsWidth: 0.6 };
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
 
+const LEG_DEFAULTS = { female: 6, male: 0 };   // thighs turned inward (degrees) while animating
 const state = {
   name: '',
   tone: DEFAULT_TONE,
@@ -94,6 +95,7 @@ const state = {
   eyes: { ...EYE_DEFAULTS },
   brows: { ...BROW_DEFAULTS },
   clothFits: {}, // body -> garment id -> fit
+  legs: { ...LEG_DEFAULTS },   // body -> thighs turned inward (degrees) while animating
   lips: { ...LIP_DEFAULTS },
   face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
 };
@@ -447,6 +449,37 @@ const MESH_TO_WORLD = new THREE.Matrix4().makeRotationX(-Math.PI / 2).multiply(n
 function headMapWorld(map) {
   const m = new THREE.Matrix4().makeScale(...map.scale).setPosition(...map.offset);
   return MESH_TO_WORLD.clone().multiply(m).multiply(MESH_TO_WORLD.clone().invert());
+}
+
+// ---------------------------------------------------------------- leg stance
+//
+// The animations were made for a wider-hipped figure; the female legs come
+// out set too far apart. While a clip plays, both thighs are turned inward
+// about the body's forward axis by state.legs[body] degrees (negative: wider).
+const _q = new THREE.Quaternion();
+const _pw = new THREE.Quaternion();
+const FORWARD = new THREE.Vector3(0, 0, 1);
+
+function poseLegs() {
+  if (!state.anim) return;
+  for (const ch of Object.values(characters)) {
+    if (!ch.root.visible) continue;
+    const deg = state.legs[ch.bodyKey] ?? 0;
+    if (!deg) continue;
+    for (const [name, sign] of [['LeftUpLeg', -1], ['RightUpLeg', 1]]) {
+      const bone = ch.legBones?.[name] ?? ((ch.legBones ??= {})[name] = ch.mesh.skeleton.bones.find((b) => b.name === name));
+      if (!bone) continue;
+      bone.parent.getWorldQuaternion(_pw);
+      _q.setFromAxisAngle(FORWARD, THREE.MathUtils.degToRad(sign * deg));
+      // world turn about FORWARD, expressed in the parent's space
+      bone.quaternion.premultiply(_pw.clone().invert().multiply(_q).multiply(_pw));
+    }
+  }
+}
+
+function setLegs(deg) {
+  state.legs[state.body] = deg;
+  $('legs').value = deg;
 }
 
 // ---------------------------------------------------------------- clothes
@@ -1042,6 +1075,7 @@ async function setCharacter(body = state.body, model = state.model) {
   applyTone(SKIN_TONES[state.tone]);
   applyClothFits();
   buildClothControls();
+  $('legs').value = state.legs[body] ?? 0;
   applyWeightView();
   if (hairStyles.length) {
     shownStyle = null;
@@ -1083,6 +1117,7 @@ function snapshot() {
     eyes: { ...state.eyes },
     brows: { ...state.brows },
     clothFits: JSON.parse(JSON.stringify(state.clothFits)),
+    legs: { ...state.legs },
     face: { ...state.face },
     savedAt: new Date().toISOString(),
   };
@@ -1112,6 +1147,10 @@ function applySetup(setup, { withName = false } = {}) {
   // (Older saves hold the removed drawn eyes' settings under "eyes"; skip those.)
   setEyes({ ...EYE_DEFAULTS, ...(setup.eyes && !('white' in setup.eyes) ? setup.eyes : {}) });
   setBrows({ ...BROW_DEFAULTS, ...setup.brows });
+  if (setup.legs) {
+    Object.assign(state.legs, setup.legs);
+    $('legs').value = state.legs[state.body] ?? 0;
+  }
   if (setup.clothFits) {
     for (const [b, f] of Object.entries(setup.clothFits)) state.clothFits[b] = { ...state.clothFits[b], ...f };
     applyClothFits();
@@ -1358,6 +1397,7 @@ window.addEventListener('resize', resize);
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
+  poseLegs();
   poseHands(dt);
   poseMouth(dt);
   for (const ch of Object.values(characters)) {
@@ -1417,6 +1457,7 @@ $('weights').addEventListener('change', (e) => {
 });
 $('random').addEventListener('click', randomize);
 $('back').addEventListener('click', goBack);
+$('legs').addEventListener('input', (e) => setLegs(Number(e.target.value)));
 buildSteppers();
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
