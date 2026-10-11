@@ -34,6 +34,10 @@ export const ARTS = {
       { clip: 'Sword_Regular_C', speed: 0.9, hit: 0.17, end: 0.75, chainFrom: 0.5,
         damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true },
     ],
+    // Heavy attack (right click / Q): slow overhead blow; staggers, and a
+    // blocked one costs the defender a lot of guard (stamina).
+    heavy: { clip: 'Sword_Attack', speed: 0.95, hit: 0.52, end: 1.05, damage: 30, range: 2.4, arc: 120,
+      lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40 },
     air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows the heavy wind-up, then cuts in fast: it
@@ -60,6 +64,29 @@ export const ARTS = {
   },
 };
 
+// Poses (not attacks): the clip and speed for each. The menu's Animation
+// panel changes these and the moves above (clip, speed, hit, end).
+export const ANIM_SLOTS = {
+  idle: { clip: 'Idle_Sword', speed: 1 },
+  run: { clip: 'Jog', speed: 1 },
+  sprint: { clip: 'Sprint', speed: 1 },
+  walk: { clip: 'Walk', speed: 1 },                 // the enemy closing in
+  guard: { clip: 'Sword_Block', speed: 1.4, hold: 0.45 },   // held at `hold` s while parry is held
+  guardForward: { clip: 'Walk', speed: 1 },         // legs while moving with the guard up
+  guardBack: { clip: 'Walk_Backwards', speed: 1 },
+  guardLeft: { clip: 'Strafe_left', speed: 1 },
+  guardRight: { clip: 'Strafe_right', speed: 1 },
+  jump: { clip: 'Jump_air', speed: 1 },
+  dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
+  dodgeRight: { clip: 'Dodge_right', speed: 1.5 },
+  dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
+  hitLight: { clip: 'Hit_Chest', speed: 1.1 },
+  hitLight2: { clip: 'Hit_Head', speed: 1.1 },
+  hitHard: { clip: 'Hit_Knockback', speed: 1.2 },
+  stun: { clip: 'Dizzy', speed: 1 },
+  death: { clip: 'Death_A', speed: 1 },
+};
+
 // Player numbers; the timing windows come from stats later (the dodge window
 // runs 0.05 s to 0.12 s).
 export const DEFAULT_STATS = {
@@ -75,6 +102,7 @@ export const DEFAULT_STATS = {
   blockReduction: 0.5,   // share of damage taken away by holding parry
   counterBonus: 1.5,     // damage multiplier just after a perfect dodge or parry
   runSpeed: 3.8,
+  guardSpeed: 1.5,       // moving with the guard up (parry held)
   sprintSpeed: 6.6,
 };
 

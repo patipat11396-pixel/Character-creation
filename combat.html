@@ -46,7 +46,19 @@
   #help div { margin-top: 2px; }
   #help p { margin: 6px 0 0; color: #666; }
   #back { position: fixed; left: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px; color: var(--ink); text-decoration: none; font-size: 13px; }
-  #settings { position: fixed; right: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; width: 250px; }
+  #side { position: fixed; right: 12px; top: 12px; width: 300px; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 24px); }
+  #anim-panel { background: rgba(255,255,255,0.94); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; overflow: auto; }
+  #anim-panel summary { cursor: pointer; font-weight: 600; }
+  #anim-panel h4 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; }
+  #anim-panel .note { color: #777; margin: 6px 0; }
+  .anim-row { display: grid; grid-template-columns: 78px 1fr 26px; gap: 4px 6px; align-items: center; padding: 5px 0; border-top: 1px solid #eee; }
+  .anim-row select { width: 100%; font-size: 11px; }
+  .anim-row button, .anim-buttons button { border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; font-size: 11px; padding: 2px 6px; }
+  .anim-fields { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+  .anim-fields .num { display: flex; align-items: center; gap: 3px; color: #666; }
+  .anim-fields input { width: 56px; font-size: 11px; }
+  .anim-buttons { display: flex; gap: 6px; margin-top: 8px; }
+  #settings { position: relative; right: auto; top: auto; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; }
   #settings summary { cursor: pointer; font-weight: 600; }
   #settings label { display: grid; grid-template-columns: 1fr 44px; gap: 2px 8px; margin-top: 8px; }
   #settings label span { grid-column: 1 / -1; color: #555; }
@@ -61,7 +73,7 @@
   .skill i { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 15px; }
   @media (max-width: 900px) { #skills { left: auto; right: 12px; } }
   [hidden] { display: none !important; }
-  @media (max-width: 700px) { #help { display: none; } #settings { width: 200px; } }
+  @media (max-width: 700px) { #help { display: none; } #side { width: 230px; } }
 </style>
 </head>
 <body>
@@ -78,16 +90,24 @@
 </div>
 <div id="help">
   <div><b>WASD</b> move · <b>Mouse</b> look</div>
-  <div><b>Left click</b> attack (3-hit combo; in the air: plunge; while sprinting: dash strike)</div>
+  <div><b>Left click</b> light attack (3-hit combo; in the air: plunge; while sprinting: dash strike)</div>
+  <div><b>Right click</b> / <b>Q</b> heavy attack (staggers, drains a guard; can follow a light hit)</div>
   <div><b>Space</b> jump · <b>Ctrl</b> / <b>C</b> sprint</div>
   <div><b>Alt</b> side step — perfect if pressed just before the blow</div>
-  <div><b>Shift</b> hold to block (−50%), tap just before the blow to parry</div>
+  <div><b>Shift</b> hold: guard (−50%), walk slowly with it up · tap just before the blow: parry</div>
   <div><b>E</b> Feint 虚招 — fake heavy wind-up, then a fast cut that breaks a guard (cooldown 4 s)</div>
   <p>Gold flash: blockable. <span style="color:#c8323c">Red flash: unblockable</span> — dodge it. The ring under you closes on the blow and turns white in the perfect window.
   H: timing ring · B: hit zones · F: fullscreen (lets Ctrl through) · R: restart</p>
 </div>
 <a id="back" href="index.html">← Character</a>
-<details id="settings"><summary>Stats (timing)</summary><div id="settings-rows"></div></details>
+<div id="side">
+  <details id="settings"><summary>Stats (timing)</summary><div id="settings-rows"></div></details>
+  <details id="anim-panel"><summary>Animation</summary>
+    <p class="note">Each move's clip, speed, hit and end times (clip seconds); each pose's clip and speed. ▶ plays it. Saved in this browser.</p>
+    <div id="anim-rows"></div>
+    <div class="anim-buttons"><button type="button" id="anim-reset">Reset</button><button type="button" id="anim-copy">Copy JSON</button></div>
+  </details>
+</div>
 <div id="loading">Loading the fighters…</div>
 <div id="start" hidden><div>Click to fight<small>The mouse is captured; Esc to release it. (If it cannot be, right-drag to look.)</small></div></div>
 <script type="module" src="src/combat/combat.js"></script>

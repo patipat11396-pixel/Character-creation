@@ -63,11 +63,12 @@ swordsman, with a third-person camera.
 | Input | Action |
 |---|---|
 | WASD, mouse | move, look (the mouse is captured on click; else right-drag looks) |
-| Left click | Basic Sword 3-hit combo; in the air a plunge; while sprinting a dash strike |
+| Left click | light attack: Basic Sword 3-hit combo; in the air a plunge; while sprinting a dash strike |
+| Right click / Q | heavy attack: slow overhead blow, staggers, a blocked one drains 40 guard stamina; can follow a light hit |
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
 | Alt | side step / dodge; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
-| Shift | hold: block (−50% damage, costs stamina; red attacks cannot be blocked); tap within the parry window before the blow: **perfect parry** (no damage, the attacker is stunned) |
+| Shift | hold: guard (−50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (1.5 m/s) with it up, the legs walking or strafing under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker is stunned) |
 | E | Feint 虚招 (skill): a fake heavy wind-up, then a fast cut that breaks a guard (cooldown 4 s) |
 
 A perfect dodge or parry slows time briefly and gives a counter window
@@ -79,6 +80,12 @@ turns white in the perfect window.
 (B shows them). Vital zones take more damage and crit more: head ×2.0
 (+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,
 legs ×0.7–0.8; base crit 5%, crit ×1.8.
+
+**Animation panel** (top right): every move's clip, speed, hit and end time
+and every pose's clip and speed (idle, run, guard and the legs under it,
+dodges, hit reactions...), with ▶ to play it; kept in the browser, Reset and
+Copy JSON (to paste into `skills.js`). A clip can play on the upper or lower
+body only, which is how the guard is held while walking.
 
 Martial arts are data (`src/combat/skills.js`): each move names its clip,
 when the blade lands (measured where the blade reaches furthest in front),

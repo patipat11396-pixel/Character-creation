@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { ARTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE } from './skills.js';
+import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE } from './skills.js';
 import { readSetup, skinMaterial, applyFace, hairFor } from './look.js';
 
 // Sword combat demo: a white room, the player and one sparring enemy.
@@ -232,12 +232,53 @@ class Fighter {
   get pos() { return this.root.position; }
   forward(out = new THREE.Vector3()) { return out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
 
-  play(name, { fade = 0.12, loop = true, speed = 1, from = 0 } = {}) {
-    const clip = this.clips.get(name);
+  /**
+   * A clip, or only its upper or lower body ('upper': spine up, arms, head;
+   * 'lower': hips and legs), so two can play at once (guard up while walking).
+   */
+  clip(name, part) {
+    const full = this.clips.get(name);
+    if (!full || !part) return full;
+    const key = `${name}#${part}`;
+    if (!this.clips.has(key)) {
+      const upper = (bone) => /Spine1|Spine2|Neck|Head|Shoulder|Arm|Hand/.test(bone);
+      const tracks = full.tracks.filter((t) => upper(t.name.split('.')[0]) === (part === 'upper'));
+      this.clips.set(key, new THREE.AnimationClip(key, full.duration, tracks));
+    }
+    return this.clips.get(key);
+  }
+
+  /** A pose slot (ANIM_SLOTS: idle, run, guard...) with its speed. */
+  playSlot(slot, opts = {}) {
+    const s = ANIM_SLOTS[slot];
+    return this.play(s.clip, { speed: s.speed, ...opts });
+  }
+
+  /** The upper-body layer (the guard while walking), or null to drop it. */
+  setUpper(name, { hold = null, speed = 1 } = {}) {
+    if (this.upperName === name) return;
+    this.upper?.fadeOut(0.12);
+    this.upper = null;
+    this.upperName = name;
+    if (!name) return;
+    const a = this.mixer.clipAction(this.clip(name, 'upper'));
+    a.reset();
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = true;
+    a.timeScale = speed;
+    a.fadeIn(0.12).play();
+    a.holdAt = hold;
+    this.upper = a;
+  }
+
+  play(name, { fade = 0.12, loop = true, speed = 1, from = 0, part = null } = {}) {
+    const clip = this.clip(name, part);
     if (!clip) return null;
+    if (!part && this.upper) this.setUpper(null);
     const a = this.mixer.clipAction(clip);
     if (this.action === a && loop) { a.timeScale = speed; return a; }
     a.reset();
+    a.holdAt = null;
     a.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
     a.clampWhenFinished = !loop;
     a.timeScale = speed;
@@ -263,6 +304,9 @@ class Fighter {
 
   /** Pose after the animation: fingers, head size, facing. */
   finishPose() {
+    for (const a of [this.upper, this.action]) {
+      if (a?.holdAt != null && a.time >= a.holdAt) { a.time = a.holdAt; a.timeScale = 0; }
+    }
     this.root.rotation.y = this.yaw;
     this.bones.Head.scale.setScalar(HEAD_SCALE);
     const q = new THREE.Quaternion();
@@ -383,10 +427,13 @@ const keys = new Set();
 const pressed = new Set();     // this frame
 let mouseDown = false;
 let clicked = false;
+let rightClicked = false;
 let locked = false;
 let camYaw = Math.PI, camPitch = 0.18, camDist = 3.6;
 
+const typing = (e) => /INPUT|SELECT|TEXTAREA/.test(e.target?.tagName ?? '');
 addEventListener('keydown', (e) => {
+  if (typing(e)) return;
   if (['AltLeft', 'AltRight', 'Space', 'Tab', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyW' && e.ctrlKey) e.preventDefault();   // (the browser may still close the tab: use fullscreen, F)
   if (!keys.has(e.code)) pressed.add(e.code);
@@ -409,6 +456,7 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (!locked && e.button === 0 && !document.pointerLockElement) { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* no */ } }
   if (e.button === 0) { mouseDown = true; clicked = true; }
+  if (e.button === 2 && locked) rightClicked = true;   // (unlocked, right-drag turns the camera)
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // The "Click to fight" box covers the view: clicking it starts the fight.
@@ -451,6 +499,90 @@ function buildSettings() {
     input.addEventListener('input', () => { stats[k] = Number(input.value); row.querySelector('b').textContent = input.value; saveStats(); });
     box.appendChild(row);
   }
+}
+
+// ------------------------------------------------------------------ animation panel
+//
+// Every move's clip, speed, hit and end time, and every pose slot's clip and
+// speed, editable while playing; kept in this browser (Reset restores the
+// built-in values, Copy JSON gives them to paste into skills.js).
+
+const ANIM_KEY = 'character-creation:combat-anim';
+const MOVES = [
+  ['Light 1', ART.combo[0]], ['Light 2', ART.combo[1]], ['Light 3', ART.combo[2]], ['Heavy', ART.heavy],
+  ['Air', ART.air], ['Dash', ART.dash], ['Feint strike', ART.skills.feint.strike],
+  ...ART.enemy.map((m) => [`Enemy ${m.name}`, m]),
+];
+const BUILT_IN = JSON.parse(JSON.stringify({ moves: MOVES.map(([, m]) => pickMove(m)), slots: ANIM_SLOTS }));
+function pickMove(m) { return { clip: m.clip, speed: m.speed ?? 1, hit: m.hit, end: m.end }; }
+function readAnim() { try { return JSON.parse(localStorage.getItem(ANIM_KEY)) ?? null; } catch { return null; } }
+function saveAnim() {
+  const data = { moves: Object.fromEntries(MOVES.map(([k, m]) => [k, pickMove(m)])), slots: ANIM_SLOTS };
+  try { localStorage.setItem(ANIM_KEY, JSON.stringify(data)); } catch { /* private mode */ }
+  return data;
+}
+function applyAnim(data) {
+  if (!data) return;
+  for (const [k, m] of MOVES) if (data.moves?.[k]) Object.assign(m, data.moves[k]);
+  for (const [k, v] of Object.entries(data.slots ?? {})) if (ANIM_SLOTS[k]) Object.assign(ANIM_SLOTS[k], v);
+}
+applyAnim(readAnim());
+
+function buildAnimPanel() {
+  const box = $('anim-rows');
+  box.innerHTML = '';
+  const names = [...player.clips.keys()].filter((n) => !n.includes('#')).sort();
+  const options = names.map((n) => `<option>${n}</option>`).join('');
+  const num = (label, value, min, max, step, on) => {
+    const l = document.createElement('label');
+    l.className = 'num';
+    l.innerHTML = `<span>${label}</span><input type="number" min="${min}" max="${max}" step="${step}" value="${value}">`;
+    l.querySelector('input').addEventListener('change', (e) => { on(Number(e.target.value)); saveAnim(); });
+    return l;
+  };
+  const row = (title, target, fields, preview) => {
+    const r = document.createElement('div');
+    r.className = 'anim-row';
+    r.innerHTML = `<b>${title}</b><select>${options}</select><button type="button" title="Play">▶</button>`;
+    const sel = r.querySelector('select');
+    sel.value = target.clip;
+    sel.addEventListener('change', () => { target.clip = sel.value; saveAnim(); });
+    r.querySelector('button').addEventListener('click', () => preview());
+    const f = document.createElement('div');
+    f.className = 'anim-fields';
+    for (const x of fields) f.appendChild(x);
+    r.appendChild(f);
+    box.appendChild(r);
+  };
+  const h = (t) => { const e = document.createElement('h4'); e.textContent = t; box.appendChild(e); };
+  h('Moves');
+  for (const [title, m] of MOVES) {
+    row(title, m, [
+      num('speed', m.speed ?? 1, 0.1, 3, 0.05, (v) => { m.speed = v; }),
+      num('hit (s)', m.hit, 0, 5, 0.01, (v) => { m.hit = v; }),
+      num('end (s)', m.end, 0, 5, 0.01, (v) => { m.end = v; }),
+    ], () => { if (player.state !== 'dead') { player.comboIndex = -1; startMove(player, m); } });
+  }
+  h('Poses');
+  for (const [slot, v] of Object.entries(ANIM_SLOTS)) {
+    const fields = [num('speed', v.speed, 0.1, 3, 0.05, (x) => { v.speed = x; })];
+    if ('hold' in v) fields.push(num('hold (s)', v.hold, 0, 3, 0.01, (x) => { v.hold = x; }));
+    row(slot, v, fields, () => { player.setState('idle'); player.playSlot(slot, { loop: false, fade: 0.1 }); player.previewUntil = gameTime + 1.5; });
+  }
+}
+
+function initAnimPanel() {
+  buildAnimPanel();
+  $('anim-reset').addEventListener('click', () => {
+    MOVES.forEach(([, m], i) => Object.assign(m, BUILT_IN.moves[i]));
+    for (const [k, v] of Object.entries(BUILT_IN.slots)) Object.assign(ANIM_SLOTS[k], v);
+    try { localStorage.removeItem(ANIM_KEY); } catch { /* no */ }
+    buildAnimPanel();
+  });
+  $('anim-copy').addEventListener('click', async () => {
+    const json = JSON.stringify(saveAnim(), null, 2);
+    try { await navigator.clipboard.writeText(json); message('Animation settings copied'); } catch { prompt('Copy:', json); }
+  });
 }
 
 // ------------------------------------------------------------------ timing assist ring
@@ -535,7 +667,7 @@ function resolveHit(att, def, zone) {
   if (blocking && !move.unblockable) {
     dmg *= def.isPlayer ? 1 - stats.blockReduction : 0.25;
     crit = false;
-    def.stamina -= stats.blockCost;
+    def.stamina -= move.guardDamage ?? stats.blockCost;
     sound('block');
     sparks(zone.a.clone().lerp(zone.b, 0.5), 0xfff0b0);
     if (def.stamina <= 0) { def.stamina = 0; stagger(def, 1.1, 'Guard Break'); }
@@ -573,7 +705,7 @@ function flinch(f, att, hard) {
   f.move = null;
   f.setState('hit');
   f.hitDur = hard ? 0.7 : 0.38;
-  f.play(hard ? 'Hit_Knockback' : (Math.random() < 0.5 ? 'Hit_Chest' : 'Hit_Head'), { loop: false, fade: 0.05, speed: hard ? 1.2 : 1.1 });
+  f.playSlot(hard ? 'hitHard' : (Math.random() < 0.5 ? 'hitLight' : 'hitLight2'), { loop: false, fade: 0.05 });
   const push = f.pos.clone().sub(att.pos).setY(0).normalize();
   f.vel.copy(push.multiplyScalar(hard ? 3.5 : 1.6));
   f.comboIndex = -1;
@@ -583,14 +715,14 @@ function stagger(f, dur, text) {
   f.move = null;
   f.setState('stagger');
   f.hitDur = dur;
-  f.play('Dizzy', { loop: true, fade: 0.1 });
+  f.playSlot('stun', { loop: true, fade: 0.1 });
   if (text) floatText(f.zones[0].a, text, 'status');
 }
 
 function die(f) {
   f.move = null;
   f.setState('dead');
-  f.play('Death_A', { loop: false, fade: 0.1 });
+  f.playSlot('death', { loop: false, fade: 0.1 });
   over = true;
   message(f.isPlayer ? 'Defeated — press R to try again' : 'Victory — press R to fight again', f.isPlayer ? 'bad' : 'good');
 }
@@ -647,6 +779,7 @@ function playerUpdate(dt) {
   const dodgePress = pressed.has('AltLeft') || pressed.has('AltRight');
   const parryPress = pressed.has('ShiftLeft') || pressed.has('ShiftRight');
   const jumpPress = pressed.has('Space');
+  const heavyPress = rightClicked || pressed.has('KeyQ');
   if (parryPress) p.parryAt = gameTime;
 
   const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12);
@@ -701,7 +834,11 @@ function playerUpdate(dt) {
     if (dist2(p, enemy) < 4.5 * 4.5) p.faceTarget(enemy, dt, 14);
     if (p.t * feint.bait.speed >= feint.bait.until) { p.comboIndex = -1; startMove(p, feint.strike); }
   }
-  if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
+  if (heavyPress && afterHit && p.move !== ART.heavy && p.grounded && p.stamina >= ART.heavy.stamina) {
+    p.comboIndex = -1;
+    p.stamina -= ART.heavy.stamina;
+    startMove(p, ART.heavy);
+  } else if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
     p.stamina -= feint.stamina;
     p.feintReady = gameTime + feint.cooldown;
     p.move = null;
@@ -718,20 +855,38 @@ function playerUpdate(dt) {
       p.vy = 5.4;
       p.grounded = false;
       p.stamina -= stats.jumpCost;
-      p.play('Jump_air', { fade: 0.1 });
+      p.playSlot('jump', { fade: 0.1 });
     } else if (blockKey && p.grounded) {
-      if (p.state !== 'block') { p.setState('block'); p.play('Sword_Block', { loop: false, fade: 0.08, speed: 1.4 }); }
-      if (dist2(p, enemy) < 6 * 6) p.faceTarget(enemy, dt, 10);
-      p.vel.set(0, 0, 0);
+      // Guard (parry held): walk slowly with the guard up, facing the enemy.
+      if (p.state !== 'block') p.setState('block');
+      const near = dist2(p, enemy) < 8 * 8;
+      if (near) p.faceTarget(enemy, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
+      p.vel.copy(wish).multiplyScalar(stats.guardSpeed);
+      const g = ANIM_SLOTS.guard;
+      if (wish.lengthSq()) {
+        // Legs by the step's direction against the facing; the guard on top.
+        const f = p.forward(tmp);
+        const fwd = wish.dot(f), side = wish.x * f.z - wish.z * f.x;
+        const legs = Math.abs(fwd) >= Math.abs(side) ? (fwd >= 0 ? 'guardForward' : 'guardBack') : (side > 0 ? 'guardLeft' : 'guardRight');
+        p.play(ANIM_SLOTS[legs].clip, { speed: ANIM_SLOTS[legs].speed, part: 'lower', fade: 0.15 });
+        p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
+      } else if (p.action?.getClip().name !== g.clip || p.upper) {
+        const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });
+        if (a) a.holdAt = g.hold;
+      }
+    } else if (heavyPress && p.grounded && p.stamina >= ART.heavy.stamina) {
+      p.comboIndex = -1;
+      p.stamina -= ART.heavy.stamina;
+      startMove(p, ART.heavy);
     } else {
-      if (p.state === 'block') p.setState('idle');
+      if (p.state === 'block') { p.setState('idle'); p.setUpper(null); }
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
       p.vel.copy(wish).multiplyScalar(speed);
       if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
-      if (p.grounded) {
-        p.play(moving ? (p.sprinting ? 'Sprint' : 'Jog') : 'Idle_Sword', { fade: 0.18 });
+      if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
+        p.playSlot(moving ? (p.sprinting ? 'sprint' : 'run') : 'idle', { fade: 0.18 });
         p.state = moving ? 'move' : 'idle';
       }
     }
@@ -746,7 +901,7 @@ function playerUpdate(dt) {
   p.stamina = THREE.MathUtils.clamp(p.stamina, 0, stats.maxStamina);
 
   physics(p, dt);
-  if (!p.grounded && p.state !== 'attack') p.play('Jump_air', { fade: 0.1 });
+  if (!p.grounded && p.state !== 'attack') p.playSlot('jump', { fade: 0.1 });
 }
 
 function doDodge(wish) {
@@ -761,13 +916,13 @@ function doDodge(wish) {
   const toEnemy = enemy.pos.clone().sub(p.pos).setY(0).normalize();
   const side = new THREE.Vector3(toEnemy.z, 0, -toEnemy.x);
   let dir, clip;
-  if (wish.lengthSq() === 0 || wish.dot(toEnemy) < -0.5) { dir = toEnemy.clone().negate(); clip = 'Dodge_back'; }
-  else if (wish.dot(side) >= 0) { dir = side; clip = 'Dodge_left'; }
-  else { dir = side.clone().negate(); clip = 'Dodge_right'; }
-  if (wish.lengthSq() && wish.dot(toEnemy) > 0.5) { dir = wish.clone(); clip = 'Dodge_left'; }
+  if (wish.lengthSq() === 0 || wish.dot(toEnemy) < -0.5) { dir = toEnemy.clone().negate(); clip = 'dodgeBack'; }
+  else if (wish.dot(side) >= 0) { dir = side; clip = 'dodgeLeft'; }
+  else { dir = side.clone().negate(); clip = 'dodgeRight'; }
+  if (wish.lengthSq() && wish.dot(toEnemy) > 0.5) { dir = wish.clone(); clip = 'dodgeLeft'; }
   p.dodgeDir = dir;
   p.yaw = Math.atan2(toEnemy.x, toEnemy.z);
-  p.play(clip, { loop: false, fade: 0.05, speed: 1.5 });
+  p.playSlot(clip, { loop: false, fade: 0.05 });
 }
 
 function dist2(a, b) { return (a.pos.x - b.pos.x) ** 2 + (a.pos.z - b.pos.z) ** 2; }
@@ -795,7 +950,7 @@ function enemyUpdate(dt) {
   e.t += dt;
   const d = Math.sqrt(dist2(e, player));
   if (e.state === 'dead') return;
-  if (player.state === 'dead') { e.play('Idle_Sword'); e.vel.set(0, 0, 0); physics(e, dt); return; }
+  if (player.state === 'dead') { e.playSlot('idle'); e.vel.set(0, 0, 0); physics(e, dt); return; }
   e.think = (e.think ?? 1) - dt;
   switch (e.state) {
     case 'hit':
@@ -818,7 +973,7 @@ function enemyUpdate(dt) {
           const rec = e.move.rec;
           e.move = null;
           e.setState('recover');
-          if (rec) e.play(rec, { loop: false, fade: 0.1 }); else e.play('Idle_Sword', { fade: 0.2 });
+          if (rec) e.play(rec, { loop: false, fade: 0.1 }); else e.playSlot('idle', { fade: 0.2 });
           e.think = 0.7 + Math.random() * 0.6;
         }
       }
@@ -846,17 +1001,17 @@ function enemyUpdate(dt) {
         const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
         const speed = d > 6 ? 3.8 : 2.2;
         e.vel.copy(toP).multiplyScalar(speed);
-        e.play(d > 6 ? 'Jog' : 'Walk', { fade: 0.2 });
+        e.playSlot(d > 6 ? 'run' : 'walk', { fade: 0.2 });
       } else {
         e.vel.multiplyScalar(0.7);
         e.state = 'idle';
-        e.play('Idle_Sword', { fade: 0.2 });
+        e.playSlot('idle', { fade: 0.2 });
         // React to the player's swing sometimes by blocking.
         const bait = player.state === 'feint' && Math.random() < dt * 6;
         if (bait || (player.state === 'attack' && !player.moveHit && Math.random() < dt * 1.2 && e.think < 0.5)) {
           e.setState('block');
           e.blockFor = 0.7 + Math.random() * 0.5;
-          e.play('Sword_Block', { loop: false, fade: 0.08, speed: 1.4 });
+          { const a = e.playSlot('guard', { loop: false, fade: 0.08 }); if (a) a.holdAt = ANIM_SLOTS.guard.hold; }
           break;
         }
         if (e.think <= 0) {
@@ -870,11 +1025,11 @@ function enemyUpdate(dt) {
             e.setState('strafe');
             e.strafeDir = Math.random() < 0.5 ? 1 : -1;
             e.strafeFor = 0.8 + Math.random() * 0.8;
-            e.play(e.strafeDir > 0 ? 'Strafe_left' : 'Strafe_right', { fade: 0.2 });
+            e.playSlot(e.strafeDir > 0 ? 'guardLeft' : 'guardRight', { fade: 0.2 });
           } else {
             e.setState('block');
             e.blockFor = 0.6 + Math.random() * 0.6;
-            e.play('Sword_Block', { loop: false, fade: 0.08, speed: 1.4 });
+            { const a = e.playSlot('guard', { loop: false, fade: 0.08 }); if (a) a.holdAt = ANIM_SLOTS.guard.hold; }
           }
           e.think = 0.6 + Math.random() * 0.9;
         }
@@ -1004,6 +1159,7 @@ function tick(real) {
   if (msgTimer > 0) { msgTimer -= real; if (msgTimer <= 0 && !over) msgEl.className = ''; }
   pressed.clear();
   clicked = false;
+  rightClicked = false;
 }
 
 function reset() {
@@ -1022,7 +1178,8 @@ function reset() {
     f.setState('idle');
     f.mixer.stopAllAction();
     f.action = null;
-    f.play('Idle_Sword', { fade: 0 });
+    f.setUpper(null);
+    f.playSlot('idle', { fade: 0 });
   }
   camYaw = 0;
   enemy.think = 1.5;
@@ -1058,6 +1215,7 @@ async function main() {
     $('enemy-name').textContent = 'Sparring Swordsman · 陪练剑客';
     $('player-name').textContent = setup?.name || '';
     reset();
+    initAnimPanel();
     $('loading').hidden = true;
     $('start').hidden = false;
   } catch (err) {
