@@ -16,6 +16,7 @@
 //   reach     how far in front the blade lands (m): a target in front is
 //             closed in on (up to 2 m) so the blade ends at its body
 //   stagger   true: the blow interrupts the target even if it is attacking
+//   poise     how much of the stagger gauge (100) it fills (default 2 x damage)
 //   unblockable  true: holding parry does not help (red flash); only a dodge
 //                or (when parryable) a perfect parry avoids it
 
@@ -37,7 +38,7 @@ export const ARTS = {
     // Heavy attack (right click / Q): slow overhead blow; staggers, and a
     // blocked one costs the defender a lot of guard (stamina).
     heavy: { clip: 'Sword_Attack', speed: 0.95, hit: 0.52, end: 1.05, damage: 30, range: 2.4, arc: 120,
-      lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40 },
+      lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55 },
     air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows the heavy wind-up, then cuts in fast: it
@@ -82,7 +83,6 @@ export const ANIM_SLOTS = {
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
-  hitHard: { clip: 'Hit_Knockback', speed: 1.2 },
   stun: { clip: 'Dizzy', speed: 1 },
   death: { clip: 'Death_A', speed: 1 },
 };

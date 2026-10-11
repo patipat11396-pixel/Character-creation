@@ -30,6 +30,9 @@
   #enemy { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); width: min(520px, 86vw); text-align: center; }
   #enemy-name { font-weight: 600; font-size: 13px; letter-spacing: 0.04em; }
   #enemy .bar { position: relative; left: auto; transform: none; height: 10px; margin-top: 4px; }
+  #enemy .bar.poise { height: 4px; margin-top: 2px; }
+  #enemy-poise, #poise-fill { background: linear-gradient(#f0a040, #d06a10); }
+  #poise { bottom: 30px; width: min(420px, 80vw); height: 4px; }
   #enemy-fill { background: linear-gradient(#e2525a, #8a1c1c); }
   #enemy-text { font-size: 11px; color: #666; }
   #message { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.96); font-size: 30px; font-weight: 700; letter-spacing: 0.04em;
@@ -79,12 +82,13 @@
 <body>
 <canvas id="view"></canvas>
 <div id="hud">
-  <div id="enemy"><div id="enemy-name">Sparring Swordsman</div><div class="bar"><i id="enemy-fill"></i></div><div id="enemy-text"></div></div>
+  <div id="enemy"><div id="enemy-name">Sparring Swordsman</div><div class="bar"><i id="enemy-fill"></i></div><div class="bar poise"><i id="enemy-poise"></i></div><div id="enemy-text"></div></div>
   <div id="message"></div>
   <div id="player-name"></div>
   <div id="hp-text"></div>
   <div class="bar" id="hp"><i id="hp-fill"></i></div>
   <div class="bar" id="st"><i id="st-fill"></i></div>
+  <div class="bar" id="poise"><i id="poise-fill"></i></div>
   <div id="combo"></div>
   <div id="skills"><div class="skill" id="skill-e"><b>E</b><span>Feint<br>虚招</span><i id="skill-e-cd"></i></div></div>
 </div>

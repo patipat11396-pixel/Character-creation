@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE } from './skills.js';
 import { readSetup, skinMaterial, applyFace, hairFor } from './look.js';
 
@@ -35,6 +39,14 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf4f4f2);
 scene.fog = new THREE.Fog(0xf4f4f2, 18, 40);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 100);
+// Drawn through a composer: the afterimage pass is the dodge's motion blur
+// (off, damp 0, the rest of the time).
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const blur = new AfterimagePass(0);
+composer.addPass(blur);
+composer.addPass(new OutputPass());
+const draw = () => composer.render();
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d8d4, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -414,6 +426,8 @@ function updateBars() {
   $('hp-text').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   $('st-fill').style.width = `${(player.stamina / stats.maxStamina) * 100}%`;
   $('enemy-fill').style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
+  $('enemy-poise').style.width = `${((enemy.poise ?? 0) / STAGGER.gauge) * 100}%`;
+  $('poise-fill').style.width = `${((player.poise ?? 0) / STAGGER.gauge) * 100}%`;
   $('enemy-text').textContent = `${Math.ceil(enemy.hp)} / ${enemy.maxHp}`;
   const left = Math.max(0, (player.feintReady ?? 0) - gameTime);
   $('skill-e').classList.toggle('cool', left > 0);
@@ -660,7 +674,7 @@ function resolveHit(att, def, zone) {
     floatText(zone.a.clone().lerp(zone.b, 0.5), `Guard Break ${Math.round(dmg)}`, 'crit');
     hitStop = 0.1;
     if (def.hp <= 0) { die(def); return; }
-    stagger(def, 1.4, null);
+    stagger(def, STAGGER.full, null);
     if (att.isPlayer) att.counterUntil = gameTime + 1.6;
     return;
   }
@@ -670,7 +684,7 @@ function resolveHit(att, def, zone) {
     def.stamina -= move.guardDamage ?? stats.blockCost;
     sound('block');
     sparks(zone.a.clone().lerp(zone.b, 0.5), 0xfff0b0);
-    if (def.stamina <= 0) { def.stamina = 0; stagger(def, 1.1, 'Guard Break'); }
+    if (def.stamina <= 0) { def.stamina = 0; stagger(def, STAGGER.full, 'Guard Break'); }
     else floatText(zone.a, `Blocked ${Math.round(dmg)}`, 'blocked');
   } else {
     if (blocking && move.unblockable && def.isPlayer) message('Unblockable!', 'bad');
@@ -681,9 +695,13 @@ function resolveHit(att, def, zone) {
   def.hp = Math.max(0, def.hp - dmg);
   if (def.hp <= 0) { die(def); return; }
   if (!blocking || move.unblockable) {
-    // Flinch, unless attacking with armour (the enemy's heavy blows) and not a staggering blow.
+    addPoise(def, move, dmg);
+    if (def.isPlayer) shake(crit ? 0.09 : 0.06);
+    // Flinch, unless attacking with armour (the enemy's heavy blows) and not a
+    // staggering blow; a full stagger gauge staggers anyway.
     const armoured = def.state === 'attack' && def.move?.unblockable;
-    if (!armoured && (def.state !== 'attack' || move.stagger || def.isPlayer)) flinch(def, att, move.stagger);
+    if (def.poise >= STAGGER.gauge) flinch(def, att, true);
+    else if (!armoured && (def.state !== 'attack' || move.stagger || def.isPlayer)) flinch(def, att, move.stagger);
   }
 }
 
@@ -695,20 +713,29 @@ function perfect(def, att, text, parry = false) {
   slowUntil = gameTime + (parry ? 0.35 : 0.6);
   if (parry) {
     sparks(def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6)), 0xffffff);
-    stagger(att, 1.6, 'Stunned');
+    stagger(att, STAGGER.perfect, 'Stunned');
   } else {
     att.exposedUntil = gameTime + 1.2;
   }
 }
 
+// A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
+// gauge; a full gauge staggers for STAGGER.full seconds and empties.
+const STAGGER = { hitStun: 0.2, full: 1.0, perfect: 1.0, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
   f.move = null;
-  f.setState('hit');
-  f.hitDur = hard ? 0.7 : 0.38;
-  f.playSlot(hard ? 'hitHard' : (Math.random() < 0.5 ? 'hitLight' : 'hitLight2'), { loop: false, fade: 0.05 });
-  const push = f.pos.clone().sub(att.pos).setY(0).normalize();
-  f.vel.copy(push.multiplyScalar(hard ? 3.5 : 1.6));
   f.comboIndex = -1;
+  const push = f.pos.clone().sub(att.pos).setY(0).normalize();
+  f.vel.copy(push.multiplyScalar(hard ? 2.2 : 1.2));
+  if (f.poise >= STAGGER.gauge) { f.poise = 0; stagger(f, STAGGER.full, 'Staggered'); return; }
+  f.setState('hit');
+  f.hitDur = STAGGER.hitStun;
+  f.playSlot(Math.random() < 0.5 ? 'hitLight' : 'hitLight2', { loop: false, fade: 0.04 });
+}
+
+function addPoise(f, move, dmg) {
+  f.poise = Math.min(STAGGER.gauge, (f.poise ?? 0) + (move.poise ?? dmg * STAGGER.perDamage));
+  f.poiseAt = gameTime;
 }
 
 function stagger(f, dur, text) {
@@ -1041,6 +1068,9 @@ function enemyUpdate(dt) {
 
 // ------------------------------------------------------------------ camera
 
+let shakeAmp = 0;
+function shake(a) { shakeAmp = Math.max(shakeAmp, a); }
+
 function updateCamera(dt) {
   const target = player.pos.clone().add(new THREE.Vector3(0, 1.45, 0));
   const dir = new THREE.Vector3(Math.sin(camYaw) * Math.cos(camPitch), Math.sin(camPitch), Math.cos(camYaw) * Math.cos(camPitch));
@@ -1051,6 +1081,10 @@ function updateCamera(dt) {
   want.y = Math.max(0.3, want.y);
   camera.position.lerp(want, Math.min(1, dt * 14));
   camera.lookAt(target.addScaledVector(right, 0.4));
+  if (shakeAmp > 0.001) {
+    camera.position.add(new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5)).multiplyScalar(shakeAmp));
+    shakeAmp *= Math.exp(-dt * 14);
+  }
 }
 
 function updateRing() {
@@ -1110,11 +1144,11 @@ function frame() {
     // Waiting to start: both stand in the sword idle (nothing else moves).
     for (const f of [player, enemy]) { f.mixer.update(real); f.finishPose(); f.hair?.rig.update(real, f.hair.state); }
     updateCamera(real);
-    renderer.render(scene, camera);
+    draw();
     return;
   }
   tick(real);
-  renderer.render(scene, camera);
+  draw();
 }
 
 function tick(real) {
@@ -1151,6 +1185,12 @@ function tick(real) {
     s.m.material.opacity = Math.max(0, 1 - s.life / 0.25);
     if (s.life > 0.25) { scene.remove(s.m); sparkPool.splice(i, 1); }
   }
+  for (const f of [player, enemy]) {
+    if (f.poise > 0 && gameTime - (f.poiseAt ?? 0) > STAGGER.decayAfter) f.poise = Math.max(0, f.poise - STAGGER.decay * dt);
+  }
+  // Dodge motion blur: trails while dodging, fading out quickly after.
+  const want = player.state === 'dodge' && player.t < 0.4 ? 0.7 : 0;
+  blur.uniforms.damp.value += (want - blur.uniforms.damp.value) * Math.min(1, real * (want ? 30 : 12));
   updateRing();
   updateZoneDebug();
   updateCamera(real);
@@ -1173,6 +1213,7 @@ function reset() {
     f.grounded = true;
     f.hp = f.maxHp;
     f.stamina = stats.maxStamina;
+    f.poise = 0;
     f.move = null;
     f.comboIndex = -1;
     f.setState('idle');
@@ -1187,6 +1228,7 @@ function reset() {
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
+  composer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
 }
@@ -1233,7 +1275,7 @@ window.combat = {
   look(yaw) { camYaw = yaw; },
   /** Run n fixed steps (no rendering in between), then draw once. */
   start() { active = true; $('start').hidden = true; },
-  step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } renderer.render(scene, camera); },
+  step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } draw(); },
   release() { stepping = false; },
   startEnemyMove(name) { enemy.timedChecked = false; startMove(enemy, ART.enemy.find((m) => m.name === name)); },
 };
