@@ -403,6 +403,21 @@ def build(body):
     ring[line] = False
     adj = adjacency(len(verts), faces)
     shift[ring] = 0.5 * (adj @ shift)[ring] / np.maximum((adj @ np.isin(np.arange(len(verts)), line))[ring], 1e-6) * 0.5
+    # Back off wherever the move would flip a triangle (fold the surface).
+    near = np.flatnonzero(np.isin(faces, np.flatnonzero(shift != 0)).any(1))
+
+    def face_n(vv):
+        f = faces[near]
+        return np.cross(vv[f[:, 1]] - vv[f[:, 0]], vv[f[:, 2]] - vv[f[:, 0]])
+
+    before = face_n(verts)
+    for _ in range(20):
+        moved = verts.copy()
+        moved[:, 2] += shift
+        flipped = (face_n(moved) * before).sum(1) <= 0
+        if not flipped.any():
+            break
+        shift[faces[near[flipped]].ravel()] *= 0.5
     verts[:, 2] += shift
     painted = paint.load_painted(ROOT / body["painted"], pos)
     face_uv, projected = paint.corner_uvs(verts, faces, painted)
