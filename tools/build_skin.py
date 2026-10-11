@@ -362,7 +362,7 @@ def smooth_brow_area(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
 
     def weight(ax, pz):
         low = z0 - (z0 - (e["z"] - 2.4)) * smoothstep(inner, inner - 0.8, ax)
-        return smoothstep(low, low + 0.4, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, ax)
+        return smoothstep(low, low + 1.0, pz) * smoothstep(z1, z1 - 1.2, pz) * smoothstep(x1, x1 - 1.2, ax)
 
     bz0, bz1, bx = e["z"] - 2.4 - m, z1 + m, x1 + m
     view, hit = front_view(color, pv, uv, pf, -bx, bx, bz0, bz1, y_from, ppc)

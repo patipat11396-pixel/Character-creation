@@ -323,30 +323,31 @@ def shape_breasts(verts, faces, avg, body):
     return out, moved
 
 
-def flatten_brows(verts, avg, body):
-    """Relax the brow ridge (body["brow_box"], mirrored for the right brow)
-    on the front of the face, so the ridge and the step at its edges are gone
-    (the menu draws the brows).
+def flatten_brows(verts, avg, body, normals):
+    """Remove the brow ridge (body["brow_box"], mirrored for the right brow)
+    on the front of the face, so only the menu's brows remain there.
 
-    A heavily smoothed copy of the face around the brows is made (forward /
-    back only), and the face is blended towards it with a weight that is
-    full over the ridge, down to just above the eyelids, and fades out over
-    2.5 cm round it: the change is smooth, so it leaves no crease at the
-    edges of the area.
+    First the depth is moved onto a thin-plate spline fitted through the
+    face round the ridge (not between the eyes, where it fanned out into
+    streaks); then, as the ridge's top edge overhangs, the area is relaxed
+    in 3D with each point moving in proportion to its weight, so the change
+    fades out smoothly and leaves no edge or shelf.
     """
     x0, z0, x1, z1 = body["brow_box"]
     z1 += 1.5
     eye_top = body["eye"]["z"] + body["eye"]["h"] / 2
     x, y, z = verts.T
     ax = np.abs(x)
-    front = y < body["nose_tip"][0] + 8
-    w = (smoothstep(x1 + 2.5, x1, ax) * smoothstep(eye_top + 0.1, eye_top + 1.0, z)
-         * smoothstep(z1 + 2.5, z1, z) * front
+    front = y < body["nose_tip"][0] + 10
+    # Fading out towards the temples (a hard cut there left a crease).
+    face = smoothstep(body["nose_tip"][0] + 9, body["nose_tip"][0] + 3.5, y)
+    w = (smoothstep(x1 + 3.5, x1 + 0.5, ax) * smoothstep(eye_top + 0.1, eye_top + 1.0, z)
+         * smoothstep(z1 + 4.5, z1 + 0.5, z) * face
          * smoothstep(0.6, 2.2, ax))     # not between the eyes: relaxing there fanned out into streaks
     # The face without the ridge: a smooth surface (thin-plate spline, depth
     # over x and z) through the face round the area, which follows no
     # triangle layout (relaxing along the triangles fanned out into streaks).
-    ring = front & (w < 0.02) & (ax < x1 + 4.5) & (z > eye_top - 1.0) & (z < z1 + 5) & (np.abs(y - y[w > 0.5].mean()) < 6)
+    ring = front & (w < 0.02) & (ax < x1 + 4.5) & (z > eye_top - 1.0) & (z < z1 + 7) & (np.abs(y - y[w > 0.5].mean()) < 6)
     ring &= ~((z < eye_top + 0.3) & (ax > 1.5) & (ax < x1))   # not the eyes
     from scipy.interpolate import RBFInterpolator
     fit = RBFInterpolator(np.c_[x[ring], z[ring]], y[ring], kernel="thin_plate_spline", smoothing=2.0, neighbors=300)
@@ -354,13 +355,25 @@ def flatten_brows(verts, avg, body):
     on = w > 0
     target[on, 1] = fit(np.c_[x[on], z[on]])
     broad = front.astype(float)
-    # The change itself is smoothed too, so it bends the face gently.
+    # The change is smoothed only a little: more blurred it back into the
+    # ridge's sharp top edge, which then stayed as a crease.
     d = w * (target[:, 1] - verts[:, 1])
-    for _ in range(60):
+    for _ in range(4):
         d = 0.5 * d + 0.5 * (avg @ d)
     out = verts.copy()
     out[:, 1] += d * (broad > 0)
-    return out, np.abs(d) > 0.01
+    # The ridge's top edge overhangs (two depths at one height), which no
+    # depth-only move can undo: the area is then relaxed in 3D as well, its
+    # edge held, so the overhang opens into a smooth slope.
+    # (Not the eye socket's rim or towards the nose: relaxing those pulled
+    # the socket's inner corner into a crease.)
+    # Each point relaxes in proportion to its weight, so the move fades out
+    # smoothly instead of stopping at an edge (which left a shelf).
+    k3 = (w * smoothstep(eye_top + 0.1, eye_top + 1.2, z) * smoothstep(1.0, 2.5, ax))[:, None]
+    for _ in range(150):
+        out += 0.5 * k3 * (avg @ out - out)
+    moved = np.linalg.norm(out - verts, axis=1)
+    return out, moved > 0.01
 
 
 def tuck(cv, cf, ov, of, depth):
@@ -731,10 +744,16 @@ def build(body):
     # ---- brows: the sculpted brow ridges would stay behind when the menu
     # moves the painted brows, so the brow area is relaxed flat (both sides,
     # front only) and only the brows move.
-    verts, flat = flatten_brows(verts, avg, body)
+    verts, flat = flatten_brows(verts, avg, body, normals)
     print(f"brows: relaxed {flat.sum()} vertices")
-    near = flat | (avg @ flat.astype(float) > 0)
-    normals[near] = vertex_normals(verts, faces)[near]
+    # The new normals blend into the old over a few rings round the area, so
+    # the edge where the stored normals take over shows no line.
+    blend = flat.astype(float)
+    for _ in range(6):
+        blend = np.maximum(blend, avg @ blend * 0.85)
+    fresh = vertex_normals(verts, faces)
+    mixed = normals * (1 - blend[:, None]) + fresh * blend[:, None]
+    normals = mixed / np.maximum(np.linalg.norm(mixed, axis=1, keepdims=True), 1e-12)
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
