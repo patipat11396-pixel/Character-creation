@@ -437,7 +437,7 @@ def build(body):
             pts = chains[finger]
             parent, parent_ibm = gltf["skins"][0]["joints"][hand], ibm[hand]
             for k in range(3):
-                curl = THUMB_CURL[k] if finger == "Thumb" else PALM_NORMAL
+                curl = np.array(body.get("thumb_curl", THUMB_CURL)[k]) if finger == "Thumb" else PALM_NORMAL
                 f = frame(pts[k], pts[k + 1], curl / np.linalg.norm(curl))
                 local = parent_ibm @ f
                 node = {"name": f"{prefix}Hand{finger}{k + 1}", "matrix": local.T.ravel().tolist()}
@@ -617,6 +617,9 @@ def build(body):
     # Landmarks the menu reads (gltf.scene.userData.body), in mesh centimetres.
     extras = {k: body[k] for k in ("label", "eye", "top_z", "chin_z", "nose_tip", "brow_z")}
     extras["head_map"] = head_map(verts, body)
+    extras["mouth_z"] = body["mouth"]["z"]
+    if "thumb_fist" in body:
+        extras["thumb_fist"] = body["thumb_fist"]
     extras["colliders"] = body_colliders(verts, bind.__getitem__, body)
     g["scenes"][0].setdefault("extras", {})["body"] = extras
     print(f"head map: {extras['head_map']}")

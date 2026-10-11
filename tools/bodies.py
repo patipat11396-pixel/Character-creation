@@ -18,6 +18,10 @@ BODIES = {
         "knuckle_x": {"Index": 57.5, "Middle": 57.8, "Ring": 57.3, "Pinky": 56.5},
         "thumb_xy": [(50.5, 3.6), (54.0, 2.0), (56.5, 1.0)],   # base, knuckle, middle joint
         "thumb_max_y": 2.6,              # thumb tip search stays in front of the index finger
+        # Thumb curl axes and fist angles (degrees per bone), found by search so
+        # the thumb tip rests on the curled index and middle fingers.
+        "thumb_curl": [[0.33, 0.71, -0.62], [0.65, 0.53, -0.54], [0.65, 0.53, -0.54]],
+        "thumb_fist": [13.5, 39.2, 8.0],
         # ---- body weight zones
         "hip_back_y": (2.6, 8.6),      # buttocks: behind the hip joint
         "pelvis_z": (70, 106),

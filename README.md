@@ -19,7 +19,13 @@ python3 -m http.server 8000
 fingers) to move the view up and down; the **Head** and **Full body**
 buttons jump to those views. Opening a hair or face tab moves to the head.
 
-**The menu.** Name and Body sit at the top; everything else is in tabs:
+**Save slots.** Three slots on the right of the view (this browser's
+storage): click a filled slot to load it, Save writes the selected slot,
+Back returns to the setup as it was when the slot was last loaded or saved.
+
+**The menu.** Name and Body sit at the top; everything else is in tabs.
+Basic starts with quick "‹ ›" choices for hair style, hair colour, eye
+colour, lipstick and eyebrows:
 
 - **Basic:** skin tone, preview animation, expression, hands, model check.
 - **Hair:** a picture of each style, colour, fit (handles in the view and

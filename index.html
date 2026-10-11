@@ -23,6 +23,10 @@
       <button type="button" data-view="head">Head</button>
       <button type="button" data-view="body">Full body</button>
     </div>
+    <aside class="slots" aria-label="Save slots">
+      <h2>Save slots</h2>
+      <div id="slots" role="radiogroup" aria-label="Save slot"></div>
+    </aside>
     <p class="hint">Drag to rotate · right-drag or two fingers to move up and down · scroll to zoom</p>
   </section>
 
@@ -37,8 +41,8 @@
     <div class="field">
       <span class="label">Body</span>
       <div class="segmented" role="radiogroup" aria-label="Body">
-        <button type="button" role="radio" data-body="female" aria-checked="true" class="on">Female</button>
-        <button type="button" role="radio" data-body="male" aria-checked="false">Male</button>
+        <button type="button" role="radio" data-body="female" aria-checked="true" class="on"><span class="g" aria-hidden="true">♀</span> Female</button>
+        <button type="button" role="radio" data-body="male" aria-checked="false"><span class="g" aria-hidden="true">♂</span> Male</button>
       </div>
     </div>
 
@@ -55,6 +59,10 @@
     </nav>
 
     <section class="tab-panel" role="tabpanel" data-panel="basic">
+      <div class="field">
+        <span class="label">Quick choices</span>
+        <div class="steppers" id="steppers"></div>
+      </div>
       <div class="field">
         <div class="label-row">
           <span class="label">Skin tone</span>
@@ -202,10 +210,11 @@
     </section>
 
     <div class="actions">
-      <button type="button" id="random" class="secondary">Randomize</button>
+      <button type="button" id="back" class="secondary" title="Undo changes since this slot was loaded or saved">Back</button>
       <button type="button" id="save" class="secondary">Save</button>
       <button type="button" id="confirm" class="primary">Confirm</button>
     </div>
+    <button type="button" id="random" class="link">Randomize skin tone</button>
     <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
     <button type="button" id="download-setup" class="link">Download setup (JSON)</button>
     <p class="status" id="status" role="status"></p>

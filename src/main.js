@@ -230,6 +230,7 @@ const skin = new THREE.MeshPhysicalMaterial({
 // Lip colour: the model marks the lips with a 0..1 vertex attribute.
 const lipUniforms = {
   lipColor: { value: new THREE.Color(LIP_DEFAULTS.color) }, lipAmount: { value: LIP_DEFAULTS.amount },
+  mouthZ: { value: 133.5 },   // the shown body's mouth height (mesh cm)
   // Eye colour over the painted irises (the feature mask's red channel); 0 keeps the painting.
   eyeColor: { value: new THREE.Color(0x7a4a26) }, eyeTint: { value: 0 },
   browOffset: { value: new THREE.Vector2() }, browScale: { value: 1 }, browAngle: { value: 0 },
@@ -244,6 +245,7 @@ skin.onBeforeCompile = (shader) => {
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', `#include <common>
 uniform vec3 lipColor; uniform float lipAmount; varying float vLip;
+uniform float mouthZ;
 uniform vec3 eyeColor; uniform float eyeTint; uniform sampler2D featureMask;
 uniform vec3 toneColor; uniform vec3 skinRef; uniform float toneOn;
 uniform sampler2D browTex; uniform vec4 browBox; uniform float frontY;
@@ -289,7 +291,9 @@ varying vec3 vSkinPos;`)
 #endif
   }`)
     .replace('#include <dithering_fragment>',
-      '#include <dithering_fragment>\n  if (!gl_FrontFacing) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
+      // Back faces inside the open mouth read as a dark mouth; elsewhere (finger
+      // gaps, folds) the skin stays skin.
+      '#include <dithering_fragment>\n  if (!gl_FrontFacing && abs(vSkinPos.z - mouthZ) < 3.0 && abs(vSkinPos.x) < 5.0) gl_FragColor.rgb = vec3(0.12, 0.04, 0.04);');
 };
 const weightMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const hairMat = hairMaterial(HAIR_DEFAULTS.color);
@@ -344,7 +348,10 @@ async function buildCharacter(body, kind) {
   const fingers = [];
   for (const bone of mesh.skeleton.bones) {
     const m = bone.name.match(/Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
-    if (m) fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[1]][m[2] - 1]) });
+    if (!m) continue;
+    // A body may set its own thumb angles (its thumb sits differently).
+    const deg = m[1] === 'Thumb' && root.userData.body?.thumb_fist ? root.userData.body.thumb_fist[m[2] - 1] : FIST[m[1]][m[2] - 1];
+    fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(deg) });
   }
   // The Head bone's world matrix in the bind pose, where hairstyles are built.
   mesh.skeleton.pose();
@@ -928,6 +935,7 @@ async function setCharacter(body = state.body, model = state.model) {
     }
   }
   for (const c of Object.values(characters)) if (c.bonesHelper) c.bonesHelper.visible = $('bones').checked && c.root.visible;
+  lipUniforms.mouthZ.value = ch.body.mouth_z ?? lipUniforms.mouthZ.value;
   applyTone(SKIN_TONES[state.tone]);
   applyWeightView();
   if (hairStyles.length) {
@@ -1012,24 +1020,130 @@ function applySetup(setup, { withName = false } = {}) {
   for (const ch of Object.values(characters)) ch.hair?.reset();
 }
 
-function readSaved() {
+// ---------------------------------------------------------------- save slots
+//
+// Three slots in this browser (localStorage). Clicking a filled slot loads it;
+// Save writes the selected slot; Back returns to the setup as it was when the
+// slot was last loaded or saved. The selected slot loads on the next visit.
+const SLOT_COUNT = 3;
+const slotKey = (i) => `${STORAGE_KEY}:slot${i}`;
+let currentSlot = 0;
+let backSetup = null;
+
+function readSlot(i) {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return JSON.parse(localStorage.getItem(slotKey(i)));
   } catch {
     return null;
   }
 }
 
+function readSaved() {
+  try {
+    currentSlot = Number(localStorage.getItem(`${STORAGE_KEY}:current`) ?? 0) || 0;
+    // Saves from before the slots go into slot 1.
+    const old = localStorage.getItem(STORAGE_KEY);
+    if (old && !localStorage.getItem(slotKey(0))) localStorage.setItem(slotKey(0), old);
+  } catch { /* storage blocked */ }
+  return readSlot(currentSlot);
+}
+
+function renderSlots() {
+  const box = $('slots');
+  box.innerHTML = '';
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const s = readSlot(i);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'slot';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(i === currentSlot));
+    const when = s?.savedAt ? new Date(s.savedAt).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '';
+    b.innerHTML = `<span class="slot-n">${i + 1}</span><span class="slot-body">
+      <strong>${s ? (s.name || 'No name').replace(/[<&]/g, '') : 'Empty'}</strong>
+      <small>${s ? `${BODIES[s.body]?.label ?? ''} · ${when}` : 'Save here'}</small></span>`;
+    b.addEventListener('click', () => selectSlot(i));
+    box.appendChild(b);
+  }
+}
+
+function selectSlot(i) {
+  currentSlot = i;
+  try { localStorage.setItem(`${STORAGE_KEY}:current`, String(i)); } catch { /* storage blocked */ }
+  const s = readSlot(i);
+  if (s) {
+    applySetup(s, { withName: true });
+    if (s.body && s.body !== state.body) setCharacter(s.body, state.model);
+    backSetup = s;
+    status(`Loaded slot ${i + 1}${s.name ? `, ${s.name}` : ''}.`);
+  } else {
+    backSetup = snapshot();
+    status(`Slot ${i + 1} is empty: Save puts this character there.`);
+  }
+  renderSlots();
+}
+
+function goBack() {
+  if (!backSetup) return;
+  applySetup(backSetup, { withName: true });
+  if (backSetup.body && backSetup.body !== state.body) setCharacter(backSetup.body, state.model);
+  status('Back to the last loaded or saved setup.');
+}
+
 function save() {
   const character = snapshot();
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(character));
+    localStorage.setItem(slotKey(currentSlot), JSON.stringify(character));
+    localStorage.setItem(`${STORAGE_KEY}:current`, String(currentSlot));
   } catch {
     status('Could not save: this browser is blocking storage for the page.');
     return null;
   }
-  status(`Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. It will load next time you open the page.`);
+  backSetup = character;
+  renderSlots();
+  status(`Saved to slot ${currentSlot + 1} at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`);
   return character;
+}
+
+// ---------------------------------------------------------------- quick choices
+//
+// "‹ value ›" rows for the choices people flip through most.
+function buildSteppers() {
+  const rows = [
+    ['Hair style', () => hairStyles.map((h) => ({ id: h.id, name: h.name })), () => state.hair.style, (v) => setHair({ style: v })],
+    ['Hair colour', () => HAIR_COLORS.map((c) => ({ id: c.hex, name: c.name })), () => state.hair.color, (v) => setHair({ color: v })],
+    ['Eye colour', () => EYE_COLORS.map((c) => ({ id: c.hex, name: c.name })), () => state.eyes.color, (v) => setEyes({ color: v })],
+    ['Lipstick', () => LIP_COLORS.map((c) => ({ id: c.hex, name: c.name })), () => state.lips.color, (v) => setLips({ color: v, amount: Math.max(state.lips.amount, 0.35) })],
+    ['Eyebrows', () => [{ id: 'hair', name: 'Same as hair' }, { id: null, name: 'Painted' }, ...HAIR_COLORS.map((c) => ({ id: c.hex, name: c.name }))],
+      () => state.brows.color, (v) => setBrows({ color: v })],
+  ];
+  const box = $('steppers');
+  for (const [label, list, get, set] of rows) {
+    const row = document.createElement('div');
+    row.className = 'stepper';
+    row.innerHTML = `<span>${label}</span><button type="button" aria-label="Previous ${label.toLowerCase()}">‹</button>
+      <output></output><button type="button" aria-label="Next ${label.toLowerCase()}">›</button>`;
+    const [prev, next] = row.querySelectorAll('button');
+    const out = row.querySelector('output');
+    const step = (d) => {
+      const items = list();
+      if (!items.length) return;
+      const i = items.findIndex((it) => it.id === get());
+      set(items[(i + d + items.length) % items.length].id);
+      refreshSteppers();
+    };
+    prev.addEventListener('click', () => step(-1));
+    next.addEventListener('click', () => step(1));
+    row.refresh = () => {
+      const it = list().find((x) => x.id === get());
+      out.textContent = it ? it.name : 'Custom';
+    };
+    box.appendChild(row);
+  }
+}
+
+function refreshSteppers() {
+  document.querySelectorAll('.stepper').forEach((r) => r.refresh?.());
 }
 
 function confirmCharacter() {
@@ -1191,6 +1305,8 @@ $('weights').addEventListener('change', (e) => {
   applyWeightView();
 });
 $('random').addEventListener('click', randomize);
+$('back').addEventListener('click', goBack);
+buildSteppers();
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
 $('set-default').addEventListener('click', setAsDefault);
@@ -1203,11 +1319,17 @@ const ready = Promise.all([loadDefaults(), loadHairIndex()]);
 ready.then(() => {
   if (savedCharacter) {
     applySetup(savedCharacter, { withName: true });
-    status(`Loaded your saved character${savedCharacter.name ? `, ${savedCharacter.name}` : ''}.`);
+    status(`Loaded slot ${currentSlot + 1}${savedCharacter.name ? `, ${savedCharacter.name}` : ''}.`);
   } else {
     applySetup(defaults);
   }
+  backSetup = snapshot();
+  renderSlots();
+  refreshSteppers();
 });
+// Keep the quick choices in step with every other control.
+document.querySelector('.panel').addEventListener('click', () => setTimeout(refreshSteppers));
+document.querySelector('.panel').addEventListener('input', () => setTimeout(refreshSteppers));
 
 // The body comes from this browser's save, else the defaults.
 ready.then(() => {
