@@ -391,6 +391,7 @@ async function buildCharacter(body, kind) {
     clothes: clothes.map(clothPart),
   };
   startClothSims(character);
+  queueMicrotask(applyClothFits);   // (after the character is registered)
   for (const c of character.clothes) if (c.category === 'robe') c.mesh.visible = state.robe;
   character.bodyKey = body;
   characters[charKey(body, kind)] = character;
@@ -523,11 +524,6 @@ function clothPart(o) {
     m.metalness = 1;
   }
   if (sim) {
-    // Drawn in front of the garments under it where they come close (the
-    // simulation and the different weights let them touch).
-    m.polygonOffset = true;
-    m.polygonOffsetFactor = -6;
-    m.polygonOffsetUnits = -40;
     u.clothOffsets = { value: null };
     u.clothWidth = { value: 64 };
     o.castShadow = false;   // its shadow would not follow the simulation
@@ -574,15 +570,19 @@ function applyClothFits() {
   for (const ch of Object.values(characters)) {
     for (const c of ch.clothes ?? []) {
       const f = { ...CLOTH_FIT_DEFAULTS, ...state.clothFits[ch.bodyKey]?.[c.id] };
-      // Under a robe the other garments sit a little tighter, so they stay under it.
-      const tight = state.robe && !c.category && ch.clothes.some((o) => o.category === 'robe') ? 0.96 : 1;
-      c.uniforms.clothScale.value.set(f.size * f.width * tight, f.size * f.depth * tight, f.size * f.height);
+      // Under a robe the other garments pull inside it (their underRobe shape key).
+      const under = state.robe && !c.category && ch.clothes.some((o) => o.category === 'robe');
+      const ki = c.mesh.morphTargetDictionary?.underRobe;
+      if (ki !== undefined) c.mesh.morphTargetInfluences[ki] = under ? 1 : 0;
+      c.uniforms.clothScale.value.set(f.size * f.width, f.size * f.depth, f.size * f.height);
       c.uniforms.clothOffset.value.set(0, -f.forward, f.up);
     }
   }
 }
 
 function buildClothControls() {
+  // The Robe choice only shows when this body has a robe.
+  $('robe-field').hidden = !current()?.clothes?.some((c) => c.category === 'robe');
   const box = $('cloth-controls');
   box.innerHTML = '';
   const ch = current();

@@ -161,22 +161,21 @@ freely) in five views: front, back, side, top, bottom.
 
 ## Robe
 
-A robe (category "robe", `models/source/clothing/robe.glb`, textures in
-`models/clothes/`) can be worn over the tank top and shorts; Clothes →
-Robe switches it on and off (saved with the character). It does not
-overlap the other garments: it is fitted outside them, they sit 4% tighter
-while it is worn, and it is drawn in front of them where they touch.
+A garment with `"textures"` in `tools/bodies.py` (category "robe", textures
+in `models/clothes/<name>_color|normal|mr.jpg`) is worn over the tank top and
+shorts; Clothes → Robe switches it on and off (shown only when the body has
+one). None is installed at the moment: the first robe (made with the arms
+down) was removed, a T-pose robe is to come.
 
-**Rig and physics.** The robe is skinned to the trunk and, partly, to the
-limbs it lies over (the skirt a third towards the legs, the cloth over the
-upper arms half towards them), so it already follows the arms and legs.
-On top of that `src/cloth.js` simulates it: a net of about 1,000 particles
-(built by `process_character.py`, stored in the primitive's extras) moved by
-Verlet integration, pinned to the skinned pose at the shoulders and free
-lower down, kept in shape by distance and bending constraints, and pushed
-out of capsules round the arms, legs and trunk, so it swings when running
-and gives way to the arms and legs. The render mesh follows the net on the
-GPU. About 4 ms per frame.
+`process_character.py` fits it outside the body and the garments under it,
+drapes it over the arms, and rigs it: trunk weights, the tank top's and
+shorts' weights where it lies over them (so they move alike), and the arm's
+where it lies on an arm. The garments under it get an `underRobe` shape key
+that pulls any point the robe would not cover in behind it (rays along each
+point's normal); the menu sets it while the robe is worn. `src/cloth.js`
+simulates the robe: about 1,000 particles (Verlet), pinned at the
+shoulders, distance and bending constraints, capsule collisions with the
+arms (the pinned shoulders too), legs and trunk; the mesh follows on the GPU.
 
 ## Clothes
 

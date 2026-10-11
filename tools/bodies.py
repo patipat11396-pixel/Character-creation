@@ -59,10 +59,6 @@ BODIES = {
              "tuck_into": "shorts", "tuck_depth": 1.2},   # its hidden part is cut away
             {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/female_shorts.glb",
              "top": 100.5, "bottom": 69.5, "color": [0.3, 0.32, 0.36], "snug": ["top"]},
-            # Worn over everything, switched on and off in the menu (category
-            # "robe"), moved by its cloth simulation. Textures: models/clothes/.
-            {"id": "robe", "name": "Robe", "src": "models/source/clothing/robe.glb", "category": "robe",
-             "top": 131.0, "bottom": 20.0, "textures": "robe"},
         ],
         "armpit_z": 116.0,
         "crotch_z": 79.5,
@@ -109,8 +105,6 @@ BODIES = {
             {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/male_shorts.glb",
              "top": 105.0, "bottom": 73.0, "color": [0.3, 0.32, 0.36], "snug": ["top"],
              "inflate": True, "crotch": 83.0},   # made for a smaller body: widened
-            {"id": "robe", "name": "Robe", "src": "models/source/clothing/robe.glb", "category": "robe",
-             "top": 145.0, "bottom": 28.0, "textures": "robe"},
         ],
         "armpit_z": 124.5,
         "crotch_z": 83.0,

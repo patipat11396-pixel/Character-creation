@@ -80,6 +80,7 @@ export class ClothSim {
     const ph = mesh.geometry.userData.physics;
     this.mesh = mesh;
     this.capsules = capsules;
+    this.armCapsules = capsules.filter((c) => /Arm|Hand/.test(c.a.name)).length;
     this.fit = fit;
     this.ids = Int32Array.from(ph.particles);
     this.edges = Int32Array.from(ph.edges);
@@ -167,11 +168,14 @@ export class ClothSim {
       cs[o + 3] = caps[c].pb.x - caps[c].pa.x; cs[o + 4] = caps[c].pb.y - caps[c].pa.y; cs[o + 5] = caps[c].pb.z - caps[c].pa.z;
       cs[o + 6] = caps[c].radius + CLOTH_MARGIN;
     }
+    // The arms (the first 6 capsules) push every particle, the pinned
+    // shoulders too; the legs and trunk only the free ones.
+    const armEnd = this.armCapsules * 7;
     for (let i = 0; i < this.n; i++) {
-      if (this.pin[i] > 0.97) continue;
+      const pinned = this.pin[i] > 0.97;
       const j = i * 3;
       let px = x[j], py = x[j + 1], pz = x[j + 2];
-      for (let o = 0; o < cs.length; o += 7) {
+      for (let o = 0; o < (pinned ? armEnd : cs.length); o += 7) {
         const ax = cs[o], ay = cs[o + 1], az = cs[o + 2], dx = cs[o + 3], dy = cs[o + 4], dz = cs[o + 5], r = cs[o + 6];
         const ll = dx * dx + dy * dy + dz * dz;
         let t = ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / (ll > 1e-12 ? ll : 1e-12);

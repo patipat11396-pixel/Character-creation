@@ -542,15 +542,54 @@ def fit_robe(cloth, verts, normals, collide, margin=0.8, extra=None):
     v[:, 0] -= (v[:, 0].max() + v[:, 0].min()) / 2
     band = collide & (verts[:, 2] > cloth["bottom"]) & (verts[:, 2] < cloth["top"])
     v[:, 1] += (verts[band, 1].max() + verts[band, 1].min()) / 2 - (v[:, 1].max() + v[:, 1].min()) / 2 + cloth.get("back", 0)
-    cv, cn = verts[collide], normals[collide]
-    if extra is not None:                                         # the garments under it too
-        cv, cn = np.r_[cv, extra[0]], np.r_[cn, extra[1]]
-    tree = cKDTree(cv)
-    for _ in range(4):
-        _, k = tree.query(v)
-        gap = ((v - cv[k]) * cn[k]).sum(1)
-        v += cn[k] * np.clip(margin - gap, 0, None)[:, None]
-    return v, f, uv
+    # Out of the body, then out of each garment under it, separately: against
+    # one merged set the nearest point was often the skin under a garment,
+    # which left the robe inside that garment.
+    return push_out(v, verts[collide], normals[collide], extra, margin), f, uv
+
+
+def push_out(v, pts, nrm, extra, margin):
+    """Push garment points out of the body (pts, nrm), then out of each
+    garment under it (extra: [(points, normals)]), separately: against one
+    merged set the nearest point was often the skin under a garment, which
+    left the robe inside that garment."""
+    layers = [(pts, nrm, margin)] + [(p, n, margin + 0.6) for p, n in (extra or [])]
+    v = v.copy()
+    for _ in range(3):
+        for cv, cn, mg in layers:
+            d, k = cKDTree(cv).query(v)
+            gap = ((v - cv[k]) * cn[k]).sum(1)
+            v += cn[k] * (np.clip(mg - gap, 0, None) * (d < 6))[:, None]
+    return v
+
+
+def drape_over(v, f, pts, nrm, margin=1.5, smooth=40):
+    """Lift a garment over body points it passes through (the arms in the
+    T-pose), as cloth drapes over them: the push each point needs to clear
+    `margin` cm is spread over the cloth round it (smoothed along the
+    garment's own surface, welded across its UV seams), so the cloth tents
+    over the arm instead of a spike. Returns (vertices, how far each moved)."""
+    from scipy.sparse import coo_matrix, diags
+    key, inv = np.unique(np.round(v, 3), axis=0, return_inverse=True)
+    inv = inv.ravel()
+    fw = inv[f]
+    e = np.concatenate([fw[:, [0, 1]], fw[:, [1, 2]], fw[:, [2, 0]]])
+    n = len(key)
+    a = coo_matrix((np.ones(len(e)), (e[:, 0], e[:, 1])), shape=(n, n)).tocsr()
+    a = ((a + a.T) > 0).astype(float)
+    avg = diags(1 / np.maximum(a.sum(1).A1, 1)) @ a
+    tree = cKDTree(pts)
+    w = key.copy()
+    for _ in range(6):
+        _, k = tree.query(w)
+        need = np.clip(margin - ((w - pts[k]) * nrm[k]).sum(1), 0, None)
+        need[np.linalg.norm(w - pts[k], axis=1) > 6] = 0          # only near the arm
+        d = nrm[k] * need[:, None]
+        for _ in range(smooth):
+            d = np.where(need[:, None] > 0, nrm[k] * need[:, None], 0.5 * d + 0.5 * (avg @ d))
+        w = w + d
+    moved = np.linalg.norm(w - key, axis=1)
+    return w[inv], moved[inv]
 
 
 def cloth_physics(v, f, spacing, pin_low, pin_high):
@@ -822,6 +861,11 @@ def build(body):
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
     morphs.update(face.face_shapes(verts))
     MORPH_NAMES = face.MORPHS + list(face.FACE_SHAPES)
+    if any("textures" in c for c in body.get("clothes", [])):
+        # The garments under a robe pull inside it while it is worn (the menu
+        # sets this key); every other part has it as zero.
+        MORPH_NAMES.append("underRobe")
+        morphs["underRobe"] = np.zeros_like(verts)
     base_n = vertex_normals(verts, faces)
     morph_normals = {k: vertex_normals(verts + d, faces) - base_n for k, d in morphs.items()}
 
@@ -903,6 +947,25 @@ def build(body):
         })
     # ---- clothes: separate primitives skinned like the body under them
     fitted = {c["id"]: fit_cloth(c, verts, faces, normals) for c in body.get("clothes", []) if "textures" not in c}
+    skinned_under = {}    # garment id -> (its points, their dense skin weights), for the robe
+    # Robes: textured, worn over everything, moved by the menu's cloth
+    # simulation. Skinned only to the trunk (the simulation does the rest).
+    dom = np.array(names)[order[:, 0]]
+    trunk = np.isin(dom, ["Hips", "Spine", "Spine1", "Spine2", "Neck", "LeftShoulder", "RightShoulder"])
+    limb = np.char.find(dom.astype(str), "Arm") >= 0
+    limb |= np.char.find(dom.astype(str), "Hand") >= 0
+    robe_geo = {}
+    for cloth in [c for c in body.get("clothes", []) if "textures" in c]:
+        under = [fitted[c["id"]] for c in body.get("clothes", []) if c["id"] in fitted]
+        extra = [(u[0], vertex_normals(*u)) for u in under] or None
+        cv, cf, cuv = fit_robe(cloth, verts, normals, ~limb, extra=extra)
+        # In the T-pose the arms stand out through the cloth: drape it over them.
+        cv, lifted = drape_over(cv, cf, verts[limb], normals[limb])
+        # The drape spreads its push over the cloth round the arm, which can
+        # move it into the trunk or the tank top: out of them again.
+        cv = push_out(cv, verts[~limb], normals[~limb], extra, 0.8)
+        print(f"  robe draped over the arms: {(lifted > 0.05).sum()} points, up to {lifted.max():.1f} cm")
+        robe_geo[cloth["id"]] = (cv, cf, cuv, lifted)
     for cloth in body.get("clothes", []):
         if "textures" in cloth:
             continue
@@ -918,9 +981,50 @@ def build(body):
         c_top = np.take_along_axis(dense_w, c_order, axis=1)
         c_top /= c_top.sum(1, keepdims=True)
         cn = vertex_normals(cv, cf)
+        skinned_under[cloth["id"]] = (cv, dense_w)
         g["materials"].append({"name": f"Cloth_{cloth['id']}", "doubleSided": True, "pbrMetallicRoughness": {
             "baseColorFactor": cloth["color"] + [1], "metallicFactor": 0, "roughnessFactor": 0.85}})
         zero = np.zeros_like(cv, dtype=np.float32)
+        targets = [{"POSITION": out.append_sparse(zero), "NORMAL": out.append_sparse(zero)} for _ in MORPH_NAMES]
+        if robe_geo:
+            # underRobe: points that would come through the robe (its
+            # triangles are large, so bulges like the bust poke through
+            # between its points) pulled in to 0.6 cm inside it.
+            # Against the robe's true surface (closest point on its triangles;
+            # its points are too sparse), its normals turned away from the body:
+            # a point in front of that surface is pulled in behind it.
+            import trimesh
+            rv = np.concatenate([r[0] for r in robe_geo.values()])
+            off = np.cumsum([0] + [len(r[0]) for r in robe_geo.values()])
+            rf = np.concatenate([r[1] + o for r, o in zip(robe_geo.values(), off)])
+            robe_mesh = trimesh.Trimesh(rv, rf, process=False)
+            # Along each point's own outward normal: a ray from 15 cm out finds
+            # the robe's outermost surface over it; the point is pulled in to
+            # 0.6 cm behind that (closest points on the robe were often on a
+            # tatter's edge, which pulled the wrong way).
+            nrm_c = cn * np.sign(((cv - verts[cKDTree(verts).query(cv)[1]]) * cn).sum(1) + 1e-9)[:, None]
+            depth = np.full(len(cv), np.inf)
+            todo = np.flatnonzero(cKDTree(rv).query(cv)[0] < 6)          # only points the robe is near
+            for c0 in range(0, len(todo), 1500):                         # in chunks (memory)
+                ids = todo[c0:c0 + 1500]
+                hits, ri, _ = robe_mesh.ray.intersects_location(cv[ids] + nrm_c[ids] * 15, -nrm_c[ids], multiple_hits=False)
+                depth[ids[ri]] = ((hits - cv[ids[ri]]) * nrm_c[ids[ri]]).sum(1)   # robe surface's height above the point
+            pen = np.where(np.isfinite(depth), np.clip(0.6 - depth, 0, 3.0), 0)
+            dpull = -nrm_c * pen[:, None]
+            from scipy.sparse import coo_matrix, diags
+            e = np.concatenate([cf[:, [0, 1]], cf[:, [1, 2]], cf[:, [2, 0]]])
+            adj = coo_matrix((np.ones(len(e)), (e[:, 0], e[:, 1])), shape=(len(cv), len(cv))).tocsr()
+            adj = ((adj + adj.T) > 0).astype(float)
+            avg_c = diags(1 / np.maximum(adj.sum(1).A1, 1)) @ adj
+            # Spread a little to the points round each pulled one, so the
+            # pulled patch has soft edges (a pulled point keeps its full pull).
+            for _ in range(3):
+                spread = avg_c @ dpull
+                dpull = np.where((pen > 0)[:, None], dpull, 0.6 * spread)
+            dn = vertex_normals(cv + dpull, cf) - cn
+            targets[MORPH_NAMES.index("underRobe")] = {"POSITION": out.append_sparse(dpull.astype(np.float32)),
+                                                       "NORMAL": out.append_sparse(dn.astype(np.float32))}
+            print(f"  {cloth['id']} under the robe: {(pen > 0).sum()} points pulled in, up to {pen.max():.1f} cm")
         g["meshes"][0]["primitives"].append({
             "attributes": {"POSITION": out.append(cv.astype(np.float32), 34962),
                            "NORMAL": out.append(cn.astype(np.float32), 34962),
@@ -928,19 +1032,12 @@ def build(body):
                            "WEIGHTS_0": out.append(c_top.astype(np.float32), 34962)},
             "indices": out.append(cf.astype(np.uint32).reshape(-1, 1), 34963),
             "material": len(g["materials"]) - 1,
-            "targets": [{"POSITION": out.append_sparse(zero), "NORMAL": out.append_sparse(zero)} for _ in MORPH_NAMES],
+            "targets": targets,
         })
         print(f"cloth {cloth['id']}: {len(cv)} vertices")
-    # Robes: textured, worn over everything, moved by the menu's cloth
-    # simulation. Skinned only to the trunk (the simulation does the rest).
-    dom = np.array(names)[order[:, 0]]
-    trunk = np.isin(dom, ["Hips", "Spine", "Spine1", "Spine2", "Neck", "LeftShoulder", "RightShoulder"])
-    limb = np.char.find(dom.astype(str), "Arm") >= 0
-    limb |= np.char.find(dom.astype(str), "Hand") >= 0
+    # Robes: textured, worn over everything (geometry from robe_geo above).
     for cloth in [c for c in body.get("clothes", []) if "textures" in c]:
-        under = [fitted[c["id"]] for c in body.get("clothes", []) if c["id"] in fitted]
-        extra = (np.concatenate([u[0] for u in under]), np.concatenate([vertex_normals(*u) for u in under])) if under else None
-        cv, cf, cuv = fit_robe(cloth, verts, normals, ~limb, extra=extra)
+        cv, cf, cuv, lifted = robe_geo[cloth["id"]]
         # The rig: mostly the trunk's weights, blended towards the nearest
         # limb where the cloth lies over it (the skirt a third towards the
         # legs below the crotch, the cloth over an upper arm half towards
@@ -960,7 +1057,21 @@ def build(body):
         crotch = body.get("crotch_z", body["pelvis_z"][0] + 10)
         f = 0.35 * smoothstep(crotch + 4, crotch - 20, cv[:, 2])
         f = np.maximum(f, 0.5 * limb[n_all] * smoothstep(9.0, 3.0, d_all))
+        # The cloth lying on an arm (draped over it, within 3 cm of it) goes
+        # with it; only there: the drape's spread reaches the chest, and arm
+        # weights there pulled the chest cloth into the body.
+        d_limb, _ = cKDTree(verts[limb]).query(cv)
+        f = np.maximum(f, 0.85 * smoothstep(0.3, 1.5, lifted) * smoothstep(4.0, 2.0, d_limb))
         dense_w = dense_w * (1 - f[:, None]) + limb_w * f[:, None]
+        # Over the tank top and shorts the robe takes their weights (blended
+        # in over 4 cm), so the two move alike and the garment under it never
+        # comes through; the cloth lying on an arm keeps its arm weights.
+        if skinned_under:
+            up = np.concatenate([u[0] for u in skinned_under.values()])
+            uw = np.concatenate([u[1] for u in skinned_under.values()])
+            du, ku = cKDTree(up).query(cv)
+            g_u = smoothstep(4.0, 1.5, du) * (1 - smoothstep(0.3, 0.6, f))
+            dense_w = dense_w * (1 - g_u[:, None]) + uw[ku] * g_u[:, None]
         c_order = np.argsort(-dense_w, axis=1)[:, :4]
         c_top = np.take_along_axis(dense_w, c_order, axis=1)
         c_top /= c_top.sum(1, keepdims=True)
