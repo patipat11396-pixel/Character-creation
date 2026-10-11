@@ -295,6 +295,17 @@ def _soft_lips(verts):
     return out * smoothstep(m["y"] + 3.2, m["y"] + 1.8, y)
 
 
+def _wide_lips(verts):
+    """The lip area for the width slider: full on the lips, fading out over
+    about 3 cm beside the corners and the lips' height above and below."""
+    x, y, z = verts.T
+    m = B["mouth"]
+    half = m["half"] + 0.4
+    t = np.abs(z - lip_z(x)) / np.where(z >= lip_z(x), m["up"] * 2.6, m["down"] * 2.4)
+    out = np.exp(-1.6 * t ** 2) * smoothstep(half + 3.0, half - 0.8, np.abs(x))
+    return out * smoothstep(m["y"] + 3.6, m["y"] + 1.8, y)
+
+
 def face_shapes(verts):
     """Position deltas (cm) for each of FACE_SHAPES at full strength (slider 1)."""
     x, y, z = verts.T
@@ -326,7 +337,9 @@ def face_shapes(verts):
     # Forward, and thicker away from the lip line only (the lips stay shut).
     off = z - lip_z(x)
     out["lipsFull"] = delta(dy=-0.35 * lips, dz=0.14 * np.sign(off) * smoothstep(0.25, 1.0, np.abs(off)) * lips)
-    out["lipsWidth"] = delta(dx=0.16 * x * lips)
+    # Width: moved sideways over a wider, gentler area than the lips, so the
+    # skin beside the corners stretches evenly instead of folding into a groove.
+    out["lipsWidth"] = delta(dx=0.16 * x * _wide_lips(verts))
 
     # Forehead: between the brows and the top of the head, front only.
     brow, top = B["brow_z"], B["top_z"]

@@ -409,10 +409,16 @@ def tuck(cv, cf, ov, of, depth):
     cv = cv[used].copy()
     # What is left inside sits a little closer to the body than the outer
     # garment, so the two do not show through each other.
-    under = smoothstep(0.6, -0.2, cv[:, 2] - tops[np.digitize(angle(cv), bins)])
-    radial = np.c_[cv[:, 0], cv[:, 1] - ov[:, 1].mean()]
-    radial /= np.linalg.norm(radial, axis=1, keepdims=True) + 1e-9
-    cv[:, :2] -= radial * (0.35 * under)[:, None]
+    under = smoothstep(1.0, 0.0, cv[:, 2] - tops[np.digitize(angle(cv), bins)])
+    my = ov[:, 1].mean()
+    radial = np.c_[cv[:, 0], cv[:, 1] - my]
+    r = np.linalg.norm(radial, axis=1) + 1e-9
+    # ...and always inside the outer garment's inner surface nearby.
+    _, k = cKDTree(ov).query(cv, k=12)
+    r_out = np.linalg.norm(np.stack([ov[k, 0], ov[k, 1] - my], -1), axis=-1).min(1)
+    r_new = np.minimum(r - 0.35, r_out - 0.4)
+    r_new = r + (r_new - r) * under
+    cv[:, :2] = np.c_[0 * r, my + 0 * r] + radial * (r_new / r)[:, None]
     return cv, nf.reshape(-1, 3)
 
 
@@ -456,6 +462,75 @@ def snug_edges(v, cloth, verts, normals, tree, margin):
     return out
 
 
+def inflate(v, cloth, verts, normals, tree, margin):
+    """Widen a garment that is smaller than the body round it, keeping its
+    folds and thickness.
+
+    At each height the garment is scaled across and front to back about the
+    body's middle (each leg's middle below cloth["crotch"]) just enough that
+    nearly all of it clears the skin by `margin`; the scales are smoothed
+    over height, so the fabric stretches evenly and the folds keep their
+    shape. The final push in fit_cloth does what is left.
+    """
+    # First the whole garment, across and front to back, to the body's
+    # proportions (median over heights; arms left out).
+    z = v[:, 2]
+    zi = np.round(z).astype(int)
+    rx, ry = [], []
+    for zz in np.unique(zi)[2:-2]:
+        m = zi == zz
+        half = np.abs(v[m, 0]).max()
+        s = (np.abs(verts[:, 2] - zz) < 0.5) & (np.abs(verts[:, 0]) < half)
+        if m.sum() > 20 and s.sum() > 20:
+            rx.append((np.ptp(verts[s, 0]) + 2 * margin + 2) / np.ptp(v[m, 0]))
+            ry.append((np.ptp(verts[s, 1]) + 2 * margin + 2) / np.ptp(v[m, 1]))
+    gx, gy = np.clip(np.median(rx), 0.85, 1.4), np.clip(np.median(ry), 0.85, 1.4)
+    my = (v[:, 1].max() + v[:, 1].min()) / 2
+    v = np.c_[v[:, 0] * gx, my + (v[:, 1] - my) * gy, z]
+    print(f"  {cloth['id']} scaled x{gx:.2f} across, x{gy:.2f} front to back")
+    crotch = cloth.get("crotch", -np.inf)
+    side = np.where(z < crotch, np.sign(v[:, 0]), 0)
+    cx, cy = np.zeros(len(v)), np.zeros(len(v))
+    for zz in np.unique(zi):
+        s = (np.abs(verts[:, 2] - zz) < 1.0) & (np.abs(verts[:, 0]) < 25)
+        for sd in (-1, 0, 1):
+            m = (zi == zz) & (side == sd)
+            ss = s & (np.sign(verts[:, 0]) == sd) if sd else s
+            if m.any() and ss.any():
+                cx[m] = (verts[ss, 0].max() + verts[ss, 0].min()) / 2 if sd else 0
+                cy[m] = (verts[ss, 1].max() + verts[ss, 1].min()) / 2
+    d = np.c_[v[:, 0] - cx, v[:, 1] - cy]
+    # Then each height, where it is still narrower than the body.
+    z0 = zi.min()
+    n = zi.max() - z0 + 1
+    scale = np.ones((2, n))
+    shift = np.zeros(n)                     # front to back, onto the body's middle
+    for t in range(n):
+        m = zi - z0 == t
+        if m.sum() < 20:
+            continue
+        half = np.abs(v[m, 0]).max()
+        s = (np.abs(verts[:, 2] - (t + z0)) < 0.5) & (np.abs(verts[:, 0]) < half)
+        if s.sum() > 20:
+            shift[t] = (verts[s, 1].max() + verts[s, 1].min() - v[m, 1].max() - v[m, 1].min()) / 2
+            scale[0, t] = max(1, (np.ptp(verts[s, 0]) + 2 * margin + 1) / np.ptp(v[m, 0]))
+            scale[1, t] = max(1, (np.ptp(verts[s, 1]) + 2 * margin + 1) / np.ptp(v[m, 1]))
+    for j in range(2):
+        sc = np.minimum(scale[j], 1.3)
+        for _ in range(2):                                   # hold the peaks a little
+            sc = np.maximum.reduce([sc, np.r_[sc[1:], sc[-1]], np.r_[sc[0], sc[:-1]]])
+        for _ in range(8):
+            sc = (2 * sc + np.r_[sc[1:], sc[-1]] + np.r_[sc[0], sc[:-1]]) / 4
+        scale[j] = sc
+    for _ in range(8):
+        shift = (2 * shift + np.r_[shift[1:], shift[-1]] + np.r_[shift[0], shift[:-1]]) / 4
+    out = v.copy()
+    out[:, 0] = cx + d[:, 0] * scale[0, zi - z0]
+    out[:, 1] = cy + d[:, 1] * scale[1, zi - z0] + shift[zi - z0]
+    print(f"  {cloth['id']} widened up to x{scale[0].max():.2f} across, x{scale[1].max():.2f} front to back")
+    return out
+
+
 def fit_cloth(cloth, verts, faces, normals, margin=0.5):
     """A garment (glTF axes, any scale) placed on the body in mesh cm.
 
@@ -477,6 +552,8 @@ def fit_cloth(cloth, verts, faces, normals, margin=0.5):
     band = (verts[:, 2] > cloth["bottom"]) & (verts[:, 2] < cloth["top"]) & (np.abs(verts[:, 0]) < 20)
     v[:, 1] += (verts[band, 1].max() + verts[band, 1].min()) / 2 - (v[:, 1].max() + v[:, 1].min()) / 2
     tree = cKDTree(verts)
+    if cloth.get("inflate"):
+        v = inflate(v, cloth, verts, normals, tree, margin)
     v = snug_edges(v, cloth, verts, normals, tree, margin)
     for _ in range(3):
         _, k = tree.query(v)

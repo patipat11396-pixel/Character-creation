@@ -98,10 +98,11 @@ BODIES = {
         "depth": 0.82,
         "clothes": [
             {"id": "tank_top", "name": "Tank top", "src": "models/source/clothing/male_tank_top.glb",
-             "top": 139.5, "bottom": 94.0, "color": [0.86, 0.86, 0.84],
+             "top": 139.5, "bottom": 94.0, "color": [0.86, 0.86, 0.84], "inflate": True,
              "tuck_into": "shorts", "tuck_depth": 1.2},
             {"id": "shorts", "name": "Shorts", "src": "models/source/clothing/male_shorts.glb",
-             "top": 105.0, "bottom": 73.0, "color": [0.3, 0.32, 0.36], "snug": ["top"]},
+             "top": 105.0, "bottom": 73.0, "color": [0.3, 0.32, 0.36], "snug": ["top"],
+             "inflate": True, "crotch": 83.0},   # made for a smaller body: widened
         ],
     },
 }

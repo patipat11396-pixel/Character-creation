@@ -153,7 +153,9 @@ the measurements and the images to attach.
 Garments always worn are listed per body in `tools/bodies.py` ("clothes":
 source GLB converted from the FBX with `tools/fbx_to_glb.mjs`, and the body
 heights the garment spans). `process_character.py` scales and places each
-one on the body, pushes it 0.5 cm out of the skin, gives it the nearest
+one on the body (a garment marked "inflate", made for a smaller body, is
+first widened to the body's proportions at each height so its folds keep
+their shape), pushes it 0.5 cm out of the skin, gives it the nearest
 body points' skin weights and writes it as its own part of the model, so it
 moves with every animation. The menu's Clothes tab fits each garment (size,
 width, height, depth, up/down, back/forward), saved per body with the
