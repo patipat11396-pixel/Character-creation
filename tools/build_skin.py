@@ -306,7 +306,9 @@ def brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body):
         col = (np.abs(x[sel]) - x0) * BROW_PPC
         row = (z1 - z[sel]) * BROW_PPC
         out[sel] = out[sel] * (1 - bilinear(fill, col, row)) + bilinear(clean, col, row) * bilinear(fill, col, row)
-    return smooth_brow_area(out, covered, pos, nrm, pv, uv, pf, skin_rgb, body), brow
+    # The ridge's painted light and shade is kept (the ridge is kept, and the
+    # brows stay on it); smooth_brow_area is off.
+    return out, brow
 
 
 def smooth_box(body):
@@ -519,8 +521,6 @@ def build(key):
         color = repaint_eyes(color, covered, pos, nrm, body)
     color, brow = brows(color, covered, pos, nrm, pv, uv, pf, skin_rgb, body)
     color = smooth_bands(color, covered, pos, nrm, pv, uv, pf, body)
-    # The roughness has the ridge's strokes too (they shone as streaks).
-    rough = smooth_brow_area(rough, covered, pos, nrm, pv, uv, pf, skin_rough, body)
     mask = np.zeros((SIZE, SIZE, 3), np.float32)
     mask[..., 0] = iris_mask(color, covered, pos, body)
     mask[..., 1] = lip_mask(color, covered, pos, skin_rgb, body)

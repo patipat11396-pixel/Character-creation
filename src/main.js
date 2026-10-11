@@ -782,6 +782,8 @@ function setBrows(change) {
   Object.assign(state.brows, change);
   const b = state.brows;
   const u = lipUniforms;
+  // Height and angle are fixed: the brows stay on the sculpted brow ridge.
+  b.height = 0; b.angle = 0;
   u.browOffset.value.set(b.spacing, b.height);
   u.browScale.value = b.size;
   u.browAngle.value = THREE.MathUtils.degToRad(b.angle);

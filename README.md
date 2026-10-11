@@ -35,7 +35,8 @@ colour, lipstick and eyebrows:
 - **Nose, Lips, Forehead, Chin, Jaw:** shape sliders (Lips also has the lip
   colour). Each tab has its own reset.
 - **Eyes:** eye colour and the eye shape sliders.
-- **Brow:** brow colour, height, spacing, size, angle, thickness, strength.
+- **Brow:** brow colour, spacing, size, thickness, strength (height and
+  angle are fixed so the brows stay on the brow ridge).
 
 **Starting setup.** Everyone starts from the built-in values, overridden by
 `models/defaults.json`, overridden (on the published page) by the default
@@ -67,9 +68,9 @@ the same triangles in another order):
   openings are repainted (white, a round iris coloured from the lower half,
   highlights, lash shadow).
 - The brows are lifted off into their own image and painted out of the skin;
-  the brow ridge's painted light and shade (colour and roughness) is painted
-  out too, filled smoothly from the skin round it, so only the movable brows
-  remain there. The male's old painted eye is painted out with a wide fade.
+  the sculpted brow ridge and its painted light and shade are kept, and the
+  menu keeps the brows on the ridge (their height and angle are fixed). The
+  male's old painted eye is painted out with a wide fade.
 - A feature mask marks the irises (red), the painted lips (green) and the
   whole painted eye (blue), which skin tones leave alone.
 
@@ -105,9 +106,7 @@ positions) is in `tools/bodies.py`. `tools/process_character.py`:
 3. **Body cleanup** (`clean_body`): the bodysuit's ridges are flattened, the
    female nipples removed, shoulders, underarms and buttocks smoothed, and a
    light pass evens out small dents and bumps. The sculpted brow ridges are
-   replaced by a smooth surface fitted through the face round them (down to
-   just above the eyelids, not between the eyes) so the movable brows leave
-   nothing behind.
+   kept as made.
 4. **Mouth:** the lip area is refined and cut along the lip line, with shape
    keys `jawOpen`, `smile`, `frown`, `mouthRound`, plus teeth and a tongue.
 5. **Face shape keys** (`tools/face.py`): nose width, length and bridge; lip

@@ -741,19 +741,8 @@ def build(body):
         near = shaped | (avg @ shaped.astype(float) > 0)
         normals[near] = vertex_normals(verts, faces)[near]
 
-    # ---- brows: the sculpted brow ridges would stay behind when the menu
-    # moves the painted brows, so the brow area is relaxed flat (both sides,
-    # front only) and only the brows move.
-    verts, flat = flatten_brows(verts, avg, body, normals)
-    print(f"brows: relaxed {flat.sum()} vertices")
-    # The new normals blend into the old over a few rings round the area, so
-    # the edge where the stored normals take over shows no line.
-    blend = flat.astype(float)
-    for _ in range(6):
-        blend = np.maximum(blend, avg @ blend * 0.85)
-    fresh = vertex_normals(verts, faces)
-    mixed = normals * (1 - blend[:, None]) + fresh * blend[:, None]
-    normals = mixed / np.maximum(np.linalg.norm(mixed, axis=1, keepdims=True), 1e-12)
+    # ---- brows: the sculpted brow ridge is kept as made; the menu keeps the
+    # brows on it (their height and angle are fixed). flatten_brows is off.
 
     # ---- mouth shape keys
     morphs, _ = face.mouth_morphs(verts, faces, upper_lip, lower_lip)
