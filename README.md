@@ -132,6 +132,12 @@ the head, neck and spine; the whole hair mesh is also pushed out of the
 body's ellipsoids (torso, neck, shoulders, upper arms) every frame, so long
 hair lies over the back and shoulders instead of passing through them.
 
+## Head size
+
+The menu draws the head 12% smaller than modelled (`HEAD_SCALE` in
+`src/main.js`): the Head bone is scaled every frame after the animation, so
+the face, teeth and hair shrink together and the neck tapers into it.
+
 ## Hands
 
 The animations have no finger tracks, so the menu poses the fingers every

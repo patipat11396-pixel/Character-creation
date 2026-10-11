@@ -79,6 +79,7 @@ const FACE_NEG_SCALE = { lipsFull: 0.5, lipsWidth: 0.6 };
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
 
+const HEAD_SCALE = 0.88;
 const LEG_DEFAULTS = { female: 6, male: 0 };   // thighs turned inward (degrees) while animating
 const state = {
   name: '',
@@ -1397,6 +1398,8 @@ renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseLegs();
+  // The head is 12% smaller than modelled (after the animation, which may key its scale).
+  for (const ch of Object.values(characters)) ch.headBone.scale.setScalar(HEAD_SCALE);
   poseHands(dt);
   poseMouth(dt);
   for (const ch of Object.values(characters)) {
