@@ -75,7 +75,9 @@ swordsman, with a third-person camera.
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
 for 1 s (it reels back two steps; no stun). A guard broken by a feint or
-by running out of stamina cannot block or parry for 5 s. Every blow that lands or is blocked, given
+by running out of stamina cannot block or parry for 5 s. A blow stopped by a
+guard bounces off: the attacker is held for 0.1 s (the swing runs back a
+little) and the combo is cut short. Every blow that lands or is blocked, given
 or taken, shakes the camera; a dodge leaves a short motion blur. The third
 light hit, the finisher, is over in under 0.5 s.
 
@@ -89,8 +91,10 @@ sword arm held in the stance (`Run_Sword` etc., made at load): in the
 plain run the arm swung the blade past the neck.
 
 Two clips are made from the rig at load, since the library has none:
-`Sword_Stab` (the arm placed by two-bone IK: pulled back by the hip, then
-driven straight out, the body turning into it) and `Stagger` (the chest-hit
+`Sword_Stab` (a lunge, arm and legs placed by two-bone IK with the feet
+planted: the arm pulls back by the hip as the body coils, then the right
+foot steps out, the hips drop and drive forward, the body leans in and the
+arm thrusts straight out) and `Stagger` (the chest-hit
 recoil drawn out over a second over two steps back). Both can be picked in
 the Animation panel like any other clip. The enemy telegraphs: gold flash = blockable, red =
 unblockable; a ring around the enemy's blade (H) closes on the moment of the blow and

@@ -55,7 +55,7 @@ export const ARTS = {
         // The real strike is a stab (made from the rig: the library has none).
         strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.17, end: 0.45,
           damage: 16, range: 2.4, arc: 70, lunge: 0.7, reach: 1.0, guardBreak: true, unblockable: true,
-          trail: 0.08, hitY: 1.12, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
+          trail: 0.08, hitY: 0.95, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).
