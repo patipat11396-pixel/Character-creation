@@ -129,6 +129,15 @@ fighters have them; the figures beside the HP bars show them, and the enemy
 aims too (mostly the body, often the legs, sometimes the head). The head
 zone is kept small, so it is hard to hit.
 
+**Enemy defence.** The enemy reads each of your moves as it starts and,
+when free and in reach, plans a defence as a player would: a perfect parry
+(it shoves your blade aside and you stagger 0.3 s), a perfect dodge, a block,
+or nothing. It needs a human reaction time (quick blows can only be blocked
+or taken) and its timing has an error, so it misses sometimes. "Enemy skill"
+in the Stats panel sets how often and how well (default 0.5: about a third of
+blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
+guard, which the stab then breaks.
+
 **Hit zones.** The blade has to touch the target: capsules on the bones
 (B shows them). Vital zones take more damage and crit more: head ×2.0
 (+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,

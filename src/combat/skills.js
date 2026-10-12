@@ -118,6 +118,7 @@ export const DEFAULT_STATS = {
   runSpeed: 3.8,
   guardSpeed: 1.5,       // moving with the guard up (parry held)
   sprintSpeed: 6.6,
+  aiSkill: 0.5,          // the enemy's defence: 0 none, 1 parries and dodges often and on time
 };
 
 // Hit zones (positional hitboxes): capsules on the bones; the blade has to

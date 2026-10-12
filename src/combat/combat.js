@@ -772,6 +772,7 @@ function buildSettings() {
     ['dodgeWindow', 'Perfect dodge window (s)', 0.05, 0.12, 0.005],
     ['parryWindow', 'Perfect parry window (s)', 0.05, 0.2, 0.005],
     ['blockReduction', 'Block damage reduction', 0.3, 0.9, 0.05],
+    ['aiSkill', 'Enemy skill (parry, dodge, block)', 0, 1, 0.05],
   ];
   const box = $('settings-rows');
   for (const [k, label, min, max, step] of rows) {
@@ -894,6 +895,7 @@ function startMove(f, move) {
   f.move = move;
   f.moveHit = false;
   f.pendingZone = null;
+  f.moveSerial = (f.moveSerial ?? 0) + 1;   // the enemy reads each of the player's moves once
   f.bladePrev = null;
   f.setState('attack');
   f.play(move.clip, { loop: false, speed: move.speed ?? 1, fade: 0.08 });
@@ -938,7 +940,7 @@ function resolveHit(att, def, zone) {
   // Perfect parry: a tap of parry within the window before the blow.
   const sinceParry = gameTime - (def.parryAt ?? -99);
   const facing = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) < THREE.MathUtils.degToRad(70);
-  if (def.isPlayer && facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) {
+  if (facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) {
     perfect(def, att, 'Perfect Parry!', true);
     return;
   }
@@ -947,7 +949,7 @@ function resolveHit(att, def, zone) {
   if (partBroken(att, 'armR')) dmg *= PART_RULES.armRDamage;
   if (partBroken(def, 'torso')) dmg *= PART_RULES.torsoDamage;
   if (gameTime < (def.dazedUntil ?? 0)) dmg *= PART_RULES.dazedDamage;
-  if (att.isPlayer && gameTime < att.counterUntil) dmg *= stats.counterBonus;
+  if (gameTime < (att.counterUntil ?? 0)) dmg *= stats.counterBonus;
   if (Math.random() < CRIT.baseChance + zone.crit) { crit = true; dmg *= CRIT.damage; }
   // Blocking (holding parry, facing the attacker).
   const blocking = def.state === 'block' && facing && !guardBroken(def);
@@ -1066,12 +1068,14 @@ function breakGuard(f) {
 function guardBroken(f) { return gameTime < (f.guardBrokenUntil ?? 0); }
 
 function perfect(def, att, text, parry = false) {
-  message(text, 'good');
+  // The enemy pulls these off too: then it is bad news, and no slow motion or screen flash.
+  if (def.isPlayer) message(text, 'good'); else message(parry ? 'Parried!' : 'Dodged!', 'bad');
   sound('perfect');
   def.invulnUntil = gameTime + 0.4;
   def.counterUntil = gameTime + 1.6;
   // (A parry's slow motion is short: the attacker's 0.3 s stagger should still feel short.)
-  slowUntil = gameTime + (parry ? 0.1 : 0.6);
+  if (def.isPlayer) slowUntil = gameTime + (parry ? 0.1 : 0.6);
+  if (!def.isPlayer) { def.think = parry ? 0.3 : 0.05; def.plan = null; }   // and it counters
   if (parry) {
     const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
     stagger(att, STAGGER.perfect, null);
@@ -1083,10 +1087,10 @@ function perfect(def, att, text, parry = false) {
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
-    perfectFx(at, 0xf0a800, true);
+    perfectFx(at, 0xf0a800, true, def.isPlayer);
   } else {
     att.exposedUntil = gameTime + 1.2;
-    perfectFx(def.zones[2].a.clone(), 0x1e9bff, false);
+    perfectFx(def.zones[2].a.clone(), 0x1e9bff, false, def.isPlayer);
   }
 }
 
@@ -1155,12 +1159,14 @@ const flashEl = document.createElement('div');
 flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;opacity:0';
 document.getElementById('view').after(flashEl);   // under the HUD and panels
 let flashLife = 1, fovKick = 0;
-function perfectFx(pos, color, parry) {
+function perfectFx(pos, color, parry, screen = true) {
   const c = new THREE.Color(color);
   // The room is white: the effects are strong colours drawn normally (additive light would vanish).
-  flashEl.style.background = `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 35%, #${c.getHexString()}cc 100%)`;
-  flashLife = 0;
-  fovKick = parry ? 7 : 5;
+  if (screen) {
+    flashEl.style.background = `radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 35%, #${c.getHexString()}cc 100%)`;
+    flashLife = 0;
+    fovKick = parry ? 7 : 5;
+  }
   const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false, depthTest: false });
   for (const [delay, thick] of [[0, 0.82], [0.07, 0.9]]) {
     const wave = new THREE.Mesh(new THREE.RingGeometry(thick, 1, 64), ringMat.clone());
@@ -1287,7 +1293,7 @@ function bladeStep(att, def) {
       const sinceDodge = att.hitAt - (def.dodgeAt ?? -99);
       const sinceParry = att.hitAt - (def.parryAt ?? -99);
       if (def.state === 'dodge' && sinceDodge >= 0 && sinceDodge <= stats.dodgeWindow + 0.02) { att.moveHit = true; perfect(def, att, 'Perfect Dodge!'); }
-      else if (def.isPlayer && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) { att.moveHit = true; perfect(def, att, 'Perfect Parry!', true); }
+      else if (!guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) { att.moveHit = true; perfect(def, att, 'Perfect Parry!', true); }
     }
   }
   att.bladePrev = now;
@@ -1489,6 +1495,64 @@ function physics(f, dt) {
 
 // ------------------------------------------------------------------ enemy AI
 
+// ------------------------------------------------------------------ enemy: defending like a player
+// Each of the player's moves is read once, when it starts: if the enemy is
+// free and in reach it plans a perfect parry, a dodge or a block, timed on
+// the blow with a human reaction time and an error, or just takes it.
+// How well it defends follows stats.aiSkill (0..1, the Stats panel).
+function aiFor(skill) {
+  return {
+    parry: 0.36 * skill, dodge: 0.3 * skill, block: 0.2 + 0.2 * skill,   // chances per player move (the rest: no defence)
+    reaction: 0.24 - 0.1 * skill,   // s needed to react to a move: quicker blows can only be blocked or taken
+    error: 0.1 - 0.07 * skill,      // s, spread of its timing (the parry window is 0.12 s, the dodge's 0.08 s)
+  };
+}
+function enemyRead(e, d) {
+  const p = player;
+  const AI = aiFor(stats.aiSkill ?? 0.5);
+  if (e.plan && (p.state !== 'attack' || p.moveHit || p.moveSerial !== e.plan.serial)) e.plan = null;
+  if (p.state === 'attack' && p.move && p.moveSerial !== e.seenSerial) {
+    e.seenSerial = p.moveSerial;
+    const free = ['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state);
+    const lead = p.hitAt - gameTime;
+    if (free && d < (p.move.range ?? 2) + 1.2 && lead > 0) {
+      const r = Math.random();
+      const jitter = () => (Math.random() + Math.random() - 1) * AI.error;
+      if (lead >= AI.reaction && r < AI.parry && !guardBroken(e) && p.move.parryable !== false) {
+        e.plan = { kind: 'parry', at: p.hitAt - stats.parryWindow * 0.5 + jitter(), serial: p.moveSerial };
+      } else if (lead >= AI.reaction && r < AI.parry + AI.dodge && e.stamina >= stats.dodgeCost) {
+        e.plan = { kind: 'dodge', at: p.hitAt - stats.dodgeWindow * 0.5 + jitter(), serial: p.moveSerial };
+      } else if (r < AI.parry + AI.dodge + AI.block && !guardBroken(e) && !p.move.unblockable) {
+        e.plan = { kind: 'block', at: gameTime + Math.min(Math.max(0, lead - 0.05), AI.reaction), serial: p.moveSerial };
+      }
+    }
+  }
+  if (!e.plan || gameTime < e.plan.at) return;
+  const kind = e.plan.kind;
+  e.plan = null;
+  if (!['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state)) return;
+  if (kind === 'dodge') {
+    e.stamina -= stats.dodgeCost;
+    e.dodgeAt = gameTime;
+    e.move = null;
+    e.setState('dodge');
+    const toP = p.pos.clone().sub(e.pos).setY(0).normalize();
+    const side = new THREE.Vector3(toP.z, 0, -toP.x);
+    const r = Math.random();
+    let slot;
+    if (r < 0.4) { e.dodgeDir = side; slot = 'dodgeLeft'; } else if (r < 0.8) { e.dodgeDir = side.clone().negate(); slot = 'dodgeRight'; } else { e.dodgeDir = toP.clone().negate(); slot = 'dodgeBack'; }
+    e.yaw = Math.atan2(toP.x, toP.z);
+    e.playSlot(slot, { loop: false, fade: 0.05 });
+  } else {
+    // A parry is a tap of the guard: held a moment, it blocks if the timing was off.
+    if (kind === 'parry') e.parryAt = gameTime;
+    e.setState('block');
+    e.blockFor = kind === 'parry' ? 0.4 : 0.6 + Math.random() * 0.4;
+    const a = e.playSlot('guard', { loop: false, fade: 0.08 });
+    if (a) a.holdAt = ANIM_SLOTS.guard.hold;
+  }
+}
+
 function enemyUpdate(dt) {
   const e = enemy;
   e.t += dt;
@@ -1496,7 +1560,20 @@ function enemyUpdate(dt) {
   if (e.state === 'dead') return;
   if (player.state === 'dead') { e.playSlot('idle'); e.vel.set(0, 0, 0); physics(e, dt); return; }
   e.think = (e.think ?? 1) - dt;
+  if (e.state !== 'block' && e.state !== 'dodge') e.stamina = Math.min(stats.maxStamina, e.stamina + stats.staminaRegen * dt);
+  enemyRead(e, d);
   switch (e.state) {
+    case 'dodge': {
+      const k = e.t < 0.32 ? 1 : 0;
+      e.vel.copy(e.dodgeDir).multiplyScalar(k * 8.5 * legMul(e) * (1 - e.t / 0.32));
+      if (e.t > 0.5) { e.setState('idle'); e.think = Math.min(e.think, 0.1); }
+      break;
+    }
+    case 'push':
+      e.vel.set(0, 0, 0);
+      e.faceTarget(player, dt, 10);
+      if (e.t > 0.35) { e.setState('idle'); e.think = 0; }
+      break;
     case 'hit':
     case 'stagger':
     case 'recoil':
@@ -1552,9 +1629,9 @@ function enemyUpdate(dt) {
         e.vel.multiplyScalar(0.7);
         e.state = 'idle';
         e.playSlot('idle', { fade: 0.2 });
-        // React to the player's swing sometimes by blocking.
+        // Swings are read in enemyRead; a feint's wind-up looks like a heavy blow, and is often met with a guard.
         const bait = player.state === 'feint' && Math.random() < dt * 6;
-        if (!guardBroken(e) && (bait || (player.state === 'attack' && !player.moveHit && Math.random() < dt * 1.2 && e.think < 0.5))) {
+        if (!guardBroken(e) && bait) {
           e.setState('block');
           e.blockFor = 0.7 + Math.random() * 0.5;
           { const a = e.playSlot('guard', { loop: false, fade: 0.08 }); if (a) a.holdAt = ANIM_SLOTS.guard.hold; }
@@ -1763,6 +1840,9 @@ function reset() {
     f.parts = makeParts(f.maxHp);
     f.dazedUntil = 0;
     f.guardBrokenUntil = 0;
+    f.plan = null;
+    f.parryAt = -99;
+    f.dodgeAt = -99;
     f.move = null;
     f.comboIndex = -1;
     f.setState('idle');
