@@ -237,3 +237,6 @@ h1 { letter-spacing: .02em; }
   #slots { flex-direction: row; }
   .slot { flex: 1; }
 }
+
+/* Fitting tools (hair and clothes fit, defaults): hidden for players. */
+[data-fit-tool][hidden] { display: none !important; }

@@ -9,6 +9,11 @@ import { ClothSim, bodyCapsules, CLOTH_VERTEX } from './cloth.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
 const DEFAULTS_URL = 'models/defaults.json';
+// Fitting hair and clothes (the move / rotate / scale handles and the fit
+// sliders) and setting everyone's defaults are tools for making the character
+// set, not for players: hidden unless the page is opened with ?fit=1, or
+// Ctrl+Alt+F is pressed (which toggles them).
+let fitTools = new URLSearchParams(location.search).has('fit');
 const HAIR_INDEX_URL = 'models/hair/index.json';
 // Filled in by the single-file artifact build: model URL -> base64 text parts.
 const PACKED = null;
@@ -735,6 +740,8 @@ function buildHairControls() {
   $('hair-collide').addEventListener('change', (e) => setHair({ collide: e.target.checked }));
   window.addEventListener('keydown', (e) => {
     if (e.target.closest('input, select, textarea')) return;
+    if (e.ctrlKey && e.altKey && e.code === 'KeyF') { fitTools = !fitTools; showFitTools(); return; }
+    if (!fitTools) return;
     const mode = { w: 'translate', e: 'rotate', r: 'scale', escape: 'off' }[e.key.toLowerCase()];
     if (mode) setGizmo(mode);
   });
@@ -1536,6 +1543,12 @@ $('legs').addEventListener('input', (e) => setLegs(Number(e.target.value)));
 buildSteppers();
 $('confirm').addEventListener('click', confirmCharacter);
 $('save').addEventListener('click', save);
+/** Show or hide the fitting tools (see fitTools). */
+function showFitTools() {
+  document.querySelectorAll('[data-fit-tool]').forEach((el) => { el.hidden = !fitTools; });
+  if (!fitTools) setGizmo('off');
+}
+showFitTools();
 $('set-default').addEventListener('click', setAsDefault);
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 $('download-setup').addEventListener('click', downloadSetup);

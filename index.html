@@ -127,7 +127,7 @@
           <label class="custom-color" title="Custom colour"><input id="hair-custom" type="color" value="#4b2e1d"><span>Custom</span></label>
         </div>
       </div>
-      <div class="field">
+      <div class="field" id="hair-fit-field" data-fit-tool>
         <span class="label">Fit</span>
         <div class="segmented" role="group" aria-label="Hair handles">
           <button type="button" data-gizmo="off" class="on">Off</button>
@@ -164,8 +164,8 @@
           <button type="button" role="radio" data-robe="robe" aria-checked="true" class="on">Robe</button>
         </div>
       </div>
-      <p class="note">The tank top and shorts are always worn (a robe, when there is one, goes over them). Adjust the fit; it is saved per body with the character.</p>
-      <div id="cloth-controls"></div>
+      <p class="note">The tank top and shorts are always worn (a robe, when there is one, goes over them).<span data-fit-tool> Adjust the fit; it is saved per body with the character.</span></p>
+      <div id="cloth-controls" data-fit-tool></div>
     </section>
 
     <section class="tab-panel" role="tabpanel" data-panel="nose" hidden>
@@ -231,8 +231,8 @@
       <button type="button" id="confirm" class="primary">Confirm &amp; fight ⚔</button>
     </div>
     <button type="button" id="random" class="link">Randomize skin tone</button>
-    <button type="button" id="set-default" class="link">Set this as the default for everyone</button>
-    <button type="button" id="download-setup" class="link">Download setup (JSON)</button>
+    <button type="button" id="set-default" class="link" data-fit-tool>Set this as the default for everyone</button>
+    <button type="button" id="download-setup" class="link" data-fit-tool>Download setup (JSON)</button>
     <p class="status" id="status" role="status"></p>
   </aside>
 </main>
