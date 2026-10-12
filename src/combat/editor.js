@@ -1,17 +1,15 @@
 import * as THREE from 'three';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-// Animation editor: make and change the fighters' clips frame by frame.
+// Animation editor: change the fighters' clips frame by frame, with sliders.
 //
-// Pick a clip (or duplicate one as a new clip), step to a frame, pick a bone
-// (click its joint or use the list) and turn it with the gizmo rings; the
-// hips can also be moved, and a hand or foot can be dragged with IK (the
-// whole arm or leg follows). Letting go keys the change on that frame (only
-// that frame, unless "blend" is raised). Undo / redo, copy / paste a pose.
-// "Use in the game" sets which move or pose plays a clip and the move's hit
-// and end frames. Everything is kept in this browser, used by the fight, and
-// can be exported / imported as JSON.
+// Pick an animation and a frame, then set each joint's turn (X / Y / Z, in
+// degrees from the rest pose) with the sliders, grouped in tabs as in the
+// character creator; a change keys that joint on that frame only. Preview
+// plays the animation. Copy / paste a frame, undo / redo. "Use in the game"
+// sets which move or pose plays an animation and the move's hit and end
+// frames. Everything is kept in this browser, used by the fight, and can be
+// exported / imported as JSON.
 
 const EDIT_KEY = 'character-creation:anim-edits';
 const FPS = 30;   // the editor works in frames of 1/30 s
@@ -85,77 +83,67 @@ function revertClip(clip, clips) {
   dropSplits(clips, clip.name);
 }
 
-/** Two-bone IK: turn `a` and `b` so the chain a -> b -> c ends at `target`, the middle joint toward `pole`. */
-function twoBoneIK(a, b, c, target, pole) {
-  const S = a.getWorldPosition(new THREE.Vector3());
-  const M = b.getWorldPosition(new THREE.Vector3()), E = c.getWorldPosition(new THREE.Vector3());
-  const l1 = S.distanceTo(M), l2 = M.distanceTo(E);
-  const toT = target.clone().sub(S);
-  const dist = THREE.MathUtils.clamp(toT.length(), Math.abs(l1 - l2) + 1e-4, (l1 + l2) * 0.9995);
-  const dir = toT.normalize();
-  const along = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist);
-  const h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
-  const p = pole.clone().addScaledVector(dir, -pole.dot(dir));
-  if (p.lengthSq() < 1e-8) return;
-  p.normalize();
-  aim(a, b, S.clone().addScaledVector(dir, along).addScaledVector(p, h));
-  aim(b, c, S.clone().addScaledVector(dir, dist));
-}
-function aim(bone, child, target) {
-  const at = bone.getWorldPosition(new THREE.Vector3());
-  const cur = child.getWorldPosition(new THREE.Vector3()).sub(at).normalize();
-  const want = target.clone().sub(at).normalize();
-  const q = new THREE.Quaternion().setFromUnitVectors(cur, want);
-  const world = bone.getWorldQuaternion(new THREE.Quaternion());
-  const parent = bone.parent.getWorldQuaternion(new THREE.Quaternion());
-  bone.quaternion.copy(parent.invert().multiply(q.multiply(world)));
-  bone.updateMatrixWorld(true);
-}
-// The chains a hand or foot drags with IK.
-const IK_CHAINS = {
-  RightHand: ['RightArm', 'RightForeArm'], LeftHand: ['LeftArm', 'LeftForeArm'],
-  RightFoot: ['RightUpLeg', 'RightLeg'], LeftFoot: ['LeftUpLeg', 'LeftLeg'],
-};
+// The joints, in tabs, and what each is called on the panel.
+const GROUPS = [
+  ['Body', [['Hips', 'Hips (whole body)'], ['Spine', 'Lower back'], ['Spine1', 'Middle back'], ['Spine2', 'Chest']]],
+  ['Head', [['Neck', 'Neck'], ['Head', 'Head']]],
+  ['Right arm', [['RightShoulder', 'Shoulder'], ['RightArm', 'Upper arm'], ['RightForeArm', 'Forearm'], ['RightHand', 'Hand (sword)']]],
+  ['Left arm', [['LeftShoulder', 'Shoulder'], ['LeftArm', 'Upper arm'], ['LeftForeArm', 'Forearm'], ['LeftHand', 'Hand']]],
+  ['Right leg', [['RightUpLeg', 'Thigh'], ['RightLeg', 'Shin'], ['RightFoot', 'Foot'], ['RightToeBase', 'Toes']]],
+  ['Left leg', [['LeftUpLeg', 'Thigh'], ['LeftLeg', 'Shin'], ['LeftFoot', 'Foot'], ['LeftToeBase', 'Toes']]],
+];
+const AXES = ['x', 'y', 'z'];
 
 const css = `
-#anim-editor { position: fixed; left: 12px; top: 12px; bottom: 12px; width: 320px; background: rgba(255,255,255,0.96); border: 1px solid #ddd; border-radius: 8px;
-  padding: 10px 12px; font: 12px/1.4 system-ui, sans-serif; color: #1d1f24; overflow: auto; z-index: 20; display: flex; flex-direction: column; gap: 8px; }
-#anim-editor h3 { margin: 0; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
-#anim-editor label { display: flex; flex-direction: column; gap: 2px; color: #555; }
-#anim-editor select, #anim-editor input[type=number], #anim-editor input[type=text] { font-size: 12px; }
-#anim-editor .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-#anim-editor button { border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; padding: 3px 8px; }
-#anim-editor button.on { background: #c9a227; border-color: #c9a227; color: #fff; }
-#anim-editor button:disabled { opacity: 0.45; cursor: default; }
-#anim-editor .keys { position: relative; height: 16px; background: #f1f1ef; border-radius: 3px; }
-#anim-editor .keys i { position: absolute; top: 3px; width: 3px; height: 10px; background: #c9a227; margin-left: -1px; }
-#anim-editor .keys b { position: absolute; top: 0; width: 2px; height: 16px; background: #c8323c; margin-left: -1px; }
-#anim-editor .keys u { position: absolute; top: 0; width: 2px; height: 16px; margin-left: -1px; text-decoration: none; }
-#anim-editor .keys u.hit { background: #2f7fff; }
-#anim-editor .keys u.end { background: #7b4dd6; }
-#anim-editor .note { color: #777; margin: 0; }
-#anim-editor textarea { width: 100%; height: 70px; font-size: 11px; }
-#anim-editor .section { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: 6px; border-top: 1px solid #eee; padding-top: 8px; }
-/* Its own page: a dark panel on the right, as in the character creator. */
-#anim-editor.page { left: auto; right: 0; top: 0; bottom: 0; width: 360px; border-radius: 0; border: 0; border-left: 1px solid #2e323c;
-  background: linear-gradient(180deg, #1f232c, #181b22); color: #e9ebf0; padding: 18px 20px; gap: 10px; font-size: 13px; }
-#anim-editor.page h3 { font-size: 20px; font-weight: 600; }
-#anim-editor.page label, #anim-editor.page .note, #anim-editor.page span { color: #9aa1b0; }
-#anim-editor.page select, #anim-editor.page input[type=number], #anim-editor.page input[type=text], #anim-editor.page textarea {
-  background: #15171c; color: #e9ebf0; border: 1px solid #2e323c; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
-#anim-editor.page button { background: transparent; color: #e9ebf0; border: 1px solid #2e323c; border-radius: 8px; padding: 5px 9px; font-size: 13px; }
-#anim-editor.page button.on, #anim-editor.page button.primary { background: #e2b45a; border-color: #e2b45a; color: #1a1a1a; }
-#anim-editor.page .keys { background: #15171c; }
-#anim-editor.page .keys i { background: #e2b45a; }
-#anim-editor.page input[type=range] { accent-color: #e2b45a; width: 100%; }
-#anim-editor.page .section { color: #9aa1b0; border-top-color: #2e323c; }
-#anim-editor.page a { color: #e2b45a; text-decoration: none; font-size: 13px; }
+#anim-editor { position: fixed; right: 0; top: 0; bottom: 0; width: 360px; z-index: 20; overflow-y: auto;
+  background: linear-gradient(180deg, #1f232c, #181b22); border-left: 1px solid #2e323c; color: #e9ebf0;
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 20px 20px 28px; display: flex; flex-direction: column; gap: 18px; }
+#anim-editor[hidden] { display: none; }
+#anim-editor h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: .02em; }
+#anim-editor .top { display: flex; justify-content: space-between; }
+#anim-editor a { color: #e2b45a; text-decoration: none; font-size: 13px; }
+#anim-editor .field { display: flex; flex-direction: column; gap: 8px; }
+#anim-editor .label { color: #9aa1b0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+#anim-editor .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; color: #9aa1b0; font-size: 13px; }
+#anim-editor select, #anim-editor input[type=number], #anim-editor textarea {
+  background: #15171c; color: #e9ebf0; border: 1px solid #2e323c; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; }
+#anim-editor select { width: 100%; }
+#anim-editor button { background: transparent; color: #e9ebf0; border: 1px solid #2e323c; border-radius: 8px; padding: 6px 10px;
+  font: inherit; font-size: 13px; cursor: pointer; }
+#anim-editor button:hover:not(:disabled) { border-color: #e2b45a; }
+#anim-editor button:disabled { opacity: .4; cursor: default; }
+#anim-editor button.primary { background: #e2b45a; border-color: #e2b45a; color: #1a1a1a; font-weight: 600; }
+#anim-editor button:focus-visible, #anim-editor input:focus-visible, #anim-editor select:focus-visible { outline: 2px solid #e2b45a; outline-offset: 1px; }
+#anim-editor .stepper { display: grid; grid-template-columns: 2.4rem 1fr 2.4rem; gap: 6px; align-items: center; }
+#anim-editor .stepper button { height: 2.2rem; color: #e2b45a; font-size: 18px; line-height: 1; padding: 0; }
+#anim-editor .stepper output { text-align: center; background: #15171c; border: 1px solid #2e323c; border-radius: 6px; padding: 6px 4px; }
+#anim-editor .frames { display: flex; flex-wrap: wrap; gap: 3px; }
+#anim-editor .frames button { width: 26px; height: 22px; padding: 0; font-size: 10px; border-radius: 4px; color: #9aa1b0; background: #15171c; }
+#anim-editor .frames button.key { color: #1a1a1a; background: #8a7444; border-color: #8a7444; }
+#anim-editor .frames button.hit { box-shadow: inset 0 -3px 0 #2f7fff; }
+#anim-editor .frames button.end { box-shadow: inset 0 -3px 0 #a07cf0; }
+#anim-editor .frames button.on { outline: 2px solid #e2b45a; outline-offset: 1px; color: #fff; }
+#anim-editor .frames button.key.on { color: #1a1a1a; background: #e2b45a; }
+#anim-editor .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #2e323c; padding-bottom: 8px; }
+#anim-editor .tabs button { padding: 6px 9px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #9aa1b0; }
+#anim-editor .tabs button[aria-selected=true] { border-color: #e2b45a; color: #e9ebf0; background: #2e323c; }
+#anim-editor .joint { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid #2e323c; border-radius: 8px; }
+#anim-editor .joint.picked { border-color: #e2b45a; }
+#anim-editor .joint-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+#anim-editor .joint-head .dot { color: #e2b45a; margin-left: 6px; visibility: hidden; }
+#anim-editor .joint-head .dot.on { visibility: visible; }
+#anim-editor .joint-head button { padding: 2px 8px; font-size: 12px; color: #9aa1b0; }
+#anim-editor .slider { display: grid; grid-template-columns: 1.6em 1fr 4.2em; align-items: center; gap: 8px; font-size: 12px; color: #9aa1b0; }
+#anim-editor .slider input[type=range] { width: 100%; accent-color: #e2b45a; }
+#anim-editor .slider input[type=number] { padding: 3px 4px; text-align: right; }
+#anim-editor .note, #anim-editor .status { margin: 0; color: #9aa1b0; font-size: 12px; }
+#anim-editor textarea { width: 100%; height: 80px; font-size: 11px; }
 `;
 
 /**
- * The editor. ctx: { scene, camera, canvas, fighters: () => [player, enemy], onClose, page,
+ * The editor page. ctx: { scene, camera, canvas, fighters: () => [player, enemy],
  *   moves: [[label, move]], slots: { name: { clip, speed } }, saveAnim(), loadAnim(data) }.
- * Returns { open(fighter), close(), update(dt), isOpen }.
+ * Returns { open(fighter), update(dt), isOpen }.
  */
 export function createAnimEditor(ctx) {
   const style = document.createElement('style');
@@ -163,155 +151,221 @@ export function createAnimEditor(ctx) {
   document.head.appendChild(style);
   const panel = document.createElement('div');
   panel.id = 'anim-editor';
-  if (ctx.page) panel.classList.add('page');
   panel.hidden = true;
   document.body.appendChild(panel);
 
   const orbit = new OrbitControls(ctx.camera, ctx.canvas);
   orbit.enabled = false;
   orbit.enableDamping = true;
-  const gizmo = new TransformControls(ctx.camera, ctx.canvas);
-  gizmo.setSpace('local');
-  gizmo.setSize(0.7);
-  gizmo.setMode('rotate');
-  const ikTarget = new THREE.Object3D();   // what the gizmo drags in IK mode
-  ctx.scene.add(ikTarget);
-  gizmo.addEventListener('dragging-changed', (e) => {
-    orbit.enabled = !e.value;
-    if (e.value) { pushUndo(); dragStart = { q: bone?.quaternion.clone(), p: bone?.position.clone() }; }
-    else if (bone && auto.checked) keyNow(true);
-  });
-  gizmo.addEventListener('objectChange', () => {
-    if (mode === 'ik' && bone) solveIK();
-  });
-  ctx.scene.add(gizmo.getHelper());
+  orbit.screenSpacePanning = true;
 
-  // Joint markers to click.
+  // Joint markers: click one to bring up its sliders.
   const markers = new THREE.Group();
   markers.visible = false;
   ctx.scene.add(markers);
-  const markerMat = new THREE.MeshBasicMaterial({ color: 0x2f7fff, depthTest: false, transparent: true, opacity: 0.85 });
-  const markerOn = new THREE.MeshBasicMaterial({ color: 0xc8323c, depthTest: false });
+  const markerMat = new THREE.MeshBasicMaterial({ color: 0x2f7fff, depthTest: false, transparent: true, opacity: 0.8 });
+  const markerOn = new THREE.MeshBasicMaterial({ color: 0xe2b45a, depthTest: false });
 
-  let fighter = null, clip = null, time = 0, playing = false, bone = null, dragStart = null, isOpen = false;
-  let mode = 'rotate';   // rotate | move (hips) | ik (hands, feet)
+  let fighter = null, clip = null, frame = 0, playing = false, isOpen = false, tab = 0, picked = null;
+  let time = 0;   // while previewing; otherwise the frame's time
   let dirty = new Set();   // clip names changed since the last save
   const undoStack = [], redoStack = [];
+  const rest = new Map();   // bone name -> { q, p }: the rest pose the sliders count from
 
   const body = new URLSearchParams(location.search).get('body');
-  panel.innerHTML = (ctx.page ? `
-    <div class="row" style="justify-content:space-between"><a href="index.html">← Character</a><a href="combat.html">Fight ⚔</a></div>
-    <h3>Animation editor</h3>
-    <label>Body<select data-a="body"><option value="">My character</option><option value="female">Female</option><option value="male">Male</option></select></label>`
-    : `<h3>Animation editor <button type="button" data-a="close">Close ✕</button></h3>`) + `
-    <label>Clip<select data-a="clip"></select></label>
-    <div class="row"><button type="button" data-a="dup">Duplicate as new clip…</button>
-      <span>length <input data-a="len" type="number" step="1" min="2" style="width:56px"> frames</span></div>
-    <div class="section">Timeline</div>
-    <div class="row"><button type="button" data-a="play">▶ Play</button>
-      <button type="button" data-a="fprev" title="Previous frame (,)">◀ frame</button><button type="button" data-a="fnext" title="Next frame (.)">frame ▶</button>
-      <label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-a="loop" checked> loop</label></div>
-    <div class="row"><span>frame <input data-a="frame" type="number" step="1" min="0" style="width:56px"> / <span data-a="frames"></span></span>
-      <span>(<span data-a="secs"></span> s)</span></div>
-    <input data-a="scrub" type="range" min="0" step="1">
-    <div class="keys" data-a="keys" title="Gold: this bone's keys · red: now · blue: hit · purple: end"></div>
-    <div class="section">Pose</div>
-    <label>Bone (or click a joint)<select data-a="bone"></select></label>
-    <div class="row"><button type="button" data-a="rotate" class="on" title="Turn the bone">Rotate</button>
-      <button type="button" data-a="move" title="Move the hips">Move hips</button>
-      <button type="button" data-a="ik" title="Drag a hand or foot; the arm or leg follows">IK drag</button>
-      <button type="button" data-a="space" title="Gizmo in the bone's own axes or the world's">Local</button></div>
-    <div class="row"><button type="button" data-a="key">Set key (K)</button><button type="button" data-a="del">Delete key</button>
-      <button type="button" data-a="prev">◀ key</button><button type="button" data-a="next">key ▶</button></div>
-    <div class="row"><label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-a="auto" checked> key on release</label>
-      <button type="button" data-a="keyall" title="Key every bone's current pose on this frame">Key whole pose</button></div>
-    <label>Blend into nearby frames: <span data-a="spreadv">0 (this frame only)</span><input data-a="spread" type="range" min="0" max="0.6" step="0.01" value="0"></label>
-    <div class="row"><button type="button" data-a="copy">Copy pose</button><button type="button" data-a="paste">Paste pose here</button>
-      <button type="button" data-a="undo" title="Ctrl+Z">↶ Undo</button><button type="button" data-a="redo" title="Ctrl+Y">↷ Redo</button></div>
-    <div class="section">Use in the game</div>
-    <label>Move or pose<select data-a="use"></select></label>
-    <div class="row"><button type="button" data-a="useclip">Use this clip</button>
-      <button type="button" data-a="sethit" title="The blow lands on this frame">Hit = this frame</button>
-      <button type="button" data-a="setend" title="The move is over on this frame">End = this frame</button></div>
-    <label>Speed in the game <input data-a="speed" type="number" step="0.05" min="0.1" max="4" style="width:70px"></label>
-    <p class="note" data-a="usenote"></p>
-    <div class="section">Save</div>
-    <div class="row"><button type="button" data-a="save" class="primary">Save (use in the fight)</button><button type="button" data-a="revert">Revert this clip</button></div>
-    <div class="row"><button type="button" data-a="export">Export JSON</button><button type="button" data-a="import">Import JSON</button></div>
-    <textarea data-a="json" placeholder="Exported edits appear here; paste edits here to import." hidden></textarea>
-    <p class="note" data-a="status">Drag to orbit, right-drag to pan, scroll to zoom. Click a blue joint to pick a bone, turn it with the rings; letting go keys it on this frame. Keys: , . frames · K key · Space play · Ctrl+Z / Ctrl+Y.</p>`;
+  panel.innerHTML = `
+    <div class="top"><a href="index.html">← Character</a><a href="combat.html">Fight ⚔</a></div>
+    <h1>Animation editor</h1>
+    <div class="field"><span class="label">Body</span>
+      <select data-a="body"><option value="">My character</option><option value="female">Female</option><option value="male">Male</option></select></div>
+    <div class="field"><span class="label">Animation</span>
+      <select data-a="clip"></select>
+      <div class="row"><button type="button" data-a="dup">Duplicate as new…</button>
+        <span>Length <input data-a="len" type="number" step="1" min="2" style="width:64px"> frames</span></div></div>
+    <div class="field"><span class="label">Frame</span>
+      <div class="stepper"><button type="button" data-a="fprev" aria-label="Previous frame">‹</button><output data-a="fnow"></output><button type="button" data-a="fnext" aria-label="Next frame">›</button></div>
+      <div class="frames" data-a="frames"></div>
+      <p class="note">Gold: a frame with keys. Blue / purple line: the move's hit / end frame.</p>
+      <div class="row"><button type="button" data-a="play">▶ Preview</button>
+        <label><input type="checkbox" data-a="loop" checked> loop</label>
+        <label>speed <select data-a="pspeed" style="width:auto"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select></label></div>
+      <div class="row"><button type="button" data-a="copy">Copy frame</button><button type="button" data-a="paste">Paste frame</button>
+        <button type="button" data-a="keyall" title="Key every joint on this frame as it is now">Key all joints</button>
+        <button type="button" data-a="clear" title="Remove this frame's keys (it follows the frames around it)">Clear frame</button></div>
+      <div class="row"><button type="button" data-a="undo">↶ Undo</button><button type="button" data-a="redo">↷ Redo</button></div></div>
+    <div class="field"><span class="label">Pose on this frame</span>
+      <div class="tabs" role="tablist" data-a="tabs">${GROUPS.map(([n], i) => `<button type="button" role="tab" data-tab="${i}">${n}</button>`).join('')}</div>
+      <div data-a="joints" class="field"></div>
+      <p class="note">Degrees from the rest pose. A change keys that joint on this frame only.</p></div>
+    <div class="field"><span class="label">Use in the game</span>
+      <select data-a="use"></select>
+      <div class="row"><button type="button" data-a="useclip">Use this animation</button>
+        <button type="button" data-a="sethit" title="The blow lands on this frame">Hit = this frame</button>
+        <button type="button" data-a="setend" title="The move is over on this frame">End = this frame</button></div>
+      <div class="row">Speed in the game <input data-a="speed" type="number" step="0.05" min="0.1" max="4" style="width:72px"></div>
+      <p class="note" data-a="usenote"></p></div>
+    <div class="field"><span class="label">Save</span>
+      <div class="row"><button type="button" data-a="save" class="primary">Save (use in the fight)</button><button type="button" data-a="revert">Revert this animation</button></div>
+      <div class="row"><button type="button" data-a="export">Export JSON</button><button type="button" data-a="import">Import JSON</button></div>
+      <textarea data-a="json" placeholder="Exported edits appear here; paste edits here to import." hidden></textarea></div>
+    <p class="status" data-a="status">Drag to orbit, right-drag to pan, scroll to zoom. Click a blue joint to bring up its sliders. Keys: , . frames · Space preview · Ctrl+Z / Ctrl+Y.</p>`;
   const $ = (a) => panel.querySelector(`[data-a="${a}"]`);
-  const auto = $('auto');
   const status = (t) => { $('status').textContent = t; };
 
   const frameCount = () => Math.max(1, Math.round(clip.duration * FPS));
-  const frameNow = () => Math.round(time * FPS);
-  function trackOf(name) { return clip?.tracks.find((t) => t.name === name); }
-  function boneTrack(b = bone, m = mode) {
-    if (!b) return null;
-    return `${b.name}.${m === 'move' ? 'position' : 'quaternion'}`;
-  }
+  const frameTime = (f = frame) => Math.min(f / FPS, clip.duration);
+  const trackOf = (name) => clip?.tracks.find((t) => t.name === name);
+  const hasKey = (tr, t) => !!tr && Array.from(tr.times).some((x) => Math.abs(x - t) < 1e-3);
 
-  // ---- posing
-  function pose() {
+  // ---- showing a frame
+  function pose(t = frameTime()) {
     if (!fighter || !clip) return;
     fighter.mixer.stopAllAction();
     const action = fighter.mixer.clipAction(clip);
     action.reset().play();
     action.paused = true;
-    action.time = time;
+    action.time = t;
     fighter.mixer.update(0);
     fighter.finishPose();
-    if (mode === 'ik' && bone) bone.getWorldPosition(ikTarget.position);
-    syncTime();
   }
   function rebind() {
     fighter.mixer.stopAllAction();
     fighter.mixer.uncacheClip(clip);
+    dropSplits(fighter.clips, clip.name);
     pose();
-  }
-  function syncTime() {
-    $('frame').value = frameNow();
-    $('frames').textContent = frameCount();
-    $('secs').textContent = time.toFixed(2);
-    $('scrub').max = frameCount();
-    $('scrub').value = frameNow();
-    $('len').value = frameCount();
-    drawKeys();
   }
   function goFrame(n) {
-    playing = false;
-    $('play').textContent = '▶ Play';
-    n = THREE.MathUtils.clamp(Math.round(n), 0, frameCount());
-    time = Math.min(n / FPS, clip.duration);
+    stopPreview();
+    frame = THREE.MathUtils.clamp(Math.round(n), 0, frameCount());
     pose();
+    syncFrame();
   }
-  function drawKeys() {
-    const box = $('keys');
-    box.innerHTML = '';
-    if (!clip) return;
-    const tr = trackOf(boneTrack(bone, mode === 'ik' ? 'rotate' : mode));
-    if (tr && tr.times.length < 400) {
-      for (const t of tr.times) {
-        const i = document.createElement('i');
-        i.style.left = `${(t / clip.duration) * 100}%`;
-        box.appendChild(i);
-      }
-    }
-    // The chosen move's hit and end, when it plays this clip.
+  function syncFrame() {
+    $('fnow').textContent = `${frame} / ${frameCount()}  ·  ${frameTime().toFixed(2)} s`;
+    $('len').value = frameCount();
+    drawFrames();
+    syncJoints();
+  }
+  function drawFrames() {
+    const keyed = new Set();
+    for (const tr of clip.tracks) for (const t of tr.times) keyed.add(Math.round(t * FPS));
     const use = useTarget();
-    if (use?.kind === 'move' && use.m.clip === clip.name) {
-      for (const k of ['hit', 'end']) {
-        if (use.m[k] == null) continue;
-        const u = document.createElement('u');
-        u.className = k;
-        u.style.left = `${(Math.min(use.m[k], clip.duration) / clip.duration) * 100}%`;
-        box.appendChild(u);
-      }
+    const mark = use?.kind === 'move' && use.m.clip === clip.name
+      ? { hit: Math.round((use.m.hit ?? -1) * FPS), end: Math.round((use.m.end ?? -1) * FPS) } : {};
+    const n = frameCount();
+    let html = '';
+    for (let f = 0; f <= n; f++) {
+      const cls = [keyed.has(f) && 'key', f === frame && 'on', f === mark.hit && 'hit', f === mark.end && 'end'].filter(Boolean).join(' ');
+      html += `<button type="button" data-f="${f}" class="${cls}">${f}</button>`;
     }
-    const b = document.createElement('b');
-    b.style.left = `${(time / clip.duration) * 100}%`;
-    box.appendChild(b);
+    $('frames').innerHTML = html;
+  }
+
+  // ---- the joints' sliders
+  function readQ(name, t = frameTime()) {
+    const tr = trackOf(`${name}.quaternion`);
+    return tr ? new THREE.Quaternion().fromArray(tr.createInterpolant().evaluate(t)) : rest.get(name).q.clone();
+  }
+  function readP(t = frameTime()) {
+    const tr = trackOf('Hips.position');
+    return tr ? new THREE.Vector3().fromArray(tr.createInterpolant().evaluate(t)) : rest.get('Hips').p.clone();
+  }
+  // Hips position slider units: centimetres in the world.
+  const hipsScale = () => fighter.bones.Hips.parent.getWorldScale(new THREE.Vector3()).x;
+
+  function buildJoints() {
+    const [, joints] = GROUPS[tab];
+    for (const b of panel.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(Number(b.dataset.tab) === tab));
+    const row = (name, k, label, min, max) => `<label class="slider"><span>${label}</span>
+      <input type="range" min="${min}" max="${max}" step="1" data-j="${name}" data-k="${k}">
+      <input type="number" min="${min}" max="${max}" step="1" data-j="${name}" data-k="${k}"></label>`;
+    $('joints').innerHTML = joints.filter(([n]) => fighter.bones[n]).map(([n, label]) => `
+      <div class="joint" data-joint="${n}">
+        <div class="joint-head"><span>${label}<span class="dot" title="Keyed on this frame">◆</span></span>
+          <button type="button" data-unkey="${n}" title="Remove this joint's key on this frame">Unkey</button></div>
+        ${AXES.map((a) => row(n, a, a.toUpperCase(), -180, 180)).join('')}
+        ${n === 'Hips' ? `<div class="note">Move (cm)</div>${AXES.map((a) => row(n, `p${a}`, a.toUpperCase(), -120, 120)).join('')}` : ''}
+      </div>`).join('');
+    syncJoints();
+  }
+  function jointValues(name) {
+    const local = rest.get(name).q.clone().invert().multiply(readQ(name));
+    const e = new THREE.Euler().setFromQuaternion(local, 'XYZ');
+    const v = { x: e.x, y: e.y, z: e.z };
+    for (const a of AXES) v[a] = Math.round(THREE.MathUtils.radToDeg(v[a]));
+    if (name === 'Hips') {
+      const d = readP().sub(rest.get('Hips').p).multiplyScalar(hipsScale() * 100);
+      for (const a of AXES) v[`p${a}`] = Math.round(d[a]);
+    }
+    return v;
+  }
+  function syncJoints() {
+    for (const box of panel.querySelectorAll('[data-joint]')) {
+      const name = box.dataset.joint;
+      const v = jointValues(name);
+      for (const input of box.querySelectorAll('input[data-k]')) if (document.activeElement !== input) input.value = v[input.dataset.k];
+      const keyed = hasKey(trackOf(`${name}.quaternion`), frameTime()) || (name === 'Hips' && hasKey(trackOf('Hips.position'), frameTime()));
+      box.querySelector('.dot').classList.toggle('on', keyed);
+      box.classList.toggle('picked', name === picked);
+    }
+  }
+
+  /** Put a key of `values` on this frame in track `name` (made if missing, holding the old pose elsewhere). */
+  function setKey(name, values, t = frameTime()) {
+    const n = values.length;
+    const tr = trackOf(name);
+    let times, vals;
+    if (tr) { times = Array.from(tr.times); vals = Array.from(tr.values); }
+    else {
+      const base = name.endsWith('.position') ? rest.get('Hips').p.toArray() : rest.get(name.split('.')[0]).q.toArray();
+      times = [0, clip.duration];
+      vals = [...base, ...base];
+    }
+    let i = times.findIndex((x) => Math.abs(x - t) < 1e-3);
+    if (i >= 0) vals.splice(i * n, n, ...values);
+    else {
+      i = times.findIndex((x) => x > t);
+      if (i < 0) i = times.length;
+      times.splice(i, 0, t);
+      vals.splice(i * n, 0, ...values);
+    }
+    setTrack(clip, name, times, vals);
+  }
+  function setJoint(name, k, deg) {
+    if (k.startsWith('p')) {
+      const p = readP();
+      p[k[1]] = rest.get('Hips').p[k[1]] + deg / 100 / hipsScale();
+      setKey('Hips.position', p.toArray());
+    } else {
+      const v = jointValues(name);
+      v[k] = deg;
+      const e = new THREE.Euler(...AXES.map((a) => THREE.MathUtils.degToRad(v[a])), 'XYZ');
+      setKey(`${name}.quaternion`, rest.get(name).q.clone().multiply(new THREE.Quaternion().setFromEuler(e)).toArray());
+    }
+    changed();
+  }
+  function unkey(name) {
+    const t = frameTime();
+    let any = false;
+    for (const tn of [`${name}.quaternion`, ...(name === 'Hips' ? ['Hips.position'] : [])]) {
+      const tr = trackOf(tn);
+      if (!tr || tr.times.length < 2) continue;
+      const i = Array.from(tr.times).findIndex((x) => Math.abs(x - t) < 1e-3);
+      if (i < 0) continue;
+      if (!any) pushUndo();
+      any = true;
+      const n = tr.getValueSize(), times = Array.from(tr.times), vals = Array.from(tr.values);
+      times.splice(i, 1);
+      vals.splice(i * n, n);
+      setTrack(clip, tn, times, vals);
+    }
+    if (any) { changed(); status(`Removed the key on frame ${frame}; it follows the frames around it.`); }
+    else status('No key on this frame for that joint.');
+  }
+  function changed() {
+    dirty.add(clip.name);
+    rebind();
+    syncFrame();
   }
 
   // ---- undo / redo: snapshots of the current clip's tracks
@@ -324,14 +378,12 @@ export function createAnimEditor(ctx) {
     clip.tracks = clip.tracks.filter((t) => s.tracks.some(([n]) => n === t.name));
     clip.duration = s.duration;
     $('clip').value = clip.name;
-    dirty.add(clip.name);
-    dropSplits(fighter.clips, clip.name);
-    rebind();
+    frame = Math.min(frame, frameCount());
+    changed();
   }
   function pushUndo() {
-    if (!clip) return;
     undoStack.push(snapshot());
-    if (undoStack.length > 60) undoStack.shift();
+    if (undoStack.length > 80) undoStack.shift();
     redoStack.length = 0;
     syncUndo();
   }
@@ -356,152 +408,80 @@ export function createAnimEditor(ctx) {
     status('Redone.');
   }
 
-  /** Key bone `b`'s current pose (`kind`: 'quaternion' | 'position') on this frame, blended over the spread. */
-  function keyBone(b, kind, startQ = null, startP = null) {
-    const name = `${b.name}.${kind}`;
-    const isPos = kind === 'position';
-    const now = isPos ? b.position.clone() : b.quaternion.clone();
-    const tr = trackOf(name);
-    let before;
-    if (tr) before = isPos ? new THREE.Vector3().fromArray(tr.createInterpolant().evaluate(time)) : new THREE.Quaternion().fromArray(tr.createInterpolant().evaluate(time));
-    else before = (isPos ? startP : startQ) ?? now.clone();
-    const times = tr ? Array.from(tr.times) : [];
-    const values = tr ? Array.from(tr.values) : [];
-    const n = isPos ? 3 : 4;
-    let at = times.findIndex((t) => Math.abs(t - time) < 1e-3);
-    if (at < 0) {
-      at = times.findIndex((t) => t > time);
-      if (at < 0) at = times.length;
-      times.splice(at, 0, time);
-      values.splice(at * n, 0, ...before.toArray());
-    }
-    const spread = Number($('spread').value);
-    const deltaQ = isPos ? null : now.clone().multiply(before.clone().invert());
-    const deltaP = isPos ? now.clone().sub(before) : null;
-    for (let i = 0; i < times.length; i++) {
-      const d = Math.abs(times[i] - time);
-      const w = i === at ? 1 : spread > 0 && d < spread ? 0.5 + 0.5 * Math.cos((Math.PI * d) / spread) : 0;
-      if (w <= 0) continue;
-      if (isPos) new THREE.Vector3().fromArray(values, i * 3).addScaledVector(deltaP, w).toArray(values, i * 3);
-      else new THREE.Quaternion().slerp(deltaQ, w).multiply(new THREE.Quaternion().fromArray(values, i * 4)).normalize().toArray(values, i * 4);
-    }
-    setTrack(clip, name, times, values);
+  // ---- whole frames
+  const posedBones = () => GROUPS.flatMap(([, j]) => j.map(([n]) => n)).filter((n) => fighter.bones[n]);
+  let clipboard = null;
+  function copyFrame() {
+    clipboard = { q: Object.fromEntries(posedBones().map((n) => [n, readQ(n).toArray()])), p: readP().toArray() };
+    status(`Copied frame ${frame}.`);
   }
-
-  /** Key the selected bone (or, in IK, its chain) on this frame. */
-  function keyNow(fromDrag = false) {
-    if (!bone || !clip) return;
-    if (!fromDrag) pushUndo();
-    time = Math.min(frameNow() / FPS, clip.duration);   // keys sit on frames
-    if (mode === 'ik') {
-      for (const n of [...IK_CHAINS[bone.name], bone.name]) keyBone(fighter.bones[n], 'quaternion');
-    } else {
-      keyBone(bone, mode === 'move' ? 'position' : 'quaternion', dragStart?.q, dragStart?.p);
-    }
-    dirty.add(clip.name);
-    dropSplits(fighter.clips, clip.name);
-    rebind();
-    status(`Keyed ${mode === 'ik' ? `${bone.name} and its ${bone.name.includes('Hand') ? 'arm' : 'leg'}` : bone.name} on frame ${frameNow()} (unsaved).`);
-  }
-
-  function keyWholePose() {
-    if (!clip) return;
+  function pasteFrame() {
+    if (!clipboard) { status('Copy a frame first.'); return; }
     pushUndo();
-    time = Math.min(frameNow() / FPS, clip.duration);
-    for (const b of fighter.mesh.skeleton.bones) {
-      if (/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name) || b.name === 'root') continue;
-      keyBone(b, 'quaternion');
-      if (b.name === 'Hips') keyBone(b, 'position');
-    }
-    dirty.add(clip.name);
-    dropSplits(fighter.clips, clip.name);
-    rebind();
-    status(`Keyed the whole pose on frame ${frameNow()} (unsaved).`);
+    for (const [n, q] of Object.entries(clipboard.q)) setKey(`${n}.quaternion`, q);
+    setKey('Hips.position', clipboard.p);
+    changed();
+    status(`Pasted onto frame ${frame} (unsaved).`);
   }
-
-  function deleteKey() {
-    const tr = trackOf(boneTrack(bone, mode === 'ik' ? 'rotate' : mode));
-    if (!tr) return;
-    const i = Array.from(tr.times).findIndex((t) => Math.abs(t - time) < 0.02);
-    if (i < 0 || tr.times.length < 2) { status('No key on this frame.'); return; }
+  function keyAll() {
     pushUndo();
-    const n = tr.getValueSize();
-    const times = Array.from(tr.times), values = Array.from(tr.values);
-    times.splice(i, 1);
-    values.splice(i * n, n);
-    setTrack(clip, tr.name, times, values);
-    dirty.add(clip.name);
-    rebind();
+    const t = frameTime();
+    const q = posedBones().map((n) => [n, readQ(n, t).toArray()]), p = readP(t).toArray();
+    for (const [n, v] of q) setKey(`${n}.quaternion`, v);
+    setKey('Hips.position', p);
+    changed();
+    status(`Keyed every joint on frame ${frame} (unsaved).`);
   }
-
-  function jumpKey(dir) {
-    const tr = trackOf(boneTrack(bone, mode === 'ik' ? 'rotate' : mode));
-    if (!tr) return;
-    const ts = Array.from(tr.times);
-    const t = dir > 0 ? ts.find((x) => x > time + 1e-3) : [...ts].reverse().find((x) => x < time - 1e-3);
-    if (t !== undefined) { time = t; pose(); }
-  }
-
-  // ---- IK drag of a hand or foot
-  function solveIK() {
-    const [a, b] = IK_CHAINS[bone.name].map((n) => fighter.bones[n]);
-    // Keep the elbow / knee bending the way it bends now.
-    const mid = b.getWorldPosition(new THREE.Vector3());
-    const s = a.getWorldPosition(new THREE.Vector3());
-    const e = bone.getWorldPosition(new THREE.Vector3());
-    const pole = mid.clone().sub(s.clone().lerp(e, 0.5));
-    if (pole.lengthSq() < 1e-6) pole.set(0, -1, 0);
-    twoBoneIK(a, b, bone, ikTarget.position, pole);
-  }
-
-  function selectBone(b) {
-    bone = b;
-    $('bone').value = b ? b.name : '';
-    for (const m of markers.children) m.material = m.userData.bone === b ? markerOn : markerMat;
-    if (mode === 'move' && b?.name !== 'Hips') setMode('rotate');
-    else if (mode === 'ik' && !IK_CHAINS[b?.name]) setMode('rotate');
-    else attachGizmo();
-    drawKeys();
-  }
-  function attachGizmo() {
-    if (!bone) { gizmo.detach(); return; }
-    if (mode === 'ik') {
-      bone.getWorldPosition(ikTarget.position);
-      gizmo.setMode('translate');
-      gizmo.setSpace('world');
-      gizmo.attach(ikTarget);
-    } else {
-      gizmo.setMode(mode === 'move' ? 'translate' : 'rotate');
-      gizmo.setSpace($('space').textContent === 'Local' ? 'local' : 'world');
-      gizmo.attach(bone);
+  function clearFrame() {
+    const t = frameTime();
+    const hit = clip.tracks.filter((tr) => tr.times.length > 2 && hasKey(tr, t));
+    if (!hit.length) { status('No keys on this frame (the first and last keys stay).'); return; }
+    pushUndo();
+    for (const tr of hit) {
+      const i = Array.from(tr.times).findIndex((x) => Math.abs(x - t) < 1e-3);
+      if (i === 0 || i === tr.times.length - 1) continue;
+      const n = tr.getValueSize(), times = Array.from(tr.times), vals = Array.from(tr.values);
+      times.splice(i, 1);
+      vals.splice(i * n, n);
+      setTrack(clip, tr.name, times, vals);
     }
-  }
-  function setMode(m) {
-    if (m === 'move' && bone?.name !== 'Hips') { status('Only the hips can be moved: pick Hips.'); return; }
-    if (m === 'ik' && !IK_CHAINS[bone?.name]) { status('IK drag works on a hand or a foot: pick one.'); return; }
-    mode = m;
-    $('rotate').classList.toggle('on', m === 'rotate');
-    $('move').classList.toggle('on', m === 'move');
-    $('ik').classList.toggle('on', m === 'ik');
-    attachGizmo();
-    drawKeys();
+    changed();
+    status(`Cleared frame ${frame}; it follows the frames around it.`);
   }
 
-  // ---- clips
+  // ---- preview
+  function startPreview() {
+    playing = true;
+    time = frame >= frameCount() ? 0 : frameTime();
+    $('play').textContent = '❚❚ Stop';
+  }
+  function stopPreview() {
+    if (!playing) return;
+    playing = false;
+    $('play').textContent = '▶ Preview';
+    frame = THREE.MathUtils.clamp(Math.round(time * FPS), 0, frameCount());
+    pose();
+    syncFrame();
+  }
+
+  // ---- animations
   function fillClips(select) {
     const names = [...fighter.clips.keys()].filter((n) => !n.includes('#')).sort((a, b) => a.localeCompare(b));
     $('clip').innerHTML = names.map((n) => `<option>${n}</option>`).join('');
     $('clip').value = names.includes(select) ? select : names[0];
   }
   function chooseClip(name) {
+    stopPreview();
     clip = fighter.clips.get(name);
-    time = 0;
+    frame = 0;
     undoStack.length = redoStack.length = 0;
     syncUndo();
     pose();
+    syncFrame();
+    syncUse();
   }
   function duplicateClip() {
-    let name = prompt('Name for the new clip:', `${clip.name}_edit`);
+    let name = prompt('Name for the new animation:', `${clip.name}_edit`);
     if (!name) return;
     name = name.trim().replace(/[^\w-]/g, '_');
     if (!name || fighter.clips.has(name)) { status('That name is taken (or empty).'); return; }
@@ -515,14 +495,14 @@ export function createAnimEditor(ctx) {
     dirty.add(name);
     fillClips(name);
     chooseClip(name);
-    status(`Made ${name} (a copy of the clip you had). Save to keep it.`);
+    status(`Made ${name} (a copy). Save to keep it.`);
   }
   function setLength(frames) {
     frames = Math.max(2, Math.round(frames));
     const d = frames / FPS;
     pushUndo();
     for (const tr of [...clip.tracks]) {
-      // Cut keys past the end; a longer clip holds its last pose.
+      // Cut keys past the end; a longer animation holds its last pose.
       const n = tr.getValueSize();
       let times = Array.from(tr.times), values = Array.from(tr.values);
       const keep = times.filter((t) => t <= d + 1e-6).length;
@@ -535,31 +515,24 @@ export function createAnimEditor(ctx) {
       }
     }
     clip.duration = d;
-    dirty.add(clip.name);
-    time = Math.min(time, d);
-    dropSplits(fighter.clips, clip.name);
-    rebind();
+    frame = Math.min(frame, frames);
+    changed();
     status(`${clip.name} is now ${frames} frames (unsaved).`);
   }
 
   // ---- use in the game
   function fillUse() {
-    const opts = [
+    $('use').innerHTML = [
       ...(ctx.moves ?? []).map(([label]) => `<option value="move:${label}">Move · ${label}</option>`),
       ...Object.keys(ctx.slots ?? {}).map((k) => `<option value="slot:${k}">Pose · ${k}</option>`),
-    ];
-    $('use').innerHTML = opts.join('');
+    ].join('');
   }
   function useTarget() {
     const v = $('use').value;
     if (!v) return null;
     const kind = v.slice(0, v.indexOf(':')), key = v.slice(v.indexOf(':') + 1);
-    if (kind === 'move') {
-      const m = (ctx.moves ?? []).find(([label]) => label === key)?.[1];
-      return m ? { kind, key, m } : null;
-    }
-    const m = ctx.slots?.[key];
-    return m ? { kind: 'slot', key, m } : null;
+    const m = kind === 'move' ? (ctx.moves ?? []).find(([label]) => label === key)?.[1] : ctx.slots?.[key];
+    return m ? { kind, key, m } : null;
   }
   function syncUse() {
     const u = useTarget();
@@ -567,9 +540,9 @@ export function createAnimEditor(ctx) {
     $('sethit').disabled = $('setend').disabled = u.kind !== 'move';
     $('speed').value = u.m.speed ?? 1;
     $('usenote').textContent = u.kind === 'move'
-      ? `${u.key} plays ${u.m.clip} at ${(u.m.speed ?? 1)}×: the blow on frame ${Math.round((u.m.hit ?? 0) * FPS)}, over on frame ${Math.round((u.m.end ?? 0) * FPS)} (clip frames).`
-      : `${u.key} plays ${u.m.clip} at ${(u.m.speed ?? 1)}×.`;
-    drawKeys();
+      ? `${u.key} plays ${u.m.clip} at ${u.m.speed ?? 1}×: the blow on frame ${Math.round((u.m.hit ?? 0) * FPS)}, over on frame ${Math.round((u.m.end ?? 0) * FPS)}.`
+      : `${u.key} plays ${u.m.clip} at ${u.m.speed ?? 1}×.`;
+    if (clip) drawFrames();
   }
   function changeUse(fn, what) {
     const u = useTarget();
@@ -601,75 +574,54 @@ export function createAnimEditor(ctx) {
       edits[name] = { tracks, duration: c.duration };
     }
     if (!writeEdits(edits)) { status('Could not save: the browser storage is full or blocked. Export JSON to keep the work.'); return; }
-    // The other fighter uses the same clips by name.
     for (const f of ctx.fighters()) if (f !== fighter) applyAnimEdits(f.clips, edits);
     dirty = new Set();
     status('Saved. The fight uses these edits (in this browser).');
   }
 
   // ---- UI wiring
-  if ($('close')) $('close').onclick = () => close();
-  if ($('body')) {
-    $('body').value = body ?? '';
-    $('body').onchange = () => {
-      if (dirty.size && !confirm('Switch body without saving the changes?')) { $('body').value = body ?? ''; return; }
-      dirty = new Set();
-      location.search = $('body').value ? `?body=${$('body').value}` : '';
-    };
-  }
+  $('body').value = body ?? '';
+  $('body').onchange = () => {
+    if (dirty.size && !confirm('Switch body without saving the changes?')) { $('body').value = body ?? ''; return; }
+    dirty = new Set();
+    location.search = $('body').value ? `?body=${$('body').value}` : '';
+  };
   $('clip').onchange = () => chooseClip($('clip').value);
   $('dup').onclick = () => duplicateClip();
   $('len').onchange = () => setLength(Number($('len').value));
-  $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
-  $('scrub').oninput = () => goFrame(Number($('scrub').value));
-  $('frame').onchange = () => goFrame(Number($('frame').value));
-  $('fprev').onclick = () => goFrame(frameNow() - 1);
-  $('fnext').onclick = () => goFrame(frameNow() + 1);
-  $('bone').onchange = () => selectBone(fighter.bones[$('bone').value] ?? null);
-  $('rotate').onclick = () => setMode('rotate');
-  $('move').onclick = () => setMode('move');
-  $('ik').onclick = () => setMode('ik');
-  $('space').onclick = () => { $('space').textContent = $('space').textContent === 'Local' ? 'World' : 'Local'; attachGizmo(); };
-  $('key').onclick = () => keyNow();
-  $('keyall').onclick = () => keyWholePose();
-  $('del').onclick = () => deleteKey();
-  $('prev').onclick = () => jumpKey(-1);
-  $('next').onclick = () => jumpKey(1);
+  $('fprev').onclick = () => goFrame(frame - 1);
+  $('fnext').onclick = () => goFrame(frame + 1);
+  $('frames').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) goFrame(Number(b.dataset.f)); };
+  $('play').onclick = () => (playing ? stopPreview() : startPreview());
+  $('copy').onclick = () => copyFrame();
+  $('paste').onclick = () => pasteFrame();
+  $('keyall').onclick = () => keyAll();
+  $('clear').onclick = () => clearFrame();
   $('undo').onclick = () => undo();
   $('redo').onclick = () => redo();
-  $('spread').oninput = () => {
-    const v = Number($('spread').value);
-    $('spreadv').textContent = v ? `${v.toFixed(2)} s each side` : '0 (this frame only)';
-  };
-  let clipboard = null;
-  $('copy').onclick = () => {
-    clipboard = fighter.mesh.skeleton.bones.map((b) => [b, b.quaternion.clone(), b.position.clone()]);
-    status(`Copied the pose on frame ${frameNow()}.`);
-  };
-  $('paste').onclick = () => {
-    if (!clipboard) { status('Copy a pose first.'); return; }
-    pushUndo();
-    time = Math.min(frameNow() / FPS, clip.duration);
-    for (const [b, q, p] of clipboard) {
-      if (/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name) || b.name === 'root') continue;
-      b.quaternion.copy(q);
-      keyBone(b, 'quaternion');
-      if (b.name === 'Hips') { b.position.copy(p); keyBone(b, 'position'); }
-    }
-    dirty.add(clip.name);
-    dropSplits(fighter.clips, clip.name);
-    rebind();
-    status(`Pasted the pose on frame ${frameNow()} (unsaved).`);
-  };
+  $('tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = Number(b.dataset.tab); buildJoints(); } };
+  // A slider drag is one undo step: snapshot on its first move.
+  let sliding = false;
+  $('joints').addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el.dataset.j) return;
+    stopPreview();
+    if (!sliding || el.type === 'number') pushUndo();
+    sliding = el.type === 'range';
+    const v = Number(el.value);
+    if (Number.isFinite(v)) setJoint(el.dataset.j, el.dataset.k, v);
+  });
+  $('joints').addEventListener('change', () => { sliding = false; status(`Keyed on frame ${frame} (unsaved).`); });
+  $('joints').addEventListener('click', (e) => { const b = e.target.closest('[data-unkey]'); if (b) unkey(b.dataset.unkey); });
   $('use').onchange = () => syncUse();
   $('useclip').onclick = () => changeUse((m) => { m.clip = clip.name; if (m.end != null && m.end > clip.duration) m.end = clip.duration; }, `now plays ${clip.name}`);
-  $('sethit').onclick = () => changeUse((m) => { m.clip = clip.name; m.hit = +(frameNow() / FPS).toFixed(3); }, `the blow on frame ${frameNow()}`);
-  $('setend').onclick = () => changeUse((m) => { m.clip = clip.name; m.end = +(frameNow() / FPS).toFixed(3); }, `over on frame ${frameNow()}`);
+  $('sethit').onclick = () => changeUse((m) => { m.clip = clip.name; m.hit = +frameTime().toFixed(3); }, `the blow on frame ${frame}`);
+  $('setend').onclick = () => changeUse((m) => { m.clip = clip.name; m.end = +frameTime().toFixed(3); }, `over on frame ${frame}`);
   $('speed').onchange = () => changeUse((m) => { m.speed = THREE.MathUtils.clamp(Number($('speed').value) || 1, 0.1, 4); }, `speed ${$('speed').value}×`);
   $('save').onclick = () => saveEdits();
   $('revert').onclick = () => {
     if (clip.userData?.custom) {
-      if (!confirm(`Delete the clip ${clip.name}?`)) return;
+      if (!confirm(`Delete the animation ${clip.name}?`)) return;
       const edits = readEdits();
       delete edits[clip.name];
       writeEdits(edits);
@@ -680,12 +632,14 @@ export function createAnimEditor(ctx) {
       status('Deleted.');
       return;
     }
+    if (!confirm(`Put ${clip.name} back as it was originally?`)) return;
     for (const f of ctx.fighters()) { const c = f.clips.get(clip.name); if (c) revertClip(c, f.clips); }
     const edits = readEdits();
     delete edits[clip.name];
     writeEdits(edits);
     dirty.delete(clip.name);
-    rebind();
+    changed();
+    dirty.delete(clip.name);
     status(`${clip.name} is back to the original (reload to restore its length if you changed it).`);
   };
   $('export').onclick = async () => {
@@ -708,28 +662,35 @@ export function createAnimEditor(ctx) {
       if (data.anim) ctx.loadAnim?.(data.anim);
       fillClips(clip.name);
       chooseClip($('clip').value);
-      syncUse();
-      status(`Imported edits for ${Object.keys(edits).length} clip(s).`);
+      status(`Imported edits for ${Object.keys(edits).length} animation(s).`);
     } catch { status('That is not valid JSON.'); }
   };
 
-  // Click a joint marker to pick its bone.
+  // Click a joint marker to bring up its sliders.
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  ctx.canvas.addEventListener('pointerdown', (e) => {
-    if (!isOpen || gizmo.dragging || e.button !== 0) return;
+  let downAt = null;
+  ctx.canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+  ctx.canvas.addEventListener('pointerup', (e) => {
+    if (!isOpen || e.button !== 0 || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
     const r = ctx.canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, ctx.camera);
     const hit = ray.intersectObjects(markers.children, false)[0];
-    if (hit) selectBone(hit.object.userData.bone);
+    if (hit) pickJoint(hit.object.userData.bone.name);
   });
+  function pickJoint(name) {
+    picked = name;
+    const t = GROUPS.findIndex(([, j]) => j.some(([n]) => n === name));
+    if (t >= 0 && t !== tab) { tab = t; buildJoints(); } else syncJoints();
+    for (const m of markers.children) m.material = m.userData.bone.name === name ? markerOn : markerMat;
+    panel.querySelector(`[data-joint="${name}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
   addEventListener('keydown', (e) => {
     if (!isOpen || e.target.closest?.('input, select, textarea')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); redo(); return; }
-    if (e.code === 'KeyK') keyNow();
-    if (e.code === 'Comma') goFrame(frameNow() - 1);
-    if (e.code === 'Period') goFrame(frameNow() + 1);
+    if (e.code === 'Comma') goFrame(frame - 1);
+    if (e.code === 'Period') goFrame(frame + 1);
     if (e.code === 'Space') { e.preventDefault(); $('play').click(); }
   });
   addEventListener('beforeunload', (e) => { if (isOpen && dirty.size) { e.preventDefault(); e.returnValue = ''; } });
@@ -738,56 +699,49 @@ export function createAnimEditor(ctx) {
     fighter = f;
     isOpen = true;
     panel.hidden = false;
+    // The rest pose the sliders count from: the bones as loaded, before any animation.
+    f.mixer.stopAllAction();
+    for (const n of posedBones()) rest.set(n, { q: f.bones[n].quaternion.clone(), p: f.bones[n].position.clone() });
     fillClips('Idle_Sword_Out');
-    const bones = f.mesh.skeleton.bones.filter((b) => !/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name) && b.name !== 'root');
-    $('bone').innerHTML = '<option value="">—</option>' + bones.map((b) => `<option>${b.name}</option>`).join('');
     markers.clear();
-    for (const b of bones) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(b.name === 'Hips' ? 0.035 : 0.025, 10, 8), markerMat);
-      m.userData.bone = b;
+    for (const n of posedBones()) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(n === 'Hips' ? 0.035 : 0.025, 10, 8), markerMat);
+      m.userData.bone = f.bones[n];
       m.renderOrder = 30;
       markers.add(m);
     }
     markers.visible = true;
     fillUse();
-    syncUse();
+    // Framed as in the character creator.
+    ctx.camera.fov = 30;
+    ctx.camera.updateProjectionMatrix();
     orbit.target.copy(f.pos).add(new THREE.Vector3(0, 0.9, 0));
-    ctx.camera.position.copy(f.pos).add(new THREE.Vector3(1.6, 1.3, 2.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw));
+    ctx.camera.position.copy(f.pos).add(new THREE.Vector3(1.2, 1.3, 4.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw));
     orbit.enabled = true;
-    selectBone(null);
-    chooseClip($('clip').value);
-  }
-
-  function close() {
-    if (dirty.size && !confirm('Close without saving the changes?')) return;
-    dirty = new Set();
-    isOpen = false;
-    panel.hidden = true;
-    markers.visible = false;
-    gizmo.detach();
-    orbit.enabled = false;
-    playing = false;
-    ctx.onClose();
+    clip = fighter.clips.get($('clip').value);
+    buildJoints();
+    chooseClip(clip.name);
   }
 
   function update(dt) {
     if (!isOpen || !fighter) return;
-    if (playing && !gizmo.dragging) {
-      time += dt;
+    if (playing) {
+      time += dt * Number($('pspeed').value);
       if (time > clip.duration) {
         if ($('loop').checked) time %= clip.duration;
-        else { time = clip.duration; playing = false; $('play').textContent = '▶ Play'; }
+        else { time = clip.duration; stopPreview(); }
       }
-      pose();
-    } else if (!gizmo.dragging) {
-      fighter.finishPose();
+      if (playing) {
+        pose(time);
+        $('fnow').textContent = `${Math.round(time * FPS)} / ${frameCount()}  ·  ${time.toFixed(2)} s`;
+      }
     } else {
-      fighter.root.updateMatrixWorld(true);
+      fighter.finishPose();
     }
     fighter.hair?.rig.update(Math.max(dt, 1e-4), fighter.hair.state);
     for (const m of markers.children) m.userData.bone.getWorldPosition(m.position);
     orbit.update();
   }
 
-  return { open, close, update, get isOpen() { return isOpen; } };
+  return { open, update, close() {}, get isOpen() { return isOpen; } };
 }

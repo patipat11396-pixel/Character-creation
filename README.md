@@ -145,26 +145,23 @@ in the Stats panel sets how often and how well (default 0.5: about a third of
 blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
 guard, which the stab then breaks.
 
-**Animation editor** (`anim-editor.html`, its own page; the ✎ button in the
-fight opens it). Pick the body and a clip and step through it frame by frame
-(30 fps: ◀ frame / frame ▶, the slider, the frame number, or the , and .
-keys; Space plays and pauses). Pick a bone (click a blue joint or use the
-list) and pose it: Rotate turns it with the gizmo rings, Move hips moves the
-hips, IK drag pulls a hand or foot and the arm or leg follows; Local / World
-sets the gizmo axes. Letting go keys it on that frame (or Set key / K, Key
-whole pose for every bone); Delete key, ◀ key / key ▶ jump between keys. A
-change touches that frame only, unless "Blend into nearby frames" is raised.
-Copy pose / Paste pose here copies every bone between frames; Undo / Redo
-(Ctrl+Z / Ctrl+Y) step back through changes. Duplicate as new clip makes a
-copy to work on under a new name; the length box trims or extends a clip.
-"Use in the game" picks a move (Light 1–3, Heavy, Air, Dash, Feint strike,
-the foe's moves) or a pose slot (idle, run, stagger, …) and gives it this
-clip (Use this clip), its blow frame (Hit = this frame), its end frame (End
-= this frame) and speed. Save puts the edits into the fight (kept in this
-browser, for both fighters); Revert restores a clip (or deletes a made one);
-Export JSON gives the edits and move settings to send in and bake into the
-game, Import JSON loads them. The page warns before leaving with unsaved
-changes.
+**Animation editor** (`anim-editor.html`, its own page in the character
+creator's style; the ✎ button in the fight opens it). Pick the body and an
+animation, then a frame (the numbered frame boxes, ‹ ›, or the , and . keys;
+gold boxes have keys). The joints are in tabs (Body, Head, Right arm, Left
+arm, Right leg, Left leg; or click a blue joint on the figure): each has X / Y
+/ Z sliders and number boxes in degrees from the rest pose, and the hips also
+move (cm). A change keys that joint on that frame only; Unkey removes it, so
+the frame follows the frames around it. Copy frame / Paste frame, Key all
+joints, Clear frame, Undo / Redo (Ctrl+Z / Ctrl+Y). Preview plays the
+animation (0.25×, 0.5×, 1×, loop; Space). Duplicate as new… makes a copy to
+work on; Length trims or extends it. "Use in the game" gives a move (Light
+1–3, Heavy, Air, Dash, Feint strike, the foe's moves) or a pose (idle, run,
+stagger, …) this animation, its blow frame (Hit = this frame), its end frame
+(End = this frame) and speed. Save puts the edits into the fight (kept in
+this browser, for both fighters); Revert puts an animation back (or deletes a
+made one); Export JSON gives the edits and move settings to send in and bake
+into the game, Import JSON loads them.
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
 away and no blow for 4 s) the fighter stands easy, the sword hanging point

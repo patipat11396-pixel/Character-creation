@@ -49,7 +49,14 @@ composer.addPass(blur);
 composer.addPass(new OutputPass());
 const draw = () => composer.render();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d8d4, 1.6));
+// The animation editor page is a studio, as in the character creator: a dark
+// room, a round floor, no arena.
+const STUDIO = !!window.ANIM_EDITOR_PAGE;
+if (STUDIO) {
+  scene.background = new THREE.Color(0x15171c);
+  scene.fog = null;
+}
+scene.add(new THREE.HemisphereLight(0xffffff, STUDIO ? 0x2a2d35 : 0xd8d8d4, STUDIO ? 0.9 : 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
 sun.position.set(6, 12, 5);
 sun.castShadow = true;
@@ -57,7 +64,15 @@ sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 40 });
 scene.add(sun);
 
-{
+if (STUDIO) {
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(1.8, 64), new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.95 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+  const rim = new THREE.DirectionalLight(0xbfd4ff, 1.2);
+  rim.position.set(-2, 2, -2.5);
+  scene.add(rim);
+} else {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM * 2, ROOM * 2),
     new THREE.MeshStandardMaterial({ color: 0xfafaf8, roughness: 0.95 }));
   floor.rotation.x = -Math.PI / 2;
