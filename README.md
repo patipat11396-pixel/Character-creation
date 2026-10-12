@@ -104,6 +104,17 @@ shoulder (up to 43°). Where the blade touches several zones, the one nearest
 its tip counts (then the more vital). The stab never aims below 0.8 m (it
 would pass between the legs).
 
+**Body parts.** Head, torso, each arm and each leg have their own HP (25%,
+45%, 20% and 25% of max HP); a blow that lands (not one blocked) takes its
+damage off the part it hit as well. A part at 0 breaks — head: dazed 2.5 s
+taking double damage; torso: +30% damage taken and a guard stops half as
+much; sword (right) arm: −60% damage dealt; off (left) arm: blocking costs
+60% more stamina; a leg: −60% walking, running and dodging speed (jumps
+to 60%). Parts heal 5% a second after 3 s unhit and mend at 40%. Both
+fighters have them; the figures beside the HP bars show them, and the enemy
+aims too (mostly the body, often the legs, sometimes the head). The head
+zone is kept small, so it is hard to hit.
+
 **Hit zones.** The blade has to touch the target: capsules on the bones
 (B shows them). Vital zones take more damage and crit more: head ×2.0
 (+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,

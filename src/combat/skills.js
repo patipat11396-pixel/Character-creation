@@ -33,9 +33,9 @@ export const ARTS = {
     // clips with the sword held in the fist).
     combo: [
       { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec', chainFrom: 0.15,
-        damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0, hitY: 0.56 },
+        damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0, hitY: 0.8 },
       { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
-        damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75, hitY: 0.6 },
+        damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75, hitY: 0.45 },
       // Finisher: 0.75 s of clip at 1.8x takes 0.42 s, under 0.5 s with the hit-stop.
       { clip: 'Sword_Regular_C', speed: 1.8, hit: 0.17, end: 0.75, chainFrom: 0.5,
         damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true, hitY: 0.69 },
@@ -61,14 +61,14 @@ export const ARTS = {
     // The sparring partner's moves (the same art, read from the other side).
     enemy: [
       { name: 'slash', clip: 'Sword_Regular_A', speed: 0.55, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec',
-        damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6 },
+        damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6, hitY: 0.56 },
       { name: 'slash2', clip: 'Sword_Regular_B', speed: 0.6, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec',
-        damage: 14, range: 2.3, arc: 100, lunge: 0.5 },
+        damage: 14, range: 2.3, arc: 100, lunge: 0.5, hitY: 0.6 },
       { name: 'heavy', clip: 'Sword_Attack', speed: 0.6, hit: 0.52, end: 1.1, damage: 28, range: 2.6, arc: 120,
-        lunge: 0.9, reach: 0.95, unblockable: true, parryable: false },
+        lunge: 0.9, reach: 0.95, unblockable: true, parryable: false, hitY: 1.13 },
       // The spinning cut: quicker than it was (0.4x), still readable.
       { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.8, hit: 0.17, end: 0.75, damage: 20, range: 2.6, arc: 70,
-        lunge: 1.0, stagger: true },
+        lunge: 1.0, stagger: true, hitY: 0.69 },
     ],
   },
 };
@@ -92,7 +92,8 @@ export const ANIM_SLOTS = {
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
-  stagger: { clip: 'Stagger', speed: 1 },   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
+  stagger: { clip: 'Stagger', speed: 1 },
+  daze: { clip: 'Dizzy', speed: 1 },          // head broken: dazed (looped)   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
   death: { clip: 'Death_A', speed: 1 },
 };
 
@@ -123,7 +124,8 @@ export const DEFAULT_STATS = {
 //   damage     multiplier, crit  extra critical chance (added to baseCrit)
 export const HIT_ZONES = [
   // The rig has no Head_end bone: the head runs `lift` m up the Head bone's own axis.
-  { name: 'head', label: 'Head', from: 'Head', to: null, lift: 0.18, radius: 0.11, damage: 2.0, crit: 0.35 },
+  // Kept small: the head is meant to be hard to hit.
+  { name: 'head', label: 'Head', from: 'Head', to: null, lift: 0.15, radius: 0.08, damage: 2.0, crit: 0.35 },
   { name: 'neck', label: 'Neck', from: 'Neck', to: 'Head', radius: 0.065, damage: 1.8, crit: 0.25 },
   { name: 'chest', label: 'Chest', from: 'Spine1', to: 'Neck', radius: 0.15, damage: 1.3, crit: 0.10 },
   { name: 'abdomen', label: 'Abdomen', from: 'Hips', to: 'Spine1', radius: 0.15, damage: 1.1, crit: 0.05 },
@@ -139,5 +141,28 @@ export const HIT_ZONES = [
 // Zones are tested most vital first: a blade touching the neck and the chest counts the neck.
 export const ZONE_ORDER = ['head', 'neck', 'chest', 'abdomen', 'arm', 'leg'];
 export const CRIT = { baseChance: 0.05, damage: 1.8 };
+
+// Body parts, each with its own HP (a share of the fighter's max HP). A blow
+// that lands (not one blocked) takes its damage off the part it hit as well.
+// A part at 0 is broken until it heals back to `mendAt` of its HP; parts heal
+// on their own (`regen` of their HP per second) once not hit for `regenAfter` s.
+export const BODY_PARTS = {
+  head: { label: 'Head', share: 0.25 },
+  torso: { label: 'Torso', share: 0.45 },
+  armL: { label: 'Left arm', share: 0.2 },
+  armR: { label: 'Right arm', share: 0.2 },
+  legL: { label: 'Left leg', share: 0.25 },
+  legR: { label: 'Right leg', share: 0.25 },
+};
+export const PART_RULES = {
+  regen: 0.05, regenAfter: 3, mendAt: 0.4,
+  headDaze: 2.5,         // head broken: dazed this long, taking x dazedDamage
+  dazedDamage: 2,
+  torsoDamage: 1.3,      // torso broken: takes 30% more, and a guard stops half as much
+  torsoGuard: 0.5,
+  armRDamage: 0.4,       // sword arm broken: deals 60% less
+  armLGuardCost: 1.6,    // off arm broken: blocking costs 60% more stamina
+  legSpeed: 0.4,         // a leg broken: moves, dodges and jumps 60% less
+};
 // The blade is live from this long before a move's hit time to this long after (clip seconds).
 export const BLADE_ACTIVE = { before: 0.16, after: 0.1 };

@@ -4,7 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE } from './skills.js';
+import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE, BODY_PARTS, PART_RULES } from './skills.js';
 import { readSetup, skinMaterial, applyFace, hairFor } from './look.js';
 
 // Sword combat demo: a white room, the player and one sparring enemy.
@@ -213,6 +213,7 @@ class Fighter {
     this.comboIndex = -1;
     this.queued = false;
     this.counterUntil = 0;
+    this.parts = makeParts(this.maxHp);
     this.invulnUntil = 0;
     scene.add(this.root);
   }
@@ -615,6 +616,15 @@ function updateBars() {
     : player.comboIndex >= 0 && player.state === 'attack' ? `${ART.name} · ${player.comboIndex + 1}` : ART.name;
   $('combo').style.color = broken > 0 ? '#c8323c' : '';
   $('enemy-text').textContent += guardBroken(enemy) ? ' · guard broken' : '';
+  for (const [id, f] of [['body-p', player], ['body-e', enemy]]) {
+    for (const el of $(id).children) {
+      const part = f.parts[el.dataset.part];
+      const k = part.hp / part.max;
+      el.classList.toggle('broken', part.broken);
+      // green -> yellow -> red as the part's HP falls (a broken one blinks red)
+      el.style.fill = part.broken ? '' : `hsl(${Math.round(110 * k)}, 55%, ${48 + 6 * (1 - k)}%)`;
+    }
+  }
 }
 
 // ------------------------------------------------------------------ input
@@ -811,6 +821,12 @@ function startMove(f, move) {
   f.setState('attack');
   f.play(move.clip, { loop: false, speed: move.speed ?? 1, fade: 0.08 });
   f.hitAt = gameTime + move.hit / (move.speed ?? 1);   // scheduled moment of the blow (game time)
+  // The enemy aims too: mostly the body, often the legs, now and then the head.
+  if (!f.isPlayer) {
+    const r = Math.random();
+    const want = aimHeightAt(player, r < 0.15 ? 'head' : r < 0.6 ? 'chest' : 'legs');
+    f.aim = THREE.MathUtils.clamp((Math.max(want, move.aimFloor ?? 0) - (move.hitY ?? 1)) * AIM.perMetre, -AIM.max, AIM.max);
+  }
   // Soft lock: close the gap to a target in front, so the blade ends at its body
   // (up to 2 m; a move's own lunge is the least it moves).
   const foe = f.isPlayer ? enemy : player;
@@ -851,6 +867,9 @@ function resolveHit(att, def, zone) {
   }
   let dmg = move.damage * zone.damage;
   let crit = false;
+  if (partBroken(att, 'armR')) dmg *= PART_RULES.armRDamage;
+  if (partBroken(def, 'torso')) dmg *= PART_RULES.torsoDamage;
+  if (gameTime < (def.dazedUntil ?? 0)) dmg *= PART_RULES.dazedDamage;
   if (att.isPlayer && gameTime < att.counterUntil) dmg *= stats.counterBonus;
   if (Math.random() < CRIT.baseChance + zone.crit) { crit = true; dmg *= CRIT.damage; }
   // Blocking (holding parry, facing the attacker).
@@ -860,6 +879,7 @@ function resolveHit(att, def, zone) {
     def.stamina = Math.max(0, def.stamina - 30);
     breakGuard(def);
     def.hp = Math.max(0, def.hp - dmg);
+    hurtPart(def, zone, dmg);
     sound('crit');
     floatText(zone.a.clone().lerp(zone.b, 0.5), `Guard Break ${Math.round(dmg)}`, 'crit');
     hitStop = 0.1;
@@ -870,9 +890,11 @@ function resolveHit(att, def, zone) {
     return;
   }
   if (blocking && !move.unblockable) {
-    dmg *= def.isPlayer ? 1 - stats.blockReduction : 0.25;
+    // A broken torso lets twice as much through the guard.
+    const through = (def.isPlayer ? 1 - stats.blockReduction : 0.25) * (partBroken(def, 'torso') ? 1 / PART_RULES.torsoGuard : 1);
+    dmg *= Math.min(1, through);
     crit = false;
-    def.stamina -= move.guardDamage ?? stats.blockCost;
+    def.stamina -= (move.guardDamage ?? stats.blockCost) * (partBroken(def, 'armL') ? PART_RULES.armLGuardCost : 1);
     sound('block');
     fightShake(att, def, 0.04);
     sparks(zone.a.clone().lerp(zone.b, 0.5), 0xfff0b0);
@@ -886,8 +908,10 @@ function resolveHit(att, def, zone) {
     fightShake(att, def, crit ? 0.09 : 0.06);
   }
   def.hp = Math.max(0, def.hp - dmg);
+  hitLog.push(`  ${Math.round(dmg * 10) / 10}${blocking && !move.unblockable ? ' blocked' : ''}`);
   if (def.hp <= 0) { die(def); return; }
   if (!blocking || move.unblockable) {
+    if (hurtPart(def, zone, dmg) === 'head') return;   // dazed
     addPoise(def, move, dmg);
     // Flinch, unless attacking with armour (the enemy's heavy blows) and not a
     // staggering blow; a full stagger gauge staggers anyway.
@@ -901,6 +925,57 @@ function resolveHit(att, def, zone) {
 function fightShake(att, def, amount) {
   if (def.isPlayer) shake(amount);
   else if (att.isPlayer) shake(amount * 0.6);
+}
+
+// ------------------------------------------------------------------ body parts
+
+function makeParts(maxHp) {
+  return Object.fromEntries(Object.entries(BODY_PARTS).map(([k, p]) => [k, { max: maxHp * p.share, hp: maxHp * p.share, broken: false, hitAt: -99 }]));
+}
+/** The body part a hit zone belongs to. */
+function partOf(zone) {
+  const side = zone.from.startsWith('Left') ? 'L' : 'R';
+  if (zone.name === 'head' || zone.name === 'neck') return 'head';
+  if (zone.name === 'arm') return `arm${side}`;
+  if (zone.name === 'leg') return `leg${side}`;
+  return 'torso';
+}
+function partBroken(f, key) { return !!f.parts?.[key]?.broken; }
+function legsBroken(f) { return partBroken(f, 'legL') || partBroken(f, 'legR'); }
+/** Movement multiplier: a broken leg slows walking, running, dodging and jumping. */
+function legMul(f) { return legsBroken(f) ? PART_RULES.legSpeed : 1; }
+
+/** Take a landed blow's damage off its part; returns the part's key if it broke now. */
+function hurtPart(f, zone, dmg) {
+  const key = partOf(zone), part = f.parts[key];
+  part.hp = Math.max(0, part.hp - dmg);
+  part.hitAt = gameTime;
+  if (part.hp > 0 || part.broken) return null;
+  part.broken = true;
+  const at = zone.a.clone().lerp(zone.b, 0.5);
+  const text = { head: 'Head broken — dazed', torso: 'Torso broken — defence down', armR: 'Sword arm broken — damage −60%',
+    armL: 'Off arm broken — guard costs more', legL: 'Leg broken — speed −60%', legR: 'Leg broken — speed −60%' }[key];
+  floatText(at, text, 'status');
+  if (f.isPlayer) message(text, 'bad'); else message(text, 'good');
+  sound('crit');
+  if (key === 'head') {
+    // Dazed: reeling on the spot, every blow doubled.
+    f.dazedUntil = gameTime + PART_RULES.headDaze;
+    f.move = null;
+    f.comboIndex = -1;
+    f.setState('stagger');
+    f.hitDur = PART_RULES.headDaze;
+    f.playSlot('daze', { loop: true, fade: 0.1 });
+    shake(0.08);
+  }
+  return key;
+}
+function healParts(f, dt) {
+  for (const part of Object.values(f.parts)) {
+    if (gameTime - part.hitAt < PART_RULES.regenAfter || part.hp >= part.max) continue;
+    part.hp = Math.min(part.max, part.hp + part.max * PART_RULES.regen * dt);
+    if (part.broken && part.hp >= part.max * PART_RULES.mendAt) part.broken = false;
+  }
 }
 
 // A broken guard cannot block or parry for this long.
@@ -952,7 +1027,7 @@ function addPoise(f, move, dmg) {
 
 /** While staggering, the fighter is carried back with its steps (at least 0.75 m/s for 0.9 s). */
 function staggerDrift(f) {
-  if (f.state !== 'stagger' || f.t > 0.9) return;
+  if (f.state !== 'stagger' || f.t > 0.9 || gameTime < (f.dazedUntil ?? 0)) return;
   const back = f.forward(new THREE.Vector3()).negate();
   f.vel.copy(back.multiplyScalar(Math.max(0.75, f.vel.dot(back))));
 }
@@ -1150,7 +1225,7 @@ function playerUpdate(dt) {
     doDodge(wish);
   } else if (p.state === 'dodge') {
     const k = p.t < 0.32 ? 1 : 0;
-    p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * (1 - p.t / 0.32));
+    p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * legMul(p) * (1 - p.t / 0.32));
     if (p.t > 0.5) p.setState('idle');
   } else if (p.state === 'attack') {
     const mt = p.moveTime();
@@ -1210,7 +1285,7 @@ function playerUpdate(dt) {
       else if (p.sprinting && p.stamina > 10) { p.comboIndex = -1; p.stamina -= 10; startMove(p, ART.dash); }
       else { p.comboIndex = 0; startMove(p, ART.combo[0]); }
     } else if (jumpPress && p.grounded && p.stamina >= stats.jumpCost) {
-      p.vy = 5.4;
+      p.vy = 5.4 * (legsBroken(p) ? 0.6 : 1);   // a jump only drops to 60% (the -60% left no jump at all)
       p.grounded = false;
       p.stamina -= stats.jumpCost;
       p.playSlot('jump', { fade: 0.1 });
@@ -1219,7 +1294,7 @@ function playerUpdate(dt) {
       if (p.state !== 'block') p.setState('block');
       const near = dist2(p, enemy) < 8 * 8;
       if (near) p.faceTarget(enemy, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
-      p.vel.copy(wish).multiplyScalar(stats.guardSpeed);
+      p.vel.copy(wish).multiplyScalar(stats.guardSpeed * legMul(p));
       const g = ANIM_SLOTS.guard;
       if (wish.lengthSq()) {
         // Legs by the step's direction against the facing; the guard on top.
@@ -1241,7 +1316,7 @@ function playerUpdate(dt) {
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
-      p.vel.copy(wish).multiplyScalar(speed);
+      p.vel.copy(wish).multiplyScalar(speed * legMul(p));
       if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
       if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
         p.playSlot(moving ? (p.sprinting ? 'sprint' : 'run') : 'idle', { fade: 0.18 });
@@ -1349,7 +1424,7 @@ function enemyUpdate(dt) {
       e.faceTarget(player, dt, 8);
       const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
       const side = new THREE.Vector3(toP.z, 0, -toP.x).multiplyScalar(e.strafeDir);
-      e.vel.copy(side).multiplyScalar(1.6).addScaledVector(toP, (d - 2.2) * 0.8);
+      e.vel.copy(side).multiplyScalar(1.6).addScaledVector(toP, (d - 2.2) * 0.8).multiplyScalar(legMul(e));
       if (e.t > e.strafeFor) { e.setState('idle'); e.think = 0; }
       break;
     }
@@ -1360,7 +1435,7 @@ function enemyUpdate(dt) {
         e.state = 'chase';
         const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
         const speed = d > 6 ? 3.8 : 2.2;
-        e.vel.copy(toP).multiplyScalar(speed);
+        e.vel.copy(toP).multiplyScalar(speed * legMul(e));
         e.playSlot(d > 6 ? 'run' : 'walk', { fade: 0.2 });
       } else {
         e.vel.multiplyScalar(0.7);
@@ -1409,10 +1484,12 @@ function shake(a) { shakeAmp = Math.max(shakeAmp, a); }
 // default view, head looking up. Each move tilts by what it needs from its
 // own natural blow height (move.hitY, metres, measured with no aim) to there.
 const AIM = { level: 0.18, down: 0.9, up: -0.35, perMetre: 0.95, max: 0.75 };
+function aimHeightAt(target, where) {
+  const z = target.zones.find((x) => x.name === { legs: 'leg', chest: 'chest', head: 'head' }[where]);
+  return where === 'head' ? z.a.y + 0.08 : 0.5 * (z.a.y + z.b.y);
+}
 function aimHeight(target) {
-  const z = (name) => target.zones.find((x) => x.name === name);
-  const legs = z('leg'), chest = z('chest'), head = z('head');
-  const legY = 0.5 * (legs.a.y + legs.b.y), chestY = 0.5 * (chest.a.y + chest.b.y), headY = head.a.y + 0.1;
+  const legY = aimHeightAt(target, 'legs'), chestY = aimHeightAt(target, 'chest'), headY = aimHeightAt(target, 'head');
   if (camPitch >= AIM.level) return THREE.MathUtils.lerp(chestY, legY, Math.min(1, (camPitch - AIM.level) / (AIM.down - AIM.level)));
   return THREE.MathUtils.lerp(chestY, headY, Math.min(1, (AIM.level - camPitch) / (AIM.level - AIM.up)));
 }
@@ -1541,6 +1618,7 @@ function tick(real) {
     s.m.material.opacity = Math.max(0, 1 - s.life / 0.25);
     if (s.life > 0.25) { scene.remove(s.m); sparkPool.splice(i, 1); }
   }
+  for (const f of [player, enemy]) healParts(f, dt);
   for (const f of [player, enemy]) {
     if (f.poise > 0 && gameTime - (f.poiseAt ?? 0) > STAGGER.decayAfter) f.poise = Math.max(0, f.poise - STAGGER.decay * dt);
   }
@@ -1571,6 +1649,9 @@ function reset() {
     f.hp = f.maxHp;
     f.stamina = stats.maxStamina;
     f.poise = 0;
+    f.parts = makeParts(f.maxHp);
+    f.dazedUntil = 0;
+    f.guardBrokenUntil = 0;
     f.move = null;
     f.comboIndex = -1;
     f.setState('idle');
@@ -1630,6 +1711,8 @@ window.combat = {
   hold(code, on) { if (on) keys.add(code); else keys.delete(code); },
   click() { clicked = true; },
   look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },
+  /** Damage a fighter's body part directly (as a landed blow on that zone would). */
+  hurt(who, zoneName, dmg) { const f = who === 'enemy' ? enemy : player; return hurtPart(f, f.zones.find((z) => z.name === zoneName), dmg); },
   /** Run n fixed steps (no rendering in between), then draw once. */
   start() { active = true; $('start').hidden = true; },
   step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } draw(); },

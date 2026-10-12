@@ -34,6 +34,12 @@
   #enemy-poise, #poise-fill { background: linear-gradient(#f0a040, #d06a10); }
   #poise { bottom: 30px; width: min(420px, 80vw); height: 4px; }
   #enemy-fill { background: linear-gradient(#e2525a, #8a1c1c); }
+  .bodyfig { position: absolute; width: 34px; height: 62px; }
+  .bodyfig > * { fill: #6fbf6a; stroke: rgba(0,0,0,0.35); stroke-width: 1; transition: fill 0.15s; }
+  .bodyfig .broken { animation: broken 0.8s infinite alternate; }
+  @keyframes broken { from { fill: #7a0f16; } to { fill: #e0303a; } }
+  #body-p { bottom: 70px; left: calc(50% - min(210px, 40vw)); }
+  #body-e { top: 66px; left: calc(50% - min(260px, 43vw)); }
   #enemy-text { font-size: 11px; color: #666; }
   #message { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.96); font-size: 30px; font-weight: 700; letter-spacing: 0.04em;
     opacity: 0; transition: opacity 0.15s, transform 0.15s; text-shadow: 0 2px 8px rgba(255,255,255,0.8); white-space: nowrap; }
@@ -90,6 +96,22 @@
   <div class="bar" id="st"><i id="st-fill"></i></div>
   <div class="bar" id="poise"><i id="poise-fill"></i></div>
   <div id="combo"></div>
+  <svg class="bodyfig" id="body-p" viewBox="0 0 40 72" aria-label="Body parts">
+    <circle data-part="head" cx="20" cy="7" r="6"/>
+    <rect data-part="torso" x="13" y="15" width="14" height="23" rx="3"/>
+    <rect data-part="armR" x="5" y="15" width="6" height="22" rx="3"/>
+    <rect data-part="armL" x="29" y="15" width="6" height="22" rx="3"/>
+    <rect data-part="legR" x="13" y="40" width="6.5" height="30" rx="3"/>
+    <rect data-part="legL" x="20.5" y="40" width="6.5" height="30" rx="3"/>
+  </svg>
+  <svg class="bodyfig" id="body-e" viewBox="0 0 40 72" aria-label="Body parts">
+    <circle data-part="head" cx="20" cy="7" r="6"/>
+    <rect data-part="torso" x="13" y="15" width="14" height="23" rx="3"/>
+    <rect data-part="armR" x="5" y="15" width="6" height="22" rx="3"/>
+    <rect data-part="armL" x="29" y="15" width="6" height="22" rx="3"/>
+    <rect data-part="legR" x="13" y="40" width="6.5" height="30" rx="3"/>
+    <rect data-part="legL" x="20.5" y="40" width="6.5" height="30" rx="3"/>
+  </svg>
   <div id="skills"><div class="skill" id="skill-e"><b>E</b><span>Feint<br>虚招</span><i id="skill-e-cd"></i></div></div>
 </div>
 <div id="help">
@@ -99,6 +121,7 @@
   <div><b>Space</b> jump · <b>Ctrl</b> / <b>C</b> sprint</div>
   <div><b>Alt</b> side step — perfect if pressed just before the blow</div>
   <div><b>Shift</b> hold: guard (−50%), walk slowly with it up · tap just before the blow: parry</div>
+  <div><b>Body parts</b> (the figures): each has its own HP and heals slowly. Broken — head: dazed 2.5 s (×2 damage) · torso: +30% damage taken, guard weaker · sword arm: −60% damage · off arm: guard costs more · a leg: −60% speed, dodge, jump</div>
   <div><b>E</b> Feint 虚招 — fake heavy wind-up, then a fast stab that breaks a guard: no guard or parry for 5 s (cooldown 4 s)</div>
   <p>Gold flash: blockable. <span style="color:#c8323c">Red flash: unblockable</span> — dodge it. The ring on the enemy's blade closes on the blow and turns white in the perfect window.
   H: timing ring · B: hit zones · F: fullscreen (lets Ctrl through) · R: restart</p>
