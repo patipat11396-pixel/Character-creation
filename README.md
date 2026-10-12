@@ -74,7 +74,9 @@ swordsman, with a third-person camera.
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
-for 1 s (it reels back two steps; no stun). A guard broken by a feint or
+for 0.3 s while the parrier sweeps their blade out and away from the body
+(`Parry_Sweep`, made at load by IK from the guard pose; an attack may cut
+it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
 guard bounces off: the attacker is held for 0.1 s (the swing runs back a
 little) and the combo is cut short. Every blow that lands or is blocked, given
@@ -89,6 +91,13 @@ zoom-in. Every swing leaves a trail behind the blade while it is live
 sprinting, walking and strafing use the plain locomotion clips with the
 sword arm held in the stance (`Run_Sword` etc., made at load): in the
 plain run the arm swung the blade past the neck.
+
+Light cut 1 ends once the cut is through and eases back into the stance (its
+own recovery clip twirled the sword); the spinning finisher (and the enemy's
+spin) lands as the spin comes round, not as it starts. A blade that touches
+before its blow's scheduled moment (the aim can tilt a swing into the target
+early) lands at that moment, so the timing ring and the parry and dodge
+windows stay true.
 
 Two clips are made from the rig at load, since the library has none:
 `Sword_Stab` (a lunge, arm and legs placed by two-bone IK with the feet

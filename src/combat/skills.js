@@ -8,7 +8,8 @@
 //   speed     playback speed (hit and end times are in clip seconds)
 //   hit       when the blow lands
 //   end       when the move is over (the next move may start)
-//   rec       optional recovery clip played when no next move follows
+//   rec       optional recovery clip played when no next move follows ('idle': ease into the stance)
+//   recFade   crossfade into it (s; default 0.1)
 //   chainFrom earliest time a buffered attack press starts the next move
 //   damage    base damage
 //   range     reach in metres, arc in degrees (centred on facing)
@@ -32,12 +33,15 @@ export const ARTS = {
     // Hit times are where the blade reaches furthest in front (measured on the
     // clips with the sword held in the fist).
     combo: [
-      { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec', chainFrom: 0.15,
+      // Ends once the cut is through (0.34; after that the clip whips the blade back round)
+      // and eases back into the stance (its own recovery clip twirls the sword).
+      { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.34, rec: 'idle', recFade: 0.25, chainFrom: 0.15,
         damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0, hitY: 0.8 },
       { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
         damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75, hitY: 0.45 },
-      // Finisher: 0.75 s of clip at 1.8x takes 0.42 s, under 0.5 s with the hit-stop.
-      { clip: 'Sword_Regular_C', speed: 1.8, hit: 0.17, end: 0.75, chainFrom: 0.5,
+      // Finisher, the spinning cut: the blow lands as the spin comes round (0.65; the blade
+      // also passes in front at 0.17, as the spin starts). 0.92 s of clip at 2.15x: 0.43 s.
+      { clip: 'Sword_Regular_C', speed: 2.15, hit: 0.65, end: 0.92, chainFrom: 0.5,
         damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true, hitY: 0.69 },
     ],
     // Heavy attack (right click / Q): slow overhead blow; staggers, and a
@@ -60,14 +64,14 @@ export const ARTS = {
     },
     // The sparring partner's moves (the same art, read from the other side).
     enemy: [
-      { name: 'slash', clip: 'Sword_Regular_A', speed: 0.55, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec',
+      { name: 'slash', clip: 'Sword_Regular_A', speed: 0.55, hit: 0.22, end: 0.34, rec: 'idle',
         damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6, hitY: 0.56 },
       { name: 'slash2', clip: 'Sword_Regular_B', speed: 0.6, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec',
         damage: 14, range: 2.3, arc: 100, lunge: 0.5, hitY: 0.6 },
       { name: 'heavy', clip: 'Sword_Attack', speed: 0.6, hit: 0.52, end: 1.1, damage: 28, range: 2.6, arc: 120,
         lunge: 0.9, reach: 0.95, unblockable: true, parryable: false, hitY: 1.13 },
-      // The spinning cut: quicker than it was (0.4x), still readable.
-      { name: 'thrust', clip: 'Sword_Regular_C', speed: 0.8, hit: 0.17, end: 0.75, damage: 20, range: 2.6, arc: 70,
+      // The spinning cut: the blow as the spin comes round (0.65 of the clip, 0.59 s at 1.1x).
+      { name: 'thrust', clip: 'Sword_Regular_C', speed: 1.1, hit: 0.65, end: 0.92, damage: 20, range: 2.6, arc: 70,
         lunge: 1.0, stagger: true, hitY: 0.69 },
     ],
   },

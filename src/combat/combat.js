@@ -186,6 +186,7 @@ class Fighter {
     // strike) and a stagger (reeling back a couple of steps).
     this.clips.set('Sword_Stab', makeStabClip(this));
     this.clips.set('Stagger', makeStaggerClip(this));
+    this.clips.set('Parry_Sweep', makeParrySweepClip(this));
     // Locomotion with the sword arm held in the stance: in the plain run the
     // arm swings the blade past the neck.
     for (const [name, base] of [['Run_Sword', 'Jog'], ['Sprint_Sword', 'Sprint'], ['Walk_Sword', 'Walk'], ['Walk_Backwards_Sword', 'Walk_Backwards'],
@@ -489,6 +490,67 @@ function makeStabClip(f) {
   ];
   poseFromClip(f, idle, 0);
   return new THREE.AnimationClip('Sword_Stab', 0.5, tracks);
+}
+
+/**
+ * After a perfect parry: a sweep. From the guard the blade meets the blow in
+ * front of the chest, then the arm carries it out and away from the body to
+ * the sword side (the point leading, the body turning with it), batting the
+ * other blade aside, and settles back into the guard. Arm by two-bone IK
+ * from the held guard pose, so it fits each body.
+ */
+function makeParrySweepClip(f) {
+  const guard = f.clips.get(ANIM_SLOTS.guard.clip) ?? f.clips.get('Sword_Block');
+  const B = f.bones;
+  const at = ANIM_SLOTS.guard.hold ?? 0.45;
+  const record = ['Spine1', 'Spine2', 'RightArm', 'RightForeArm', 'RightHand'];
+  // Keys: hand (forward, right, up from the shoulder, m), blade direction (forward, right, up), body turn (deg, + = with the sweep).
+  const meet = { hand: [0.42, -0.12, -0.1], blade: [0.35, -0.1, 1], twist: -8 };
+  const out = { hand: [0.36, 0.32, -0.02], blade: [0.55, 0.75, 0.45], twist: 18 };
+  const keys = [[0, null, 0], [0.07, meet, 1], [0.2, out, 1], [0.27, out, 1], [0.4, out, 0]];
+  const times = [];
+  for (let t = 0; t <= 0.4 + 1e-6; t += 0.025) times.push(Math.round(t * 1000) / 1000);
+  const ease = (x) => x * x * (3 - 2 * x);
+  const lerp3 = (a, b, w) => a.map((v, i) => v + (b[i] - v) * w);
+  const sample = (t) => {
+    let i = 0;
+    while (i < keys.length - 2 && t > keys[i + 1][0]) i++;
+    const [t0, k0, w0] = keys[i], [t1, k1, w1] = keys[i + 1];
+    const u = ease(THREE.MathUtils.clamp((t - t0) / (t1 - t0), 0, 1));
+    const a = k0 ?? k1, b = k1 ?? k0;
+    return { hand: lerp3(a.hand, b.hand, u), blade: lerp3(a.blade, b.blade, u), twist: a.twist + (b.twist - a.twist) * u, w: w0 + (w1 - w0) * u };
+  };
+  const up = new THREE.Vector3(0, 1, 0);
+  const values = Object.fromEntries(record.map((n) => [n, []]));
+  for (const t of times) {
+    const k = sample(t);
+    poseFromClip(f, guard, at);
+    const rest = Object.fromEntries(record.map((n) => [n, B[n].quaternion.clone()]));
+    const fwd = new THREE.Vector3(0, 0, 1).transformDirection(f.root.matrixWorld).setY(0).normalize();
+    const right = fwd.clone().cross(up);
+    for (const n of ['Spine1', 'Spine2']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(up.clone().negate(), THREE.MathUtils.degToRad(k.twist / 2)));
+    const S = B.RightArm.getWorldPosition(new THREE.Vector3());
+    const E = B.RightForeArm.getWorldPosition(new THREE.Vector3()), H = B.RightHand.getWorldPosition(new THREE.Vector3());
+    const l1 = S.distanceTo(E), l2 = E.distanceTo(H);
+    const T = S.clone().addScaledVector(fwd, k.hand[0]).addScaledVector(right, k.hand[1]).addScaledVector(up, k.hand[2]);
+    const toT = T.clone().sub(S), dist = THREE.MathUtils.clamp(toT.length(), Math.abs(l1 - l2) + 1e-3, (l1 + l2) * 0.999), dir = toT.normalize();
+    const a = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+    const pole = up.clone().negate().addScaledVector(right, 0.6);
+    pole.addScaledVector(dir, -pole.dot(dir)).normalize();
+    aimBone(B.RightArm, B.RightForeArm, S.clone().addScaledVector(dir, a).addScaledVector(pole, h));
+    aimBone(B.RightForeArm, B.RightHand, S.clone().addScaledVector(dir, dist));
+    const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
+    const want = fwd.clone().multiplyScalar(k.blade[0]).addScaledVector(right, k.blade[1]).addScaledVector(up, k.blade[2]).normalize();
+    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(blade, want));
+    for (const n of record) values[n].push(...rest[n].clone().slerp(B[n].quaternion, k.w).toArray());
+  }
+  const tracks = [
+    ...guard.tracks.filter((tr) => !(record.includes(trackBone(tr)) && tr.name.endsWith('.quaternion')))
+      .map((tr) => new tr.constructor(tr.name, [0], tr.createInterpolant().evaluate(Math.min(at, tr.times[tr.times.length - 1])).slice())),
+    ...record.map((n) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, values[n])),
+  ];
+  poseFromClip(f, f.clips.get('Idle_Sword'), 0);
+  return new THREE.AnimationClip('Parry_Sweep', 0.4, tracks);
 }
 
 /** `base` with the right arm (shoulder to hand) taken from the sword idle. */
@@ -829,6 +891,7 @@ const hitLog = [];
 function startMove(f, move) {
   f.move = move;
   f.moveHit = false;
+  f.pendingZone = null;
   f.bladePrev = null;
   f.setState('attack');
   f.play(move.clip, { loop: false, speed: move.speed ?? 1, fade: 0.08 });
@@ -1005,10 +1068,16 @@ function perfect(def, att, text, parry = false) {
   sound('perfect');
   def.invulnUntil = gameTime + 0.4;
   def.counterUntil = gameTime + 1.6;
-  slowUntil = gameTime + (parry ? 0.35 : 0.6);
+  // (A parry's slow motion is short: the attacker's 0.3 s stagger should still feel short.)
+  slowUntil = gameTime + (parry ? 0.1 : 0.6);
   if (parry) {
     const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
     stagger(att, STAGGER.perfect, null);
+    // The parrier sweeps the other blade aside, out from the body (attacks may cut it short after 0.12 s).
+    def.move = null;
+    def.setState('push');
+    def.setUpper(null);
+    def.play('Parry_Sweep', { loop: false, fade: 0.05 });
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
@@ -1021,7 +1090,7 @@ function perfect(def, att, text, parry = false) {
 
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
-const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 1.0, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
+const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.3, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
   f.move = null;
   f.comboIndex = -1;
@@ -1063,7 +1132,8 @@ function stagger(f, dur, text) {
   f.move = null;
   f.setState('stagger');
   f.hitDur = dur;
-  f.playSlot('stagger', { loop: false, fade: 0.06 });
+  // A short stagger plays the reel faster, so it shows more than its first moment.
+  f.playSlot('stagger', { loop: false, fade: 0.06, speed: ANIM_SLOTS.stagger.speed * Math.max(1, 0.6 / dur) });
   if (text) floatText(f.zones[0].a, text, 'status');
 }
 
@@ -1205,8 +1275,11 @@ function bladeStep(att, def) {
   if (live && att.bladePrev) {
     // A timed defence counts at the scheduled blow even if the blade would graze nothing yet.
     const due = gameTime >= att.hitAt && inFront(att, def, move.range, move.arc);
-    const zone = bladeContact(att.bladePrev, now, def);
-    if (zone) resolveHit(att, def, zone);
+    // A blade that touches before the blow's scheduled moment (the aim tilts the swing)
+    // lands at that moment: the timing ring and the parry / dodge windows stay true.
+    const zone = att.pendingZone ?? bladeContact(att.bladePrev, now, def);
+    if (zone && gameTime < att.hitAt - 0.02) att.pendingZone = zone;
+    else if (zone) { att.pendingZone = null; resolveHit(att, def, zone); }
     else if (due && !att.timedChecked) {
       att.timedChecked = true;
       const sinceDodge = att.hitAt - (def.dodgeAt ?? -99);
@@ -1242,7 +1315,9 @@ function playerUpdate(dt) {
   const heavyPress = rightClicked || pressed.has('KeyQ');
   if (parryPress) p.parryAt = gameTime;
 
-  const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12);
+  // The parry sweep plays out unless an action cuts it off (after 0.12 s).
+  const cutPush = p.state === 'push' && p.t > 0.12 && (attackPress || heavyPress || dodgePress || jumpPress || pressed.has(ART.skills.feint.key));
+  const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12) || cutPush;
   const afterHit = p.state === 'attack' && p.moveHit;
 
   if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil') {
@@ -1250,6 +1325,9 @@ function playerUpdate(dt) {
     if (p.state === 'hit' && p.t > 0.25 && dodgePress) doDodge(wish);
   } else if (dodgePress && (canAct || afterHit || p.state === 'feint' || p.state === 'attack' && p.t < 0.1) && p.stamina >= stats.dodgeCost && p.grounded) {
     doDodge(wish);
+  } else if (p.state === 'push' && !cutPush) {
+    p.vel.set(0, 0, 0);
+    if (p.t > 0.4) p.setState('idle');
   } else if (p.state === 'dodge') {
     const k = p.t < 0.32 ? 1 : 0;
     p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * legMul(p) * (1 - p.t / 0.32));
@@ -1271,10 +1349,11 @@ function playerUpdate(dt) {
         p.queued = false;
         startMove(p, ART.combo[p.comboIndex]);
       } else {
-        const rec = p.move.rec;
+        const rec = p.move.rec, recFade = p.move.recFade ?? 0.1;
         p.move = null;
         p.queued = false;
-        if (rec) { p.setState('recover'); p.play(rec, { loop: false, fade: 0.1, speed: 1.3 }); } else p.setState('idle');
+        // rec 'idle': ease straight back into the stance (a recovery clip of its own would twirl the blade).
+        if (rec) { p.setState('recover'); if (rec === 'idle') p.playSlot('idle', { fade: recFade }); else p.play(rec, { loop: false, fade: recFade, speed: 1.3 }); } else p.setState('idle');
         if (!rec) p.comboIndex = -1;
       }
     }
@@ -1436,7 +1515,7 @@ function enemyUpdate(dt) {
           const rec = e.move.rec;
           e.move = null;
           e.setState('recover');
-          if (rec) e.play(rec, { loop: false, fade: 0.1 }); else e.playSlot('idle', { fade: 0.2 });
+          if (rec && rec !== 'idle') e.play(rec, { loop: false, fade: 0.1 }); else e.playSlot('idle', { fade: 0.25 });
           e.think = 0.7 + Math.random() * 0.6;
         }
       }
