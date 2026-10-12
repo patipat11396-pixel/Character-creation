@@ -74,7 +74,8 @@ swordsman, with a third-person camera.
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
-for 0.3 s while the parrier sweeps their blade out and away from the body
+for 0.3 s while the parrier, at once (no guard raised first), shoves their
+blade out and away from the body
 (`Parry_Sweep`, made at load by IK from the guard pose; an attack may cut
 it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a

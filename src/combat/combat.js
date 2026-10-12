@@ -493,10 +493,10 @@ function makeStabClip(f) {
 }
 
 /**
- * After a perfect parry: a sweep. From the guard the blade meets the blow in
- * front of the chest, then the arm carries it out and away from the body to
- * the sword side (the point leading, the body turning with it), batting the
- * other blade aside, and settles back into the guard. Arm by two-bone IK
+ * After a perfect parry: a shove. Straight from the blades meeting in front
+ * of the chest (no guard raised first), the arm drives the blade out and away
+ * from the body to the sword side (the point leading, the body turning with
+ * it), batting the other blade aside, then eases into the guard. Arm by two-bone IK
  * from the held guard pose, so it fits each body.
  */
 function makeParrySweepClip(f) {
@@ -507,9 +507,10 @@ function makeParrySweepClip(f) {
   // Keys: hand (forward, right, up from the shoulder, m), blade direction (forward, right, up), body turn (deg, + = with the sweep).
   const meet = { hand: [0.42, -0.12, -0.1], blade: [0.35, -0.1, 1], twist: -8 };
   const out = { hand: [0.36, 0.32, -0.02], blade: [0.55, 0.75, 0.45], twist: 18 };
-  const keys = [[0, null, 0], [0.07, meet, 1], [0.2, out, 1], [0.27, out, 1], [0.4, out, 0]];
+  // No raising of the guard first: it starts on the blades meeting and shoves straight out.
+  const keys = [[0, meet, 1], [0.1, out, 1], [0.2, out, 1], [0.35, out, 0]];
   const times = [];
-  for (let t = 0; t <= 0.4 + 1e-6; t += 0.025) times.push(Math.round(t * 1000) / 1000);
+  for (let t = 0; t <= 0.35 + 1e-6; t += 0.025) times.push(Math.round(t * 1000) / 1000);
   const ease = (x) => x * x * (3 - 2 * x);
   const lerp3 = (a, b, w) => a.map((v, i) => v + (b[i] - v) * w);
   const sample = (t) => {
@@ -550,7 +551,7 @@ function makeParrySweepClip(f) {
     ...record.map((n) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, values[n])),
   ];
   poseFromClip(f, f.clips.get('Idle_Sword'), 0);
-  return new THREE.AnimationClip('Parry_Sweep', 0.4, tracks);
+  return new THREE.AnimationClip('Parry_Sweep', 0.35, tracks);
 }
 
 /** `base` with the right arm (shoulder to hand) taken from the sword idle. */
@@ -1077,7 +1078,7 @@ function perfect(def, att, text, parry = false) {
     def.move = null;
     def.setState('push');
     def.setUpper(null);
-    def.play('Parry_Sweep', { loop: false, fade: 0.05 });
+    def.play('Parry_Sweep', { loop: false, fade: 0.04 });
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
@@ -1327,7 +1328,7 @@ function playerUpdate(dt) {
     doDodge(wish);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
-    if (p.t > 0.4) p.setState('idle');
+    if (p.t > 0.35) p.setState('idle');
   } else if (p.state === 'dodge') {
     const k = p.t < 0.32 ? 1 : 0;
     p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * legMul(p) * (1 - p.t / 0.32));
@@ -1402,7 +1403,9 @@ function playerUpdate(dt) {
       if (near) p.faceTarget(enemy, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(stats.guardSpeed * legMul(p));
       const g = ANIM_SLOTS.guard;
-      if (wish.lengthSq()) {
+      // The guard is drawn only once the parry window has passed: a parry that
+      // lands goes straight into its shove without the guard coming up first.
+      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
         // Legs by the step's direction against the facing; the guard on top.
         const f = p.forward(tmp);
         const fwd = wish.dot(f), side = wish.x * f.z - wish.z * f.x;
