@@ -494,9 +494,9 @@ function makeStabClip(f) {
 
 /**
  * After a perfect parry: a shove. Straight from the blades meeting in front
- * of the chest (no guard raised first), the arm drives the blade out and away
- * from the body to the sword side (the point leading, the body turning with
- * it), batting the other blade aside, then eases into the guard. Arm by two-bone IK
+ * of the chest (no guard raised first), the arm drives the blade out to the
+ * left, across and away from the body (the point leading, the body turning
+ * with it), batting the other blade aside, then eases into the guard. Arm by two-bone IK
  * from the held guard pose, so it fits each body.
  */
 function makeParrySweepClip(f) {
@@ -505,8 +505,9 @@ function makeParrySweepClip(f) {
   const at = ANIM_SLOTS.guard.hold ?? 0.45;
   const record = ['Spine1', 'Spine2', 'RightArm', 'RightForeArm', 'RightHand'];
   // Keys: hand (forward, right, up from the shoulder, m), blade direction (forward, right, up), body turn (deg, + = with the sweep).
-  const meet = { hand: [0.42, -0.12, -0.1], blade: [0.35, -0.1, 1], twist: -8 };
-  const out = { hand: [0.36, 0.32, -0.02], blade: [0.55, 0.75, 0.45], twist: 18 };
+  // Swept to the left, across the body (the inside of the sword arm), the body turning with it.
+  const meet = { hand: [0.42, 0.08, -0.1], blade: [0.35, 0.1, 1], twist: 6 };
+  const out = { hand: [0.38, -0.3, -0.04], blade: [0.55, -0.75, 0.45], twist: -20 };
   // No raising of the guard first: it starts on the blades meeting and shoves straight out.
   const keys = [[0, meet, 1], [0.1, out, 1], [0.2, out, 1], [0.35, out, 0]];
   const times = [];
