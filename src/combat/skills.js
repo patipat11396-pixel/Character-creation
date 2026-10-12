@@ -81,7 +81,8 @@ export const ARTS = {
 // Poses (not attacks): the clip and speed for each. The menu's Animation
 // panel changes these and the moves above (clip, speed, hit, end).
 export const ANIM_SLOTS = {
-  idle: { clip: 'Idle_Sword_Out', speed: 1 },   // the sword held out in front (made at load from Idle_Sword)
+  idle: { clip: 'Idle_Sword_Out', speed: 1 },   // ready to fight: wide and side-on, the sword out at the foe (made at load)
+  idleCalm: { clip: 'Idle_Relaxed', speed: 1 },  // not fighting: standing easy, the sword hanging point down (made at load)
   // Locomotion clips with the sword arm held in the stance (made at load).
   run: { clip: 'Run_Sword', speed: 1 },
   sprint: { clip: 'Sprint_Sword', speed: 1 },

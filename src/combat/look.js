@@ -106,17 +106,53 @@ varying vec3 vSkinPos;`)
   return mat;
 }
 
-/** Face shape keys from the setup, on every part that has them. */
+/** Face shape keys and the mouth (expression) from the setup, on every part that has them. */
 export function applyFace(root, setup) {
   const face = setup?.face ?? {};
+  const m = setup?.mouth ?? {};
+  // The mouth as the menu mixes it: smile below 0 is a frown.
+  const mouth = { jawOpen: m.open ?? 0, smile: Math.max(m.smile ?? 0, 0), frown: Math.max(-(m.smile ?? 0), 0), mouthRound: m.round ?? 0 };
   root.traverse((o) => {
     if (!o.morphTargetDictionary) return;
     for (const [k, v] of Object.entries(face)) {
       const i = o.morphTargetDictionary[k];
       if (i !== undefined) o.morphTargetInfluences[i] = v < 0 ? v * (FACE_NEG_SCALE[k] ?? 1) : v;
     }
+    for (const [k, v] of Object.entries(mouth)) {
+      const i = o.morphTargetDictionary[k];
+      if (i !== undefined) o.morphTargetInfluences[i] = v;
+    }
   });
 }
+
+// ---- clothes, as fitted in the menu
+const CLOTH_FIT_DEFAULTS = { size: 1, width: 1, height: 1, depth: 1, up: 0, forward: 0 };
+
+/**
+ * The material for a garment (a Cloth_<id> part) with its fit from the menu:
+ * scaled about its own centre and offset in the body's bind pose before
+ * skinning (mesh cm: x side, y back, z up), as the menu does.
+ */
+export function clothMaterial(o, fit) {
+  const f = { ...CLOTH_FIT_DEFAULTS, ...fit };
+  o.geometry.computeBoundingBox();
+  const u = {
+    clothScale: { value: new THREE.Vector3(f.size * f.width, f.size * f.depth, f.size * f.height) },
+    clothOffset: { value: new THREE.Vector3(0, -f.forward, f.up) },
+    clothCentre: { value: o.geometry.boundingBox.getCenter(new THREE.Vector3()) },
+  };
+  const m = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide, shadowSide: THREE.FrontSide });
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 clothScale; uniform vec3 clothOffset; uniform vec3 clothCentre;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed = (transformed - clothCentre) * clothScale + clothCentre + clothOffset;');
+  };
+  return m;
+}
+
+/** Thighs turned inward (degrees) while animating, as set in the menu: the clips were made for wider hips. */
+export const LEG_DEFAULTS = { female: 6, male: 0 };
 
 /**
  * The setup's hairstyle on a fighter (in its bind pose, before it moves).

@@ -5,7 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE, BODY_PARTS, PART_RULES } from './skills.js';
-import { readSetup, skinMaterial, applyFace, hairFor } from './look.js';
+import { readSetup, skinMaterial, applyFace, hairFor, clothMaterial, LEG_DEFAULTS } from './look.js';
 import { applyAnimEdits, createAnimEditor } from './editor.js';
 
 // Sword combat demo: a white room, the player and one sparring enemy.
@@ -163,10 +163,18 @@ class Fighter {
         o.castShadow = true;
         o.frustumCulled = false;
         if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name) && !o.material.name.startsWith('Cloth_')) this.mesh = o;
-        if (o.material.name.startsWith('Cloth_')) o.material = new THREE.MeshStandardMaterial({ color: o.material.color, roughness: 0.85, side: THREE.DoubleSide });
+        // Clothes as fitted in the menu (the save's fit, else the defaults' one).
+        if (o.material.name.startsWith('Cloth_')) {
+          const id = o.material.name.slice('Cloth_'.length);
+          o.material = clothMaterial(o, opts.setup?.clothFits?.[body]?.[id] ?? opts.defaults?.clothFits?.[body]?.[id]);
+        }
       }
     });
     this.mesh.material = opts.skin;
+    // From the menu: the free hand's grip (the sword hand is always a fist) and the leg stance.
+    const hands = opts.setup?.hands ?? opts.defaults?.hands;
+    this.freeGrip = hands === 'fist' ? 1 : hands === 'open' ? 0 : 0.25;
+    this.legDeg = opts.setup?.legs?.[body] ?? opts.defaults?.legs?.[body] ?? LEG_DEFAULTS[body] ?? 0;
     applyFace(this.root, opts.setup);
     this.bones = Object.fromEntries(this.mesh.skeleton.bones.map((b) => [b.name, b]));
     this.mixer = new THREE.AnimationMixer(this.root);
@@ -176,7 +184,7 @@ class Fighter {
     this.fingers = [];
     for (const [name, bone] of Object.entries(this.bones)) {
       const m = name.match(/^(Left|Right)Hand(Thumb|Index|Middle|Ring|Pinky)([123])$/);
-      if (m) this.fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[2]][m[3] - 1]) * (m[1] === 'Right' ? 1 : 0.25) });
+      if (m) this.fingers.push({ bone, rest: bone.quaternion.clone(), angle: THREE.MathUtils.degToRad(FIST[m[2]][m[3] - 1]), right: m[1] === 'Right' });
     }
     // Sword in the right hand: blade forward with the arm out (bind pose), grip in the palm.
     this.root.updateMatrixWorld(true);
@@ -186,6 +194,8 @@ class Fighter {
     // Clips the library lacks, made from the rig: a stab (the feint's real
     // strike) and a stagger (reeling back a couple of steps).
     this.clips.set('Idle_Sword_Out', makeStanceClip(this));
+    { const easy = this.clips.get('Idle_A') ?? this.clips.get('Idle_Sword');
+      this.clips.set('Idle_Relaxed', makeLungeClip(this, 'Idle_Relaxed', [[0, STAB.relaxed], [easy.duration, STAB.relaxed]], easy.duration, easy, 0.1)); }
     // The feint: the chamber (the bait), then the lunge (the real strike).
     this.clips.set('Stab_Chamber', makeLungeClip(this, 'Stab_Chamber', [[0, STAB.stance], [0.2, STAB.chamber], [0.6, STAB.chamber]], 0.6));
     this.clips.set('Sword_Stab', makeLungeClip(this, 'Sword_Stab', [[0, STAB.chamber], [0.12, STAB.lunge], [0.3, STAB.lunge], [0.5, STAB.stance]], 0.5));
@@ -345,8 +355,20 @@ class Fighter {
     this.root.rotation.y = this.yaw;
     this.bones.Head.scale.setScalar(HEAD_SCALE);
     const q = new THREE.Quaternion();
-    for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle));
+    for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle * (f.right ? 1 : this.freeGrip)));
     this.root.updateMatrixWorld(true);
+    // Legs as set in the menu: both thighs turned inward about the body's
+    // forward axis by legDeg (negative: wider).
+    if (this.legDeg) {
+      const axis = this.forward(new THREE.Vector3());
+      for (const [name, sign] of [['LeftUpLeg', -1], ['RightUpLeg', 1]]) {
+        const bone = this.bones[name];
+        const pw = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+        const turn = new THREE.Quaternion().setFromAxisAngle(axis, THREE.MathUtils.degToRad(sign * this.legDeg));
+        bone.quaternion.premultiply(pw.clone().invert().multiply(turn).multiply(pw));
+      }
+      this.root.updateMatrixWorld(true);
+    }
     // Aim: while attacking, the cut is tilted up or down by `aim` (radians,
     // + = up), a third by the body bending and the rest at the sword shoulder
     // (bending the body alone pulled the blade back out of reach when aiming
@@ -418,6 +440,16 @@ function aimBone(bone, child, target) {
 // hilt) or a target from its shoulder (forward, right, up).
 const STAB = {
   stance: null,
+  // Idle out of the fight: standing easy, the sword hanging in the right hand
+  // a little out from the body, the point down and forward; the free arm as
+  // the idle has it.
+  relaxed: { armDir: [0.12, 0.2, -1], reach: 0.97, blade: [0.42, 0.32, -0.85], left: null, look: 'ahead' },
+  // The ready stance: side-on, wide and low, the front (sword side) leg long
+  // toward the foe, the weight on the bent back knee; the sword arm straight
+  // out at the foe a little below the shoulder, the blade in line rising a
+  // little; the free hand up and open in front of the chest; eyes on the foe.
+  guard: { twist: -12, lean: -2, down: 0.12, push: -0.12, step: 0.3, back: 0.12, side: 0.08, square: 0,
+    hand: null, reach: 0.96, lineDrop: 0.12, blade: [1, 0.02, 0.3], left: [0.28, 0.2, -0.05], look: 'ahead' },
   // The chamber: hilt drawn back to the right of the chest in both hands, the
   // blade level and pointing at the foe, the body coiled back, a wide low stance.
   chamber: { twist: 30, lean: -4, down: 0.14, push: -0.08, step: 0.18, square: 0, hand: [0.02, -0.14, -0.12], blade: [1, -0.06, 0.03], left: 'grip' },
@@ -449,23 +481,24 @@ function headForward(f) {
  * stance), sampled every 1/40 s from the stance, arms and legs placed by
  * two-bone IK (the back foot planted) so it fits each body.
  */
-function makeLungeClip(f, name, keys, duration) {
-  const stance = f.clips.get('Idle_Sword_Out');
+function makeLungeClip(f, name, keys, duration, base = null, step = 0.025) {
+  const stance = base ?? f.clips.get('Idle_Sword_Out');
   const B = f.bones;
   const record = ['Hips', 'Spine1', 'Spine2', 'Head', 'RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand',
     'RightUpLeg', 'RightLeg', 'LeftUpLeg', 'LeftLeg'];
   const up = new THREE.Vector3(0, 1, 0);
   const smooth = (x) => { x = THREE.MathUtils.clamp(x, 0, 1); return x * x * (3 - 2 * x); };
   const times = [];
-  for (let t = 0; t <= duration + 1e-6; t += 0.025) times.push(Math.round(t * 1000) / 1000);
+  for (let t = 0; t <= duration + 1e-6; t += step) times.push(Math.round(t * 1000) / 1000);
+  if (times[times.length - 1] < duration - 1e-6) times.push(duration);
   const values = Object.fromEntries(record.map((n) => [n, []]));
   const hipsValues = [];
   const solve = (k) => {
     // Pose the body for `k` from the current (stance) pose; returns nothing.
     const fwd = new THREE.Vector3(0, 0, 1).transformDirection(f.root.matrixWorld).setY(0).normalize();
     const right = fwd.clone().cross(up);
-    const footL = B.LeftFoot.getWorldPosition(new THREE.Vector3());
-    const footR = B.RightFoot.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, k.step);
+    const footL = B.LeftFoot.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, -k.back).addScaledVector(right, -k.side);
+    const footR = B.RightFoot.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, k.step).addScaledVector(right, k.side * 0.5);
     const hipsW = B.Hips.getWorldPosition(new THREE.Vector3()).addScaledVector(up, -k.down).addScaledVector(fwd, k.push);
     B.Hips.position.copy(B.Hips.parent.worldToLocal(hipsW));
     B.Hips.updateMatrixWorld(true);
@@ -486,27 +519,31 @@ function makeLungeClip(f, name, keys, duration) {
     const S = B.RightArm.getWorldPosition(new THREE.Vector3());
     const reach = S.distanceTo(B.RightForeArm.getWorldPosition(new THREE.Vector3())) + B.RightForeArm.getWorldPosition(new THREE.Vector3()).distanceTo(B.RightHand.getWorldPosition(new THREE.Vector3()));
     // The line of the thrust: from the sword shoulder to the foe's centre line at shoulder height.
-    const centre = f.root.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, 1.8).setY(S.y);
+    const centre = f.root.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, 1.8).setY(S.y - k.lineDrop);
     const line = centre.sub(S).normalize();
-    const target = (h) => (h ? S.clone().addScaledVector(fwd, h[0]).addScaledVector(right, h[1]).addScaledVector(up, h[2])
-      : S.clone().addScaledVector(line, reach * 0.999));
-    const T = k.from ? target(k.from.hand).lerp(target(k.to.hand), k.w) : target(k.hand);
+    const target = (pose) => (pose.hand ? S.clone().addScaledVector(fwd, pose.hand[0]).addScaledVector(right, pose.hand[1]).addScaledVector(up, pose.hand[2])
+      : pose.armDir ? S.clone().addScaledVector(fwd.clone().multiplyScalar(pose.armDir[0]).addScaledVector(right, pose.armDir[1]).addScaledVector(up, pose.armDir[2]).normalize(), reach * k.reach)
+        : S.clone().addScaledVector(line, reach * k.reach));
+    const T = k.from ? target(k.from).lerp(target(k.to), k.w) : target(k);
     twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, T, up.clone().negate().addScaledVector(right, 0.5));
     const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
     const bladeOf = (pose) => (pose.blade ? fwd.clone().multiplyScalar(pose.blade[0]).addScaledVector(right, pose.blade[1]).addScaledVector(up, pose.blade[2]).normalize() : line.clone());
     const want = k.from ? bladeOf(k.from).lerp(bladeOf(k.to), k.w).normalize() : bladeOf(k);
     turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(blade, want));
-    // Eyes down the blade: the face turned to the sword's point.
+    // Eyes down the blade (the face turned to the sword's point), or on the foe ahead.
     {
       const face = headForward(f).applyQuaternion(B.Head.getWorldQuaternion(new THREE.Quaternion()));
-      const tip = f.sword.localToWorld(f.sword.userData.tip.clone());
-      const toTip = tip.sub(B.Head.getWorldPosition(new THREE.Vector3())).normalize();
+      const headAt = B.Head.getWorldPosition(new THREE.Vector3());
+      const ahead = (k.from ? (k.w < 0.5 ? k.from.look : k.to.look) : k.look) === 'ahead';
+      const tip = ahead ? headAt.clone().addScaledVector(fwd, 3) : f.sword.localToWorld(f.sword.userData.tip.clone());
+      const toTip = tip.sub(headAt).normalize();
       turnBoneWorld(B.Head, new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(face, toTip), 0.85));
     }
     // The free hand: on the hilt below the sword hand, or flung out.
     const SL = B.LeftArm.getWorldPosition(new THREE.Vector3());
     const grip = B.RightHand.getWorldPosition(new THREE.Vector3()).addScaledVector(want, -0.09).addScaledVector(right, 0.03).addScaledVector(up, -0.03);
     const leftT = (l) => (l === 'grip' ? grip.clone() : SL.clone().addScaledVector(fwd, l[0]).addScaledVector(right, l[1]).addScaledVector(up, l[2]));
+    if (!(k.from ? k.from.left && k.to.left : k.left)) return;   // the free arm left as the base has it
     const TL = k.from ? leftT(k.from.left).lerp(leftT(k.to.left), k.w) : leftT(k.left);
     // Elbow down and in when on the hilt; down and out when free.
     twoBoneIK(B.LeftArm, B.LeftForeArm, B.LeftHand, TL, up.clone().negate().addScaledVector(right, (k.from ? (k.from.left === 'grip' && k.w < 0.5) : k.left === 'grip') ? 0.3 : -0.5));
@@ -523,7 +560,10 @@ function makeLungeClip(f, name, keys, duration) {
     const a = k0 ?? k1, b = k1 ?? k0;
     const toStance = k0 && !k1 ? u : !k0 && k1 ? 1 - u : 0;
     const k = { from: a, to: b, w: u };
-    for (const key of ['twist', 'lean', 'down', 'push', 'step', 'square']) k[key] = a[key] + (b[key] - a[key]) * u;
+    const num = (p, key, d) => p[key] ?? d;
+    for (const [key, d] of [['twist', 0], ['lean', 0], ['down', 0], ['push', 0], ['step', 0], ['square', 0], ['back', 0], ['side', 0], ['reach', 0.999], ['lineDrop', 0]]) {
+      k[key] = num(a, key, d) + (num(b, key, d) - num(a, key, d)) * u;
+    }
     solve(k);
     for (const n of record) values[n].push(...B[n].quaternion.clone().slerp(rest[n], toStance).toArray());
     hipsValues.push(...B.Hips.position.clone().lerp(restHips, toStance).toArray());
@@ -627,36 +667,12 @@ function makeStanceClip(f) {
   // The sword idle leads with the left foot and shoulder; mirrored, the sword side leads.
   const mirrored = makeMirroredClip(f, idle, 'Idle_Sword_Mirrored');
   const leftArm = (n) => /^Left(Shoulder|Arm|ForeArm|Hand)/.test(n);
-  const B = f.bones;
-  const record = ['Spine1', 'Spine2', 'RightArm', 'RightForeArm', 'RightHand'];
-  const up = new THREE.Vector3(0, 1, 0);
-  const times = [];
-  for (let t = 0; t <= idle.duration + 1e-6; t += 0.1) times.push(Math.round(t * 1000) / 1000);
-  if (times[times.length - 1] < idle.duration) times.push(idle.duration);
-  const values = Object.fromEntries(record.map((n) => [n, []]));
-  for (const t of times) {
-    poseFromClip(f, mirrored, t, (n) => !leftArm(n));
-    poseFromClip(f, idle, t, leftArm);   // the free arm as it was (mirrored, it would hold the old sword pose)
-    const fwd = new THREE.Vector3(0, 0, 1).transformDirection(f.root.matrixWorld).setY(0).normalize();
-    const right = fwd.clone().cross(up);
-    // The sword shoulder a little forward.
-    for (const n of ['Spine1', 'Spine2']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(up, THREE.MathUtils.degToRad(6)));
-    const S = B.RightArm.getWorldPosition(new THREE.Vector3());
-    const reach = S.distanceTo(B.RightForeArm.getWorldPosition(new THREE.Vector3())) + B.RightForeArm.getWorldPosition(new THREE.Vector3()).distanceTo(B.RightHand.getWorldPosition(new THREE.Vector3()));
-    const T = S.clone().addScaledVector(fwd, reach * 0.86).addScaledVector(right, -0.04).addScaledVector(up, -0.1);
-    twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, T, up.clone().negate().addScaledVector(right, 0.6));
-    const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
-    const want = fwd.clone().multiplyScalar(0.78).addScaledVector(up, 0.5).addScaledVector(right, -0.36).normalize();
-    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(blade, want));
-    for (const n of record) values[n].push(...B[n].quaternion.toArray());
-  }
-  const tracks = [
-    ...mirrored.tracks.filter((tr) => !leftArm(trackBone(tr)) && !(record.includes(trackBone(tr)) && tr.name.endsWith('.quaternion'))),
+  // The base: the mirrored idle (it breathes), the free arm as it was.
+  const base = new THREE.AnimationClip('Idle_Sword_Base', idle.duration, [
+    ...mirrored.tracks.filter((tr) => !leftArm(trackBone(tr))),
     ...idle.tracks.filter((tr) => leftArm(trackBone(tr))),
-    ...record.map((n) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, values[n])),
-  ];
-  poseFromClip(f, idle, 0);
-  return new THREE.AnimationClip('Idle_Sword_Out', idle.duration, tracks);
+  ]);
+  return makeLungeClip(f, 'Idle_Sword_Out', [[0, STAB.guard], [idle.duration, STAB.guard]], idle.duration, base, 0.1);
 }
 
 /**
@@ -1072,7 +1088,8 @@ function startMove(f, move) {
   f.move = move;
   f.moveHit = false;
   f.pendingZone = null;
-  f.moveSerial = (f.moveSerial ?? 0) + 1;   // the enemy reads each of the player's moves once
+  f.moveSerial = (f.moveSerial ?? 0) + 1;
+  lastCombatAt = gameTime;   // the enemy reads each of the player's moves once
   // The next move of a combo keeps the foe it is hitting stunned until this blow lands.
   const held = f.isPlayer ? enemy : player;
   if (held?.state === 'hit' && held.stunBy === f) held.hitDur = Math.max(held.hitDur, held.t + move.hit / (move.speed ?? 1) + 0.05);
@@ -1293,6 +1310,18 @@ function flinch(f, att, hard) {
   f.stunBy = att;
   f.playSlot(Math.random() < 0.5 ? 'hitLight' : 'hitLight2', { loop: false, fade: 0.04 });
 }
+
+/**
+ * In the fight (the ready stance) or not (the relaxed idle): the fight has
+ * started and the foe is near, or there was a blow in the last 4 s.
+ */
+let lastCombatAt = -99;
+function engaged(f) {
+  if (!active) return false;
+  const foe = f === player ? enemy : player;
+  return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
+}
+const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
 
 /** Defending (guard, parry, dodge) waits DEFEND_DELAY s after an attack ends, and is never possible mid-attack. */
 const DEFEND_DELAY = 0.1;
@@ -1603,7 +1632,7 @@ function playerUpdate(dt) {
         p.move = null;
         p.queued = false;
         // rec 'idle': ease straight back into the stance (a recovery clip of its own would twirl the blade).
-        if (rec) { p.setState('recover'); if (rec === 'idle') p.playSlot('idle', { fade: recFade }); else p.play(rec, { loop: false, fade: recFade, speed: 1.3 }); } else p.setState('idle');
+        if (rec) { p.setState('recover'); if (rec === 'idle') p.playSlot(idleSlot(p), { fade: recFade }); else p.play(rec, { loop: false, fade: recFade, speed: 1.3 }); } else p.setState('idle');
         if (!rec) p.comboIndex = -1;
       }
     }
@@ -1677,7 +1706,7 @@ function playerUpdate(dt) {
       p.vel.copy(wish).multiplyScalar(speed * legMul(p));
       if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
       if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
-        p.playSlot(moving ? (p.sprinting ? 'sprint' : 'run') : 'idle', { fade: 0.18 });
+        p.playSlot(moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: moving ? 0.18 : 0.35 });
         p.state = moving ? 'move' : 'idle';
       }
     }
@@ -1901,7 +1930,7 @@ function enemyUpdate(dt) {
   e.t += dt;
   const d = Math.sqrt(dist2(e, player));
   if (e.state === 'dead') return;
-  if (player.state === 'dead') { e.playSlot('idle'); e.vel.set(0, 0, 0); physics(e, dt); return; }
+  if (player.state === 'dead') { e.playSlot('idleCalm', { fade: 0.4 }); e.vel.set(0, 0, 0); physics(e, dt); return; }
   e.think = (e.think ?? 1) - dt;
   if (e.state !== 'block' && e.state !== 'dodge') e.stamina = Math.min(stats.maxStamina, e.stamina + stats.staminaRegen * dt);
   enemyRead(e, d);
@@ -1995,7 +2024,7 @@ function enemyUpdate(dt) {
       } else {
         e.vel.multiplyScalar(0.7);
         e.state = 'idle';
-        e.playSlot('idle', { fade: 0.2 });
+        e.playSlot(idleSlot(e), { fade: 0.3 });
       }
       if (e.think <= 0) enemyDecide(e, d, adv, pressing);
     }
@@ -2218,7 +2247,7 @@ function reset() {
     f.mixer.stopAllAction();
     f.action = null;
     f.setUpper(null);
-    f.playSlot('idle', { fade: 0 });
+    f.playSlot('idleCalm', { fade: 0 });
   }
   camYaw = 0;
   enemy.think = 1.5;
@@ -2244,11 +2273,12 @@ async function main() {
   const enemySetup = { body: other, hair: { style: other === 'male' ? 'short_shaggy' : 'low_ponytail', color: '#1d1a19' },
     brows: { color: 'hair', thickness: 0.65 }, lips: { amount: 0.1 } };
   try {
-    const [g1, g2] = await Promise.all([loadGLB(`models/character_${body}.glb`), loadGLB(`models/character_${other}.glb`)]);
+    const [g1, g2, defaults] = await Promise.all([loadGLB(`models/character_${body}.glb`), loadGLB(`models/character_${other}.glb`),
+      fetch('models/defaults.json').then((r) => r.json()).catch(() => null)]);
     const [s1, s2] = await Promise.all([
       skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
-    player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, tint: 0xc9a227 });
-    enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, tint: 0x8a1c1c });
+    player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, defaults, tint: 0xc9a227 });
+    enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, defaults, tint: 0x8a1c1c });
     const [h1, h2] = await Promise.all([hairFor(player, body, setup, loadGLB, scene), hairFor(enemy, other, enemySetup, loadGLB, scene)]);
     player.hair = h1;
     enemy.hair = h2;

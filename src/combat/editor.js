@@ -13,6 +13,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // and bake into the game) or imported.
 
 const EDIT_KEY = 'character-creation:anim-edits';
+const FPS = 30;   // the editor works in frames of 1/30 s
 const ORIGINALS = new WeakMap();   // clip -> Map(track name -> { times, values } | null): before any edit
 
 export function readEdits() {
@@ -119,19 +120,22 @@ export function createAnimEditor(ctx) {
     <h3>Animation editor <button type="button" data-a="close">Close ✕</button></h3>
     <label>Clip<select data-a="clip"></select></label>
     <div class="row"><button type="button" data-a="play">▶ Play</button>
-      <span>time <input data-a="time" type="number" step="0.01" min="0" style="width:64px"> / <span data-a="dur"></span> s</span></div>
-    <input data-a="scrub" type="range" min="0" max="1" step="0.001">
+      <button type="button" data-a="fprev" title="Previous frame (,)">◀ frame</button><button type="button" data-a="fnext" title="Next frame (.)">frame ▶</button></div>
+    <div class="row"><span>frame <input data-a="frame" type="number" step="1" min="0" style="width:52px"> / <span data-a="frames"></span></span>
+      <span style="color:#777">(<span data-a="secs"></span> s of <span data-a="dur"></span> s)</span></div>
+    <input data-a="scrub" type="range" min="0" step="1">
     <div class="keys" data-a="keys"></div>
     <label>Bone (or click a joint)<select data-a="bone"></select></label>
     <div class="row"><button type="button" data-a="rotate" class="on">Rotate</button><button type="button" data-a="move">Move (hips)</button>
       <button type="button" data-a="prev">◀ key</button><button type="button" data-a="next">key ▶</button></div>
     <div class="row"><button type="button" data-a="key">Set key</button><button type="button" data-a="del">Delete key</button>
       <label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-a="auto" checked> key on release</label></div>
-    <label>Spread (s): how far a change blends into nearby keys <input data-a="spread" type="range" min="0" max="0.6" step="0.01" value="0.15"></label>
+    <label>Blend into nearby frames: <span data-a="spreadv">0 (this frame only)</span><input data-a="spread" type="range" min="0" max="0.6" step="0.01" value="0"></label>
+    <div class="row"><button type="button" data-a="copy">Copy pose</button><button type="button" data-a="paste">Paste pose here</button></div>
     <div class="row"><button type="button" data-a="save">Save (use in the fight)</button><button type="button" data-a="revert">Revert this clip</button></div>
     <div class="row"><button type="button" data-a="export">Export JSON</button><button type="button" data-a="import">Import JSON</button></div>
     <textarea data-a="json" placeholder="Exported edits appear here; paste edits here to import." hidden></textarea>
-    <p class="note" data-a="status">Drag to orbit, scroll to zoom. Click a blue joint to pick a bone.</p>`;
+    <p class="note" data-a="status">Drag to orbit, scroll to zoom. Click a blue joint to pick a bone, then turn it with the rings. Letting go keys it on this frame. Keys: , . frames · K key · Space play.</p>`;
   const $ = (a) => panel.querySelector(`[data-a="${a}"]`);
   const auto = $('auto');
   const status = (t) => { $('status').textContent = t; };
@@ -159,10 +163,21 @@ export function createAnimEditor(ctx) {
     fighter.mixer.uncacheClip(clip);
     pose();
   }
+  const frameCount = () => Math.max(1, Math.round(clip.duration * FPS));
   function syncTime() {
-    $('time').value = time.toFixed(2);
-    $('scrub').value = clip ? time / clip.duration : 0;
+    $('frame').value = Math.round(time * FPS);
+    $('frames').textContent = frameCount();
+    $('secs').textContent = time.toFixed(2);
+    $('scrub').max = frameCount();
+    $('scrub').value = Math.round(time * FPS);
     drawKeys();
+  }
+  function goFrame(n) {
+    playing = false;
+    $('play').textContent = '▶ Play';
+    n = THREE.MathUtils.clamp(Math.round(n), 0, frameCount());
+    time = Math.min(n / FPS, clip.duration);
+    pose();
   }
   function drawKeys() {
     const box = $('keys');
@@ -181,8 +196,9 @@ export function createAnimEditor(ctx) {
   }
 
   /** Key the selected bone's current pose at `time`, blending the change over the spread. */
-  function keyBone() {
+  function keyBone(quiet = false) {
     if (!bone || !clip) return;
+    time = Math.min(Math.round(time * FPS) / FPS, clip.duration);   // keys sit on frames
     const name = boneTrack();
     const isPos = name.endsWith('.position');
     const now = isPos ? bone.position.clone() : bone.quaternion.clone();
@@ -219,8 +235,9 @@ export function createAnimEditor(ctx) {
     }
     setTrack(clip, name, times, values);
     dirty.add(clip.name);
+    if (quiet) return;
     rebind();
-    status(`Keyed ${bone.name} at ${time.toFixed(2)} s (unsaved).`);
+    status(`Keyed ${bone.name} on frame ${Math.round(time * FPS)} (unsaved).`);
   }
 
   function deleteKey() {
@@ -284,9 +301,37 @@ export function createAnimEditor(ctx) {
   // ---- UI wiring
   $('close').onclick = () => close();
   $('clip').onchange = () => { clip = fighter.clips.get($('clip').value); time = 0; $('dur').textContent = clip.duration.toFixed(2); pose(); };
+  $('spread').oninput?.();
   $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
-  $('scrub').oninput = () => { time = Number($('scrub').value) * clip.duration; playing = false; $('play').textContent = '▶ Play'; pose(); };
-  $('time').onchange = () => { time = THREE.MathUtils.clamp(Number($('time').value), 0, clip.duration); pose(); };
+  $('scrub').oninput = () => goFrame(Number($('scrub').value));
+  $('frame').onchange = () => goFrame(Number($('frame').value));
+  $('fprev').onclick = () => goFrame(Math.round(time * FPS) - 1);
+  $('fnext').onclick = () => goFrame(Math.round(time * FPS) + 1);
+  $('spread').oninput = () => {
+    const v = Number($('spread').value);
+    $('spreadv').textContent = v ? `${v.toFixed(2)} s each side` : '0 (this frame only)';
+  };
+  // Copy / paste the whole pose (every bone) between frames.
+  let clipboard = null;
+  $('copy').onclick = () => {
+    clipboard = fighter.mesh.skeleton.bones.map((b) => [b, b.quaternion.clone(), b.position.clone()]);
+    status(`Copied the pose at frame ${Math.round(time * FPS)}.`);
+  };
+  $('paste').onclick = () => {
+    if (!clipboard) { status('Copy a pose first.'); return; }
+    const keep = bone;
+    for (const [b, q, p] of clipboard) {
+      if (/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name) || b.name === 'root') continue;
+      bone = b;
+      b.quaternion.copy(q);
+      setMode('rotate');
+      keyBone(true);
+      if (b.name === 'Hips') { b.position.copy(p); gizmo.setMode('translate'); keyBone(true); gizmo.setMode('rotate'); }
+    }
+    bone = keep;
+    rebind();
+    status(`Pasted the pose at frame ${Math.round(time * FPS)} (unsaved).`);
+  };
   $('bone').onchange = () => selectBone(fighter.bones[$('bone').value] ?? null);
   $('rotate').onclick = () => setMode('rotate');
   $('move').onclick = () => setMode('translate');
@@ -339,6 +384,8 @@ export function createAnimEditor(ctx) {
   addEventListener('keydown', (e) => {
     if (!isOpen || e.target.closest?.('input, select, textarea')) return;
     if (e.code === 'KeyK') keyBone();
+    if (e.code === 'Comma') goFrame(Math.round(time * FPS) - 1);
+    if (e.code === 'Period') goFrame(Math.round(time * FPS) + 1);
     if (e.code === 'Space') { e.preventDefault(); $('play').click(); }
   });
 

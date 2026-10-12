@@ -146,17 +146,28 @@ blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
 guard, which the stab then breaks.
 
 **Animation editor** (✎ button, top right; pauses the fight). Pick a clip
-and a moment, pick a bone (click a blue joint or use the list) and turn it
-with the handles (the hips can also be moved); letting go keys the pose (or
-Set key / K). Most clips have a key every frame, so a change blends into the
-keys around it over "Spread" seconds. Save puts the edits into the fight
+and step through it frame by frame (30 fps: ◀ frame / frame ▶, the slider,
+the frame number, or the , and . keys), pick a bone (click a blue joint or
+use the list) and turn it with the gizmo rings (the hips can also be moved);
+letting go keys it on that frame (or Set key / K). A change touches that
+frame only, unless "Blend into nearby frames" is raised. Copy pose / Paste
+pose here copies every bone between frames. Save puts the edits into the fight
 (kept in this browser, for both fighters); Revert restores a clip; Export
 JSON gives the edits to send in and bake into the game, Import JSON loads
 them. Space plays and pauses.
 
-**Stance.** The sword idle is mirrored so the sword side leads (right foot
-and shoulder forward) with the sword arm held out in front, the blade angled
-up toward the foe's face (`Idle_Sword_Out`).
+**Stances.** Out of the fight (before it starts, or with the foe over 6 m
+away and no blow for 4 s) the fighter stands easy, the sword hanging point
+down (`Idle_Relaxed`, from Idle_A). Ready to fight it takes a wide, low,
+side-on stance: the sword-side leg long toward the foe, the weight on the
+bent back knee, the sword arm straight out at the foe with the blade in line
+rising a little, the free hand up and open in front of the chest, eyes on
+the foe (`Idle_Sword_Out`, the sword idle mirrored so the sword side leads,
+then posed by IK).
+
+**The menu's settings in the fight.** Besides the look (skin, face, hair,
+lips, eyes, brows), the leg stance (thighs turned in), the clothes' fit, the
+mouth / expression and the free hand (fist / open) come over from the menu.
 
 **Feint.** It draws back into a two-handed chamber (hilt by the right of the
 chest, blade level at the foe, body coiled, wide stance: the bait), then
