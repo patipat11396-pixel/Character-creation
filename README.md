@@ -145,6 +145,38 @@ in the Stats panel sets how often and how well (default 0.5: about a third of
 blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
 guard, which the stab then breaks.
 
+**Animation editor** (✎ button, top right; pauses the fight). Pick a clip
+and a moment, pick a bone (click a blue joint or use the list) and turn it
+with the handles (the hips can also be moved); letting go keys the pose (or
+Set key / K). Most clips have a key every frame, so a change blends into the
+keys around it over "Spread" seconds. Save puts the edits into the fight
+(kept in this browser, for both fighters); Revert restores a clip; Export
+JSON gives the edits to send in and bake into the game, Import JSON loads
+them. Space plays and pauses.
+
+**Stance.** The sword idle is mirrored so the sword side leads (right foot
+and shoulder forward) with the sword arm held out in front, the blade angled
+up toward the foe's face (`Idle_Sword_Out`).
+
+**Feint.** It draws back into a two-handed chamber (hilt by the right of the
+chest, blade level at the foe, body coiled, wide stance: the bait), then
+lunges straight: front knee deep, back leg straight, square to the foe, the
+sword arm straight and the blade in one line with it, eyes down the blade.
+A guard it breaks shatters (shards of a pane of light) and the foe is thrown
+back on its heels for 0.5 s (no fall).
+
+**Pacing.** After an attack ends, guarding, parrying and dodging wait 0.1 s
+(and never happen mid-attack). A fighter caught in a combo stays stunned
+until the combo ends. A perfect parry staggers for 0.35 s.
+
+**Enemy tactics.** Beyond reading your blows (parry, dodge, guard: it guards
+more, and keeps its guard up through a combo), it keeps just outside your
+reach, stepping in to strike and back out (quick steps), presses in and
+strings its whole combo together when it has the upper hand (you staggered,
+recovering, guard broken, low stamina, or its counter window), and backs off
+behind its guard when it does not (low HP or stamina, your counter window,
+its guard or a limb broken).
+
 **Hit zones.** The blade has to touch the target: capsules on the bones
 (B shows them). Vital zones take more damage and crit more: head ×2.0
 (+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,

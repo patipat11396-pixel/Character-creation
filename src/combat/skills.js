@@ -55,11 +55,12 @@ export const ARTS = {
     skills: {
       feint: {
         key: 'KeyE', name: 'Feint', name_cn: '虚招', cooldown: 4, stamina: 15,
-        bait: { clip: 'Sword_Attack', speed: 1.3, until: 0.32 },
+        // The bait: drawing into the stab's chamber (both hands, blade level at the foe).
+        bait: { clip: 'Stab_Chamber', speed: 1, until: 0.3 },
         // The real strike is a stab (made from the rig: the library has none).
-        strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.17, end: 0.45,
+        strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.12, end: 0.42,
           damage: 16, range: 2.4, arc: 70, lunge: 0.7, reach: 1.0, guardBreak: true, unblockable: true,
-          trail: 0.08, hitY: 0.95, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
+          trail: 0.08, hitY: 0.65, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).
@@ -80,7 +81,7 @@ export const ARTS = {
 // Poses (not attacks): the clip and speed for each. The menu's Animation
 // panel changes these and the moves above (clip, speed, hit, end).
 export const ANIM_SLOTS = {
-  idle: { clip: 'Idle_Sword', speed: 1 },
+  idle: { clip: 'Idle_Sword_Out', speed: 1 },   // the sword held out in front (made at load from Idle_Sword)
   // Locomotion clips with the sword arm held in the stance (made at load).
   run: { clip: 'Run_Sword', speed: 1 },
   sprint: { clip: 'Sprint_Sword', speed: 1 },
@@ -97,7 +98,8 @@ export const ANIM_SLOTS = {
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
   stagger: { clip: 'Stagger', speed: 1 },
-  daze: { clip: 'Dizzy', speed: 1 },          // head broken: dazed (looped)   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
+  daze: { clip: 'Dizzy', speed: 1 },
+  staggerBack: { clip: 'Stagger_Back', speed: 1 },   // a broken guard: thrown back on the heels, 0.5 s          // head broken: dazed (looped)   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
   death: { clip: 'Death_A', speed: 1 },
 };
 

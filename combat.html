@@ -55,7 +55,7 @@
   #help div { margin-top: 2px; }
   #help p { margin: 6px 0 0; color: #666; }
   #back { position: fixed; left: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px; color: var(--ink); text-decoration: none; font-size: 13px; }
-  #side { position: fixed; right: 12px; top: 12px; width: 300px; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 24px); }
+  #side { position: fixed; right: 12px; top: 12px; width: 300px; z-index: 5; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 24px); }
   #anim-panel { background: rgba(255,255,255,0.94); border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; font-size: 12px; overflow: auto; }
   #anim-panel summary { cursor: pointer; font-weight: 600; }
   #anim-panel h4 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; }
@@ -122,12 +122,13 @@
   <div><b>Alt</b> side step — perfect if pressed just before the blow</div>
   <div><b>Shift</b> hold: guard (−50%; a blow into a guard bounces the attacker for 0.1 s), walk slowly with it up · tap just before the blow: parry</div>
   <div><b>Body parts</b> (the figures): each has its own HP and heals slowly. Broken — head: dazed 2.5 s (×2 damage) · torso: +30% damage taken, guard weaker · sword arm: −60% damage · off arm: guard costs more · a leg: −60% speed, dodge, jump</div>
-  <div><b>E</b> Feint 虚招 — fake heavy wind-up, then a fast stab that breaks a guard: no guard or parry for 5 s (cooldown 4 s)</div>
+  <div><b>E</b> Feint 虚招 — draw back into a two-handed chamber (the bait), then a straight lunge that breaks a guard (the shield shatters, the foe is thrown back 0.5 s, no guard or parry for 5 s; cooldown 4 s)</div>
   <p>Gold flash: blockable. <span style="color:#c8323c">Red flash: unblockable</span> — dodge it. The ring on the enemy's blade closes on the blow and turns white in the perfect window.
   H: timing ring · B: hit zones · F: fullscreen (lets Ctrl through) · R: restart</p>
 </div>
 <a id="back" href="index.html">← Character</a>
 <div id="side">
+  <button type="button" id="open-editor" disabled style="border:1px solid #ddd;background:rgba(255,255,255,0.94);border-radius:6px;padding:8px 10px;font-size:13px;cursor:pointer;text-align:left">✎ Animation editor <small style="color:#777">(pose and key each clip)</small></button>
   <details id="settings"><summary>Stats (timing)</summary><div id="settings-rows"></div></details>
   <details id="anim-panel"><summary>Animation</summary>
     <p class="note">Each move's clip, speed, hit and end times (clip seconds); each pose's clip and speed. ▶ plays it. Saved in this browser.</p>
