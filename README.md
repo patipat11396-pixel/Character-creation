@@ -96,6 +96,14 @@ the Animation panel like any other clip. The enemy telegraphs: gold flash = bloc
 unblockable; a ring around the enemy's blade (H) closes on the moment of the blow and
 turns white in the perfect window.
 
+**Aim.** Cuts follow the camera: the pitch picks a height on the enemy —
+its legs looking down, chest at the default view, head looking up — and
+each move tilts by what it needs from its own blow height (`hitY` in
+`skills.js`) to there, a third by the body bending and the rest at the sword
+shoulder (up to 43°). Where the blade touches several zones, the one nearest
+its tip counts (then the more vital). The stab never aims below 0.8 m (it
+would pass between the legs).
+
 **Hit zones.** The blade has to touch the target: capsules on the bones
 (B shows them). Vital zones take more damage and crit more: head ×2.0
 (+35% crit), neck ×1.8 (+25%), chest ×1.3 (+10%), abdomen ×1.1, arms ×0.6–0.7,

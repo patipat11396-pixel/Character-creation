@@ -325,8 +325,8 @@ class Fighter {
     this.turnTo(Math.atan2(d.x, d.z), dt, rate);
   }
 
-  /** Pose after the animation: fingers, head size, facing. */
-  finishPose() {
+  /** Pose after the animation: fingers, head size, facing, the attack's aim. */
+  finishPose(dt = 0) {
     for (const a of [this.upper, this.action]) {
       if (a?.holdAt != null && a.time >= a.holdAt) { a.time = a.holdAt; a.timeScale = 0; }
     }
@@ -335,9 +335,24 @@ class Fighter {
     const q = new THREE.Quaternion();
     for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle));
     this.root.updateMatrixWorld(true);
+    // Aim: while attacking, the cut is tilted up or down by `aim` (radians,
+    // + = up), a third by the body bending and the rest at the sword shoulder
+    // (bending the body alone pulled the blade back out of reach when aiming
+    // up). The player's aim comes from the camera's pitch.
+    const attacking = (this.state === 'attack' || this.state === 'feint') && this.grounded;
+    this.aimW = (this.aimW ?? 0) + ((attacking ? 1 : 0) - (this.aimW ?? 0)) * Math.min(1, dt * 14);
+    const angle = (this.aim ?? 0) * this.aimW;
+    if (Math.abs(angle) > 1e-3) {
+      const fwd = this.forward(new THREE.Vector3());
+      const right = fwd.cross(new THREE.Vector3(0, 1, 0)).normalize();
+      turnBoneWorld(this.bones.Spine1, q.setFromAxisAngle(right, angle * 0.35));
+      turnBoneWorld(this.bones.RightArm, q.setFromAxisAngle(right, angle * 0.65));
+    }
     for (const z of this.zones) {
       this.bones[z.from].getWorldPosition(z.a);
-      if (z.to) this.bones[z.to].getWorldPosition(z.b); else z.b.copy(z.a);
+      if (z.to) this.bones[z.to].getWorldPosition(z.b);
+      else if (z.lift) z.b.copy(z.a).addScaledVector(new THREE.Vector3(0, 1, 0).transformDirection(this.bones[z.from].matrixWorld), z.lift);
+      else z.b.copy(z.a);
     }
   }
 
@@ -446,9 +461,9 @@ function makeStabClip(f) {
       const elbow = S.clone().addScaledVector(dir, a).addScaledVector(pole, h);
       aimBone(B.RightArm, B.RightForeArm, elbow);
       aimBone(B.RightForeArm, B.RightHand, S.clone().addScaledVector(dir, dist));
-      // Hand: the blade straight ahead (a little down), inward to the centre line.
+      // Hand: the blade straight ahead (a little down), its point on the centre line.
       const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
-      const want = fwd.clone().addScaledVector(up, -Math.tan(THREE.MathUtils.degToRad(k.drop))).addScaledVector(right, -0.08).normalize();
+      const want = fwd.clone().addScaledVector(up, -Math.tan(THREE.MathUtils.degToRad(k.drop))).addScaledVector(right, 0.08).normalize();
       turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(blade, want));
     }
     // Into and out of the idle pose.
@@ -516,16 +531,33 @@ function bladeContact(prev, now, target) {
   // ...and the tip's path (a fast swing passes clean through between frames).
   samples.push([prev[1], now[1]]);
   samples.push([prev[0].clone().lerp(prev[1], 0.5), now[0].clone().lerp(now[1], 0.5)]);
-  let best = null;
+  // Of the zones touched, the one nearest the blade's tip counts (where a cut
+  // lands; the long blade also brushes what is below a high cut), then the
+  // more vital.
+  let best = null, bestAt = -1;
   for (const z of target.zones) {
+    let at = -1;
     for (const [a, b] of samples) {
-      if (segSegDist(a, b, z.a, z.b) < z.radius + BLADE_R) {
-        if (!best || ZONE_ORDER.indexOf(z.name) < ZONE_ORDER.indexOf(best.name)) best = z;
-        break;
-      }
+      if (segSegDist(a, b, z.a, z.b) < z.radius + BLADE_R) at = Math.max(at, bladeParam(a, b, z));
     }
+    if (at < 0) continue;
+    const better = !best || at > bestAt + 0.1 || (Math.abs(at - bestAt) <= 0.1 && ZONE_ORDER.indexOf(z.name) < ZONE_ORDER.indexOf(best.name));
+    if (better) { best = z; bestAt = at; }
   }
   return best;
+}
+
+/** Where along blade a-b (0 = base, 1 = tip) it comes closest to zone z. */
+function bladeParam(a, b, z) {
+  let bestT = 0, bestD = Infinity;
+  const pnt = new THREE.Vector3(), seg = new THREE.Line3(z.a, z.b), on = new THREE.Vector3();
+  for (let t = 0; t <= 1.0001; t += 0.1) {
+    pnt.copy(a).lerp(b, t);
+    const d = seg.closestPointToPoint(pnt, true, on).distanceTo(pnt) - z.radius;
+    if (d < bestD - 1e-4) { bestD = d; bestT = t; }
+    else if (d <= z.radius * 0.5 + 0.03) bestT = Math.max(bestT, t);   // still touching further out
+  }
+  return bestT;
 }
 
 function inFront(attacker, target, range, arc) {
@@ -1372,6 +1404,25 @@ function enemyUpdate(dt) {
 let shakeAmp = 0;
 function shake(a) { shakeAmp = Math.max(shakeAmp, a); }
 
+// The camera's pitch (camPitch, + = camera above looking down) picks the
+// height to cut at on the target: its legs looking down, chest at the
+// default view, head looking up. Each move tilts by what it needs from its
+// own natural blow height (move.hitY, metres, measured with no aim) to there.
+const AIM = { level: 0.18, down: 0.9, up: -0.35, perMetre: 0.95, max: 0.75 };
+function aimHeight(target) {
+  const z = (name) => target.zones.find((x) => x.name === name);
+  const legs = z('leg'), chest = z('chest'), head = z('head');
+  const legY = 0.5 * (legs.a.y + legs.b.y), chestY = 0.5 * (chest.a.y + chest.b.y), headY = head.a.y + 0.1;
+  if (camPitch >= AIM.level) return THREE.MathUtils.lerp(chestY, legY, Math.min(1, (camPitch - AIM.level) / (AIM.down - AIM.level)));
+  return THREE.MathUtils.lerp(chestY, headY, Math.min(1, (AIM.level - camPitch) / (AIM.level - AIM.up)));
+}
+function aimFromCamera() {
+  const m = player.move ?? (player.state === 'feint' ? ART.skills.feint.strike : null);
+  if (!m || window.combat?.noAim) return 0;
+  const want = Math.max(aimHeight(enemy), m.aimFloor ?? 0);
+  return THREE.MathUtils.clamp((want - (m.hitY ?? 1)) * AIM.perMetre, -AIM.max, AIM.max);
+}
+
 function updateCamera(dt) {
   const target = player.pos.clone().add(new THREE.Vector3(0, 1.45, 0));
   const dir = new THREE.Vector3(Math.sin(camYaw) * Math.cos(camPitch), Math.sin(camPitch), Math.cos(camYaw) * Math.cos(camPitch));
@@ -1472,9 +1523,11 @@ function tick(real) {
     enemy.pos.add(sep);
     player.pos.sub(sep);
   }
+  // The player's cut follows the camera: looking down cuts low, looking up cuts high.
+  player.aim = aimFromCamera();
   for (const f of [player, enemy]) {
     f.mixer.update(dt);
-    f.finishPose();
+    f.finishPose(dt);
     f.hair?.rig.update(Math.max(dt, 1e-4), f.hair.state);
     if (f.flashUntil && gameTime > f.flashUntil) { f.sword.userData.steel.emissive.setHex(0); f.flashUntil = 0; }
   }
@@ -1576,7 +1629,7 @@ window.combat = {
   press(code) { pressed.add(code); keys.add(code); setTimeout(() => keys.delete(code), 60); },
   hold(code, on) { if (on) keys.add(code); else keys.delete(code); },
   click() { clicked = true; },
-  look(yaw) { camYaw = yaw; },
+  look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },
   /** Run n fixed steps (no rendering in between), then draw once. */
   start() { active = true; $('start').hidden = true; },
   step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } draw(); },

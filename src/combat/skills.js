@@ -17,6 +17,9 @@
 //             closed in on (up to 2 m) so the blade ends at its body
 //   stagger   true: the blow interrupts the target even if it is attacking
 //   poise     how much of the stagger gauge (100) it fills (default 2 x damage)
+//   hitY      height (m) the blow lands at with no aim; the camera's aim tilts
+//             the cut from there to the height looked at
+//   aimFloor  the lowest height (m) the aim takes the move to
 //   trail     how long before the blow the blade leaves a trail (clip s; default 0.2)
 //   unblockable  true: holding parry does not help (red flash); only a dodge
 //                or (when parryable) a perfect parry avoids it
@@ -30,17 +33,17 @@ export const ARTS = {
     // clips with the sword held in the fist).
     combo: [
       { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.46, rec: 'Sword_Regular_A_Rec', chainFrom: 0.15,
-        damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0 },
+        damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0, hitY: 0.56 },
       { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
-        damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75 },
+        damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75, hitY: 0.6 },
       // Finisher: 0.75 s of clip at 1.8x takes 0.42 s, under 0.5 s with the hit-stop.
       { clip: 'Sword_Regular_C', speed: 1.8, hit: 0.17, end: 0.75, chainFrom: 0.5,
-        damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true },
+        damage: 26, range: 2.4, arc: 120, lunge: 0.8, reach: 0.75, stagger: true, hitY: 0.69 },
     ],
     // Heavy attack (right click / Q): slow overhead blow; staggers, and a
     // blocked one costs the defender a lot of guard (stamina).
     heavy: { clip: 'Sword_Attack', speed: 0.95, hit: 0.52, end: 1.05, damage: 30, range: 2.4, arc: 120,
-      lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55 },
+      lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55, hitY: 1.13 },
     air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows the heavy wind-up, then cuts in fast: it
@@ -52,7 +55,7 @@ export const ARTS = {
         // The real strike is a stab (made from the rig: the library has none).
         strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.17, end: 0.45,
           damage: 16, range: 2.4, arc: 70, lunge: 0.7, reach: 1.0, guardBreak: true, unblockable: true,
-          trail: 0.08 },   // trail only on the thrust itself (not the turn out of the bait)
+          trail: 0.08, hitY: 1.12, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).
@@ -114,11 +117,13 @@ export const DEFAULT_STATS = {
 
 // Hit zones (positional hitboxes): capsules on the bones; the blade has to
 // touch one. More vital zones take more damage and crit more often.
-//   from, to   bones the capsule runs between (to: null = a sphere on from)
+//   from, to   bones the capsule runs between (to: null = a sphere on from,
+//              or with lift, a capsule that far up from's own axis)
 //   radius     metres
 //   damage     multiplier, crit  extra critical chance (added to baseCrit)
 export const HIT_ZONES = [
-  { name: 'head', label: 'Head', from: 'Head', to: 'Head_end', radius: 0.11, damage: 2.0, crit: 0.35 },
+  // The rig has no Head_end bone: the head runs `lift` m up the Head bone's own axis.
+  { name: 'head', label: 'Head', from: 'Head', to: null, lift: 0.18, radius: 0.11, damage: 2.0, crit: 0.35 },
   { name: 'neck', label: 'Neck', from: 'Neck', to: 'Head', radius: 0.065, damage: 1.8, crit: 0.25 },
   { name: 'chest', label: 'Chest', from: 'Spine1', to: 'Neck', radius: 0.15, damage: 1.3, crit: 0.10 },
   { name: 'abdomen', label: 'Abdomen', from: 'Hips', to: 'Spine1', radius: 0.15, damage: 1.1, crit: 0.05 },
