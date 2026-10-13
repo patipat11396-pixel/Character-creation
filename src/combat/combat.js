@@ -1701,6 +1701,14 @@ function perfect(def, att, text, parry = false) {
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
 const PARRY_CLIP = 'Sword_Regular_A';   // played by whoever lands a perfect parry
 const PARRY_CUT = 0.34, PARRY_TIME = 0.2;   // its cut (clip seconds), played in PARRY_TIME s
+/** The parry cut eased: fast at first, slowing to a stop at its end (clip time = cut x (1 - (1 - t)^3)). */
+function parryEase(f) {
+  const a = f.action;
+  if (!a || a.getClip().name !== PARRY_CLIP) return;
+  const x = Math.min(1, f.t / PARRY_TIME);
+  a.time = PARRY_CUT * (1 - (1 - x) ** 3);
+  a.timeScale = 0;
+}
 // perfect: the player parried; perfectFoe: the foe parried by the player.
 const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
@@ -2026,6 +2034,7 @@ function playerUpdate(dt) {
     doDodge(wish);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
+    parryEase(p);
     if (p.t > PARRY_TIME) p.setState('idle');
   } else if (p.state === 'dodge') {
     const k = p.t < 0.32 ? 1 : 0;
@@ -2388,6 +2397,7 @@ function enemyUpdate(dt) {
     case 'push':
       e.vel.set(0, 0, 0);
       e.faceTarget(player, dt, 10);
+      parryEase(e);
       if (e.t > PARRY_TIME) { e.setState('idle'); e.think = 0; }
       break;
     case 'hit':
