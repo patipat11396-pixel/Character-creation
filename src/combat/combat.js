@@ -217,12 +217,12 @@ class Fighter {
     this.clips.set('Idle_Fight', fightIdle || this.clips.get('Idle_Sword_Out'));
     // Fight steps, from the captured walk back (models/anims/fight_back.bvh),
     // in place (the game moves the fighter), its steps turned to go straight
-    // back, forward, left or right of the sword's way (the capture walks back
-    // on a slant).
+    // back, left or right of the sword's way (the capture walks back on a
+    // slant); forward is the walk back played backwards.
     if (opts.anims?.fightBack) {
-      for (const [clipName, stepTo] of [['Fight_Back', 'back'], ['Fight_Forward', 'forward'], ['Fight_Left', 'left'], ['Fight_Right', 'right']]) {
+      for (const [clipName, stepTo] of [['Fight_Back', 'back'], ['Fight_Forward', 'back'], ['Fight_Left', 'left'], ['Fight_Right', 'right']]) {
         try {
-          const c = makeBvhClip(this, opts.anims.fightBack, clipName, { inPlace: true, stepTo });
+          const c = makeBvhClip(this, opts.anims.fightBack, clipName, { inPlace: true, stepTo, reverse: clipName === 'Fight_Forward' });
           if (c) this.clips.set(clipName, c);
         } catch (e) { console.warn(clipName, e); }
       }
@@ -335,6 +335,11 @@ class Fighter {
   playSlot(slot, opts = {}) {
     if (engaged(this) && FIGHT_STEPS[slot]) slot = FIGHT_STEPS[slot];
     const s = ANIM_SLOTS[slot];
+    // A captured step plays at the fighter's speed over the capture's, so the
+    // feet keep to the ground (times the slot's speed).
+    const travel = this.clips.get(s.clip)?.userData?.travel;
+    const v = Math.hypot(this.vel.x, this.vel.z);
+    if (travel && v > 0.05) return this.play(s.clip, { speed: THREE.MathUtils.clamp((v / travel) * s.speed, 0.4, 3), ...opts });
     return this.play(s.clip, { speed: s.speed, ...opts });
   }
 
@@ -895,7 +900,7 @@ const BVH_LIMBS = {
   LeftUpLeg: ['LeftLeg', 'left_hip', 'left_knee'], LeftLeg: ['LeftFoot', 'left_knee', 'left_ankle'], LeftFoot: ['LeftToeBase', 'left_ankle', 'left_foot'],
   RightUpLeg: ['RightLeg', 'right_hip', 'right_knee'], RightLeg: ['RightFoot', 'right_knee', 'right_ankle'], RightFoot: ['RightToeBase', 'right_ankle', 'right_foot'],
 };
-function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, bend = 0.5, spread = 0.85, inPlace = false, stepTo = null } = {}) {
+function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, bend = 0.7, spread = 0.85, inPlace = false, stepTo = null, reverse = false } = {}) {
   const res = new BVHLoader().parse(text);
   const holder = new THREE.Group();
   holder.add(res.skeleton.bones[0]);
@@ -956,9 +961,10 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
         turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(cur, S(limb[2]).sub(S(limb[1])).normalize()));
       }
       if (b.name === 'RightHand') {
+        // The blade straight ahead at the foe, rising a little (hand height
+        // to chest height a couple of metres off).
         const [base, tip] = f.blade();
-        const fore = Pw(B.RightHand).sub(Pw(B.RightForeArm)).normalize();
-        turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(tip.sub(base).normalize(), fore.addScaledVector(up, bladeRise).normalize()));
+        turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(tip.sub(base).normalize(), tgtFwd.clone().addScaledVector(up, bladeRise).normalize()));
       }
     }
     // Legs: higher and a little narrower than captured (its deep, wide squat
@@ -1026,10 +1032,25 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
     }
     for (let j = 0; j < 3; j++) pv[i * 3 + j] += (pv[j] - pv[i * 3 + j]) * k;
   }
-  return new THREE.AnimationClip(name, end, [
+  if (reverse) {
+    // Played backwards: a walk back as a walk forward, the feet rolling the
+    // right way round (turning the steps alone would roll them backwards).
+    const rev = (v, n) => { const out = []; for (let i = v.length / n - 1; i >= 0; i--) out.push(...v.slice(i * n, i * n + n)); return out; };
+    pv = rev(pv, 3);
+    for (const b of order) qv[b.name] = rev(qv[b.name], 4);
+  }
+  const clip = new THREE.AnimationClip(name, end, [
     new THREE.VectorKeyframeTrack('Hips.position', times, pv),
     ...order.map((b) => new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, qv[b.name])),
   ]);
+  // How fast the capture walked (m/s, scaled to the rig): steps play at the
+  // fighter's speed over this, so the feet keep to the ground.
+  if (inPlace) {
+    mixer.setTime(res.clip.duration - 1e-4);
+    holder.updateMatrixWorld(true);
+    clip.userData = { ...clip.userData, travel: Pw(sb.pelvis).sub(start).setY(0).length() * ratio / res.clip.duration };
+  }
+  return clip;
 }
 
 /** `base` with the right arm (shoulder to hand) taken from the sword idle. */
@@ -1644,7 +1665,7 @@ function engaged(f) {
   return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
 }
 const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
-const FIGHT_STEP_SPEED = 0.7;   // stepping in the fight, against running
+const FIGHT_STEP_SPEED = 0.35;   // stepping in the fight against running (3.8 m/s -> 1.33 m/s)
 // In the fight, steps play the fight slots (the stance) instead.
 const FIGHT_STEPS = { run: 'fightForward', walk: 'fightForward', guardForward: 'fightForward', guardBack: 'fightBack', guardLeft: 'fightLeft', guardRight: 'fightRight' };
 /** The step slot for moving along `wish` against `f`'s facing. */
@@ -2019,7 +2040,9 @@ function playerUpdate(dt) {
         // Legs by the step's direction against the facing; the guard on top.
         let legs = stepSlot(p, wish);
         if (engaged(p)) legs = FIGHT_STEPS[legs];
-        p.play(ANIM_SLOTS[legs].clip, { speed: ANIM_SLOTS[legs].speed, part: 'lower', fade: 0.15 });
+        const ls = ANIM_SLOTS[legs], travel = p.clips.get(ls.clip)?.userData?.travel;
+        const legSpeed = travel ? THREE.MathUtils.clamp((Math.hypot(p.vel.x, p.vel.z) / travel) * ls.speed, 0.4, 3) : ls.speed;
+        p.play(ls.clip, { speed: legSpeed, part: 'lower', fade: 0.15 });
         p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
       } else if (p.action?.getClip().name !== g.clip || p.upper) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });
@@ -2034,7 +2057,7 @@ function playerUpdate(dt) {
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
-      // Stepping in the fight is 30% slower than running.
+      // Stepping in the fight is slower than running (FIGHT_STEP_SPEED).
       const fightSlow = !p.sprinting && engaged(p) ? FIGHT_STEP_SPEED : 1;
       p.vel.copy(wish).multiplyScalar(speed * fightSlow * legMul(p));
       // In the fight (not sprinting) the fighter faces where the camera looks

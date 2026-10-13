@@ -176,12 +176,12 @@ into the game, Import JSON loads them.
 with an SMPL-style skeleton: pelvis, spine1–3, left_shoulder…), keeping the
 rig's own proportions: each joint turns as the capture's does from its
 T-pose, then the arms point at the capture's next joint; the legs follow
-the capture's but stand higher and a little narrower (the knee bend halved,
+the capture's but stand a little higher and narrower (70% of the knee bend,
 the stance 0.85 as wide: its deep, wide squat dragged the shorts). The whole capture is turned so its
 sword arm points the way the fighter faces (a side-on stance, the sword
 forward). The hips drift as the capture's and sit so the lower foot is on
-the floor; the sword hand is turned so the blade carries on from the
-forearm, rising (the capture has no sword); the last 0.4 s ease back into
+the floor; the sword hand is turned so the blade points straight ahead
+at the foe, rising a little to chest height (the capture has no sword); the last 0.4 s ease back into
 the first frame. The made stance (`Idle_Sword_Out`) stands in if the file
 does not load.
 
@@ -196,15 +196,16 @@ turns to run where it goes.
 
 **Steps.** Out of the fight the fighter walks and runs with the sword
 hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,
-`Walk_Relaxed`). In the fight it faces where the camera looks and steps 30%
-slower than it runs (`FIGHT_STEP_SPEED`), playing the fight slots
+`Walk_Relaxed`). In the fight it faces where the camera looks and steps at
+35% of its running speed (1.33 m/s, `FIGHT_STEP_SPEED`), playing the fight slots
 `fightForward`, `fightBack`, `fightLeft`, `fightRight` (`Fight_Forward`,
-`Fight_Back`, `Fight_Left`, `Fight_Right`, at 2.5×). They are made at load
+`Fight_Back`, `Fight_Left`, `Fight_Right`), each played at the fighter's
+speed over the capture's walking speed so the feet keep to the ground. They are made at load
 from a captured walk back (`models/anims/fight_back.bvh`), the same way as
 the fight idle, in place (the game moves the fighter); the capture walks
 back on a slant, so each foot's swing about its average place is turned to
-go straight back, forward, left or right of the sword's way, the stance
-kept. Sprinting still runs. With the guard up the legs use the same slots
+go straight back, left or right of the sword's way, the stance kept;
+forward is the walk back played backwards (so the feet roll the right way). Sprinting still runs. With the guard up the legs use the same slots
 under the guard.
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
