@@ -873,7 +873,12 @@ const BVH_MAP = { pelvis: 'Hips', spine1: 'Spine', spine2: 'Spine1', spine3: 'Sp
   right_collar: 'RightShoulder', right_shoulder: 'RightArm', right_elbow: 'RightForeArm', right_wrist: 'RightHand',
   left_hip: 'LeftUpLeg', left_knee: 'LeftLeg', left_ankle: 'LeftFoot', left_foot: 'LeftToeBase',
   right_hip: 'RightUpLeg', right_knee: 'RightLeg', right_ankle: 'RightFoot', right_foot: 'RightToeBase' };
-function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45 } = {}) {
+// Rig arm bone -> [its child, capture joint from, capture joint to] (the legs go by IK).
+const BVH_LIMBS = {
+  LeftArm: ['LeftForeArm', 'left_shoulder', 'left_elbow'], LeftForeArm: ['LeftHand', 'left_elbow', 'left_wrist'],
+  RightArm: ['RightForeArm', 'right_shoulder', 'right_elbow'], RightForeArm: ['RightHand', 'right_elbow', 'right_wrist'],
+};
+function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, spread = 0.75, straighten = 1.04 } = {}) {
   const res = new BVHLoader().parse(text);
   const holder = new THREE.Group();
   holder.add(res.skeleton.bones[0]);
@@ -901,6 +906,12 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45 } 
   const tgtLR = Pw(B.LeftUpLeg).sub(Pw(B.RightUpLeg)).setY(0).normalize();
   const R = new THREE.Quaternion().setFromUnitVectors(srcLR, tgtLR), Ri = R.clone().invert();
   const hip0 = Pw(B.Hips), floorY = Math.min(Pw(B.LeftFoot).y, Pw(B.RightFoot).y);
+  const hipJointDrop = hip0.y - Pw(B.LeftUpLeg).y;
+  // The legs: each foot where the capture's is from its hip (scaled), the
+  // stance narrowed by `spread` (the capture reads wider than the video),
+  // the leg's reach kept so the hips rise rather than the knees bending more.
+  const LEGS = [['left_hip', 'left_knee', 'left_ankle', 'left_foot', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase'],
+    ['right_hip', 'right_knee', 'right_ankle', 'right_foot', 'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase']];
   const dur = res.clip.duration;
   mixer.setTime(0);
   holder.updateMatrixWorld(true);
@@ -915,16 +926,38 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45 } 
       const want = R.clone().multiply(W(sb[n])).multiply(srcRest[n].clone().invert()).multiply(Ri).multiply(tgtRest[b.name]);
       b.quaternion.copy(W(b.parent).invert().multiply(want));
       b.updateMatrixWorld(true);
+      // Arms and legs point exactly as the capture's do (the rigs' T-poses
+      // differ a little, which turned copied angles into wider legs).
+      const limb = BVH_LIMBS[b.name];
+      if (limb) {
+        const dir = Pw(sb[limb[2]]).sub(Pw(sb[limb[1]])).applyQuaternion(R);
+        const cur = Pw(B[limb[0]]).sub(Pw(b));
+        turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(cur.normalize(), dir.normalize()));
+      }
       if (b.name === 'RightHand') {
         const [base, tip] = f.blade();
         const fore = Pw(B.RightHand).sub(Pw(B.RightForeArm)).normalize();
         turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(tip.sub(base).normalize(), fore.addScaledVector(up, bladeRise).normalize()));
       }
     }
-    const low = Math.min(Pw(sb.left_ankle).y, Pw(sb.right_ankle).y);
+    const reach = LEGS.map(([h, k, a]) => {
+      const r = Pw(sb[a]).sub(Pw(sb[h])).applyQuaternion(R).multiplyScalar(ratio);
+      // A little straighter than the capture's (it reads more bent than the video).
+      const full = (Pw(sb[h]).distanceTo(Pw(sb[k])) + Pw(sb[k]).distanceTo(Pw(sb[a]))) * ratio;
+      const len = Math.min(full * 0.995, r.length() * straighten);
+      return new THREE.Vector3(r.x * spread, r.y, r.z * spread).normalize().multiplyScalar(len);
+    });
     const d = Pw(sb.pelvis).sub(start).applyQuaternion(R).multiplyScalar(ratio);
-    B.Hips.position.copy(B.Hips.parent.worldToLocal(new THREE.Vector3(hip0.x + d.x, floorY + (Pw(sb.pelvis).y - low) * ratio, hip0.z + d.z)));
+    const drop = Math.max(-reach[0].y, -reach[1].y);
+    B.Hips.position.copy(B.Hips.parent.worldToLocal(new THREE.Vector3(hip0.x + d.x, floorY + drop + hipJointDrop, hip0.z + d.z)));
     B.Hips.updateMatrixWorld(true);
+    LEGS.forEach(([h, k, a, toe, up, mid, foot, toeB], i) => {
+      const hj = Pw(B[up]);
+      const pole = Pw(sb[k]).sub(Pw(sb[h]).lerp(Pw(sb[a]), 0.5)).applyQuaternion(R);
+      twoBoneIK(B[up], B[mid], B[foot], hj.add(reach[i]), pole);
+      const dir = Pw(sb[toe]).sub(Pw(sb[a])).applyQuaternion(R);
+      turnBoneWorld(B[foot], new THREE.Quaternion().setFromUnitVectors(Pw(B[toeB]).sub(Pw(B[foot])).normalize(), dir.normalize()));
+    });
     for (const b of order) qv[b.name].push(...b.quaternion.toArray());
     pv.push(...B.Hips.position.toArray());
     times.push(+t.toFixed(4));

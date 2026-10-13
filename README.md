@@ -176,7 +176,10 @@ into the game, Import JSON loads them.
 with an SMPL-style skeleton: pelvis, spine1–3, left_shoulder…). Each joint
 turns in the world as the capture's does from its T-pose, starting from the
 rig's own T-pose; the hips move as the capture's, scaled by leg length, with
-the lower foot on the floor; the sword hand is turned so the blade carries on
+the lower foot on the floor; the arms point as the capture's; each foot is
+placed where the capture's is from its hip (scaled) by IK, the stance
+narrowed to 0.75 and the legs a little straighter (the capture reads wider
+and more bent than its video), so the hips rise; the sword hand is turned so the blade carries on
 from the forearm, rising (the capture has no sword); the last 0.4 s ease
 back into the first frame for a seamless loop. The made stance
 (`Idle_Sword_Out`) stands in if the file does not load.
