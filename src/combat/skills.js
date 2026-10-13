@@ -106,6 +106,7 @@ export const ANIM_SLOTS = {
   dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
   dodgeRight: { clip: 'Dodge_right', speed: 1.5 },
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
+  dodgeForward: { clip: 'Idle_Fight', speed: 1 },   // dashing ahead: in the ready stance, the sword forward
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
   stagger: { clip: 'Stagger', speed: 1 },

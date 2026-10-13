@@ -2045,15 +2045,25 @@ function playerUpdate(dt) {
   if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil') {
     if (p.t > p.hitDur) p.setState('idle');
   } else if (dodgePress && canAct && canDefend(p) && p.stamina >= stats.dodgeCost && p.grounded) {
-    doDodge(wish);
+    doDodge(wish, fwd);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
     parryEase(p);
     if (p.t > PARRY_TIME) p.setState('idle');
   } else if (p.state === 'dodge') {
-    const k = p.t < 0.32 ? 1 : 0;
-    p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * legMul(p) * (1 - p.t / 0.32));
-    if (p.t > 0.5) p.setState('idle');
+    // The dash runs while Alt is held, from DASH.min up to DASH.max.
+    const d = p.dash;
+    if (!(keys.has('AltLeft') || keys.has('AltRight'))) d.held = false;
+    if (d.doneAt == null) {
+      const v = DASH.speed * legMul(p);
+      const step = Math.min(v * dt, DASH.max - d.len);
+      d.len += step;
+      p.vel.copy(p.dodgeDir).multiplyScalar(step / Math.max(dt, 1e-6));
+      if (d.len >= DASH.max - 1e-4 || (!d.held && d.len >= DASH.min)) d.doneAt = p.t;
+    } else {
+      p.vel.set(0, 0, 0);
+      if (p.t - d.doneAt > DASH.settle) p.setState('idle');
+    }
   } else if (p.state === 'attack') {
     const mt = p.moveTime();
     if (attackPress && mt >= (p.move.chainFrom ?? p.move.hit)) p.queued = true;
@@ -2185,7 +2195,7 @@ function playerUpdate(dt) {
   if (!p.grounded && p.state !== 'attack') p.playSlot('jump', { fade: 0.1 });
 }
 
-function doDodge(wish) {
+function doDodge(wish, camFwd) {
   const p = player;
   p.move = null;
   p.comboIndex = -1;
@@ -2193,18 +2203,22 @@ function doDodge(wish) {
   p.stamina -= stats.dodgeCost;
   p.dodgeAt = gameTime;
   p.setState('dodge');
-  // Side step relative to the enemy: left / right / back from the input.
-  const toEnemy = enemy.pos.clone().sub(p.pos).setY(0).normalize();
-  const side = new THREE.Vector3(toEnemy.z, 0, -toEnemy.x);
+  // A dash forward / left / right / back from the input, against the way the
+  // fighter faces: the camera's in the fight, else the enemy's direction.
+  const ahead = engaged(p) ? camFwd.clone().setY(0).normalize() : enemy.pos.clone().sub(p.pos).setY(0).normalize();
+  const side = new THREE.Vector3(ahead.z, 0, -ahead.x);
   let dir, clip;
-  if (wish.lengthSq() === 0 || wish.dot(toEnemy) < -0.5) { dir = toEnemy.clone().negate(); clip = 'dodgeBack'; }
+  if (wish.lengthSq() === 0 || wish.dot(ahead) < -0.5) { dir = ahead.clone().negate(); clip = 'dodgeBack'; }
+  else if (wish.dot(ahead) > 0.5) { dir = wish.clone().normalize(); clip = 'dodgeForward'; }
   else if (wish.dot(side) >= 0) { dir = side; clip = 'dodgeLeft'; }
   else { dir = side.clone().negate(); clip = 'dodgeRight'; }
-  if (wish.lengthSq() && wish.dot(toEnemy) > 0.5) { dir = wish.clone(); clip = 'dodgeLeft'; }
   p.dodgeDir = dir;
-  p.yaw = Math.atan2(toEnemy.x, toEnemy.z);
-  p.playSlot(clip, { loop: false, fade: 0.05 });
+  p.yaw = Math.atan2(ahead.x, ahead.z);
+  // Its length is set by how long Alt is held: DASH.min .. DASH.max.
+  p.dash = { len: 0, held: true, doneAt: null };
+  p.playSlot(clip, { loop: clip === 'dodgeForward', fade: 0.05 });
 }
+const DASH = { speed: 6, min: 0.4, max: 1.5, settle: 0.12 };   // m/s, m, m, s after it stops
 
 function dist2(a, b) { return (a.pos.x - b.pos.x) ** 2 + (a.pos.z - b.pos.z) ** 2; }
 
