@@ -83,7 +83,7 @@ and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
 (the foe 0.5 s, the player 0.35 s) while the parrier, at once (no guard
 raised first), cuts the blade aside with `Sword_Regular_A` (`PARRY_CLIP`, its cut played
-in 0.2 s;
+in 0.2 s, cut straight into with no blend;
 an attack may cut it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
 guard bounces off: the attacker is held for 0.1 s (the swing runs back a

@@ -1683,7 +1683,10 @@ function perfect(def, att, text, parry = false) {
     def.move = null;
     def.setState('push');
     def.setUpper(null);
-    def.play(PARRY_CLIP, { loop: false, fade: 0.04, speed: PARRY_CUT / PARRY_TIME });
+    // Cut straight into it: no blend from the pose before.
+    def.mixer.stopAllAction();
+    def.action = null;
+    def.play(PARRY_CLIP, { loop: false, fade: 0, speed: PARRY_CUT / PARRY_TIME });
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
