@@ -192,10 +192,11 @@ looped, its sword arm turned the way the fighter faces), to compare with;
 
 **Facing in the fight.** In the fight the player faces where the camera
 looks (standing, stepping, guarding, feinting); out of it, it turns to run
-where it goes. Attacking, it turns so the blow lands straight ahead: each
-move's blade tip at the hit, seen from the hips, gives the turn (cuts sweep
-across), corrected at each blow by where it really landed, and the lunge
-goes straight ahead too (the foe does the same towards the player).
+where it goes. Attacking, it keeps facing ahead and the sword arm is turned
+about the shoulder so the blow lands straight ahead too: each move's blade
+tip at the hit, seen from the hips, gives the turn (cuts sweep across),
+corrected at each blow by where it really landed (the foe does the same
+towards the player).
 Stepping with the guard held, the hips sink to the standing guard's height,
 the feet kept on the ground by bending the legs.
 

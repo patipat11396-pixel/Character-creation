@@ -404,7 +404,8 @@ class Fighter {
   /**
    * Where a move's blow lands, as a turn from the facing (radians, like yaw):
    * the blade tip at the hit, seen from the hips. Cuts sweep across, so the
-   * fighter turns by this much less to land the blow straight ahead.
+   * sword arm is turned back by this much (finishPose) to land the blow
+   * straight ahead while the body and face look ahead.
    */
   strikeHeading(move) {
     this.strikeH ??= {};
@@ -461,6 +462,13 @@ class Fighter {
         foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(footQ[i]));
         foot.updateMatrixWorld(true);
       });
+    }
+    // The cut swung round to land ahead: while attacking, the sword arm turned
+    // about the shoulder by -armTurn (see strikeHeading), eased in and out.
+    const swinging = this.state === 'attack' && this.armTurn;
+    this.armW = (this.armW ?? 0) + ((swinging ? 1 : 0) - (this.armW ?? 0)) * Math.min(1, (dt || 0.016) * 14);
+    if (this.armW > 0.01 && this.armTurn) {
+      turnBoneWorld(this.bones.RightArm, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this.armTurn * this.armW));
     }
     // Aim: while attacking, the cut is tilted up or down by `aim` (radians,
     // + = up), a third by the body bending and the rest at the sword shoulder
@@ -1475,6 +1483,7 @@ const hitLog = [];
 
 function startMove(f, move) {
   f.moveId = (f.moveId ?? 0) + 1;
+  f.armTurn = f.strikeHeading(move);
   f.move = move;
   f.moveHit = false;
   f.pendingZone = null;
@@ -2021,18 +2030,19 @@ function playerUpdate(dt) {
     if (p.lungeLeft > 0 && mt < p.move.hit) {
       const step = Math.min(p.lungeLeft, (p.lungeTotal / Math.max(p.move.hit / (p.move.speed ?? 1), 0.05)) * dt);
       const dEnemy = enemy.pos.distanceTo(p.pos);
-      if (dEnemy > 0.75) p.pos.addScaledVector(engaged(p) ? tmp.set(Math.sin(camFace), 0, Math.cos(camFace)) : p.forward(tmp), step);
+      if (dEnemy > 0.75) p.pos.addScaledVector(p.forward(tmp), step);
       p.lungeLeft -= step;
     }
-    // The blow lands straight ahead of the camera: turned by where the cut lands.
-    if (engaged(p) && mt < p.move.hit) p.turnTo(camFace - p.strikeHeading(p.move), dt, 30);
+    // Facing ahead of the camera; the sword arm swings the cut round so the
+    // blow lands there too (finishPose, armTurn).
+    if (engaged(p) && mt < p.move.hit) p.turnTo(camFace, dt, 30);
     // At the blow, see where it really landed (the blend from the stance
     // shifts it a little) and correct that move's turn for next time.
     if (engaged(p) && mt >= p.move.hit && p.measured !== p.moveId) {
       p.measured = p.moveId;
       const tip = p.blade()[1].sub(p.bones.Hips.getWorldPosition(new THREE.Vector3()));
       const err = THREE.MathUtils.euclideanModulo(Math.atan2(tip.x, tip.z) - camFace + Math.PI, Math.PI * 2) - Math.PI;
-      if (Math.abs(err) < 0.6) p.strikeH[p.move.clip] += err * 0.8;
+      if (Math.abs(err) < 0.6) p.strikeH[p.move.clip] += err * 1.2;   // (the arm turns the tip less than the angle: the shoulder is off the hips)
     }
     if (mt >= p.move.end) {
       if (p.queued && p.move !== ART.air && p.move !== ART.dash && p.comboIndex < ART.combo.length - 1) {
@@ -2381,7 +2391,7 @@ function enemyUpdate(dt) {
       break;
     case 'attack': {
       const mt = e.moveTime();
-      if (mt < e.move.hit) { const to = player.pos.clone().sub(e.pos); e.turnTo(Math.atan2(to.x, to.z) - e.strikeHeading(e.move), dt, 6); }
+      if (mt < e.move.hit) e.faceTarget(player, dt, 6);
       if (e.lungeLeft > 0 && mt < e.move.hit && d > 0.75) {
         const step = Math.min(e.lungeLeft, (e.lungeTotal / (e.move.hit / e.move.speed)) * dt);
         e.pos.addScaledVector(e.forward(tmp), step);
