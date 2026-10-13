@@ -240,3 +240,24 @@ h1 { letter-spacing: .02em; }
 
 /* Fitting tools (hair and clothes fit, defaults): hidden for players. */
 [data-fit-tool][hidden] { display: none !important; }
+
+/* ---------------------------------------------------------------- home menu */
+.home {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 35%, #262a34, #15171c 70%);
+}
+.home[hidden] { display: none; }
+.home-box { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 16px; width: min(360px, 100%); }
+.home-title { font-size: 32px; letter-spacing: .04em; text-align: center; }
+.home-buttons { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.home-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font: inherit; font-size: 20px; font-weight: 600; text-decoration: none;
+}
+.home-btn small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.home-btn:hover { border-color: var(--accent); }
+.home-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.home-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.home-btn.primary small { color: rgba(0,0,0,.6); }
+.home-link { margin-bottom: -14px; }

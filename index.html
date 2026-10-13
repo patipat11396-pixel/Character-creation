@@ -15,6 +15,16 @@
 </script>
 </head>
 <body>
+<div class="home" id="home" hidden>
+  <div class="home-box">
+    <h1 class="home-title">Sword Fighter</h1>
+    <nav class="home-buttons" aria-label="Main menu">
+      <a class="home-btn primary" href="combat.html">เล่น<small>Play</small></a>
+      <button type="button" class="home-btn" id="home-create">สร้างตัว<small>Create character</small></button>
+      <a class="home-btn" href="anim-editor.html">แก้ animation<small>Animation editor</small></a>
+    </nav>
+  </div>
+</div>
 <main class="app">
   <section class="stage">
     <canvas id="view"></canvas>
@@ -31,6 +41,7 @@
   </section>
 
   <aside class="panel">
+    <a class="link home-link" href="#home" id="to-home">← Menu</a>
     <h1>Create your character</h1>
 
     <label class="field">

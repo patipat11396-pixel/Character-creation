@@ -8,6 +8,16 @@ import { SKIN_TONES, DEFAULT_TONE } from './skinTones.js';
 import { ClothSim, bodyCapsules, CLOTH_VERTEX } from './cloth.js';
 import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMaterial, setHairColor } from './hair.js';
 
+// The home menu (Play / Create character / Animation editor) comes up first;
+// "#create" in the address goes straight to the creator.
+{
+  const home = document.getElementById('home');
+  const show = () => { home.hidden = location.hash === '#create'; };
+  document.getElementById('home-create').addEventListener('click', () => { history.replaceState(null, '', '#create'); show(); });
+  document.getElementById('to-home').addEventListener('click', (e) => { e.preventDefault(); history.replaceState(null, '', '#home'); show(); });
+  show();
+}
+
 const DEFAULTS_URL = 'models/defaults.json';
 // Fitting hair and clothes (the move / rotate / scale handles and the fit
 // sliders) and setting everyone's defaults are tools for making the character

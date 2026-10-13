@@ -145,6 +145,11 @@ in the Stats panel sets how often and how well (default 0.5: about a third of
 blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
 guard, which the stab then breaks.
 
+**Home menu.** The first page (`index.html`) opens on three buttons: เล่น
+(Play: the sword fight), สร้างตัว (Create character: the creator) and แก้
+animation (the animation editor). ← Menu on each page comes back to it;
+`index.html#create` goes straight to the creator.
+
 **Animation editor** (`anim-editor.html`, its own page in the character
 creator's style; the ✎ button in the fight opens it). Pick the body and an
 animation, then a frame (the numbered frame boxes, ‹ ›, or the , and . keys;

@@ -174,7 +174,7 @@ export function createAnimEditor(ctx) {
 
   const body = new URLSearchParams(location.search).get('body');
   panel.innerHTML = `
-    <div class="top"><a href="index.html">← Character</a><a href="combat.html">Fight ⚔</a></div>
+    <div class="top"><a href="index.html">← Menu</a><a href="index.html#create">Character</a><a href="combat.html">Play ⚔</a></div>
     <h1>Animation editor</h1>
     <div class="field"><span class="label">Body</span>
       <select data-a="body"><option value="">My character</option><option value="female">Female</option><option value="male">Male</option></select></div>
