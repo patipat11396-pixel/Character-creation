@@ -158,10 +158,10 @@ turns it with the rings, Move (W) drags the hips, or a hand or foot with IK
 (the arm or leg follows), with the arrows; Local / World sets its axes, Esc
 lets go. The joints are also in tabs (Body, Head, Right arm, Left
 arm, Right leg, Left leg; or click a blue joint on the figure): each has X / Y
-/ Z sliders and number boxes in degrees from the rest pose, and the hips also
+/ Z sliders and number boxes in degrees from the T-pose (the skeleton's bind pose), and the hips also
 move (cm). A change keys that joint on that frame only; Unkey removes it, so
 the frame follows the frames around it. Copy frame / Paste frame, Key all
-joints, Clear frame, Undo / Redo (Ctrl+Z / Ctrl+Y). Preview plays the
+joints, Reset to T-pose (every joint on this frame), Clear frame, Undo / Redo (Ctrl+Z / Ctrl+Y). Preview plays the
 animation (0.25×, 0.5×, 1×, loop; Space). Duplicate as new… makes a copy to
 work on; Length trims or extends it. "Use in the game" gives a move (Light
 1–3, Heavy, Air, Dash, Feint strike, the foe's moves) or a pose (idle, run,

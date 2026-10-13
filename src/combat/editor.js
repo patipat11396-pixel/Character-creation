@@ -236,6 +236,7 @@ export function createAnimEditor(ctx) {
         <label>speed <select data-a="pspeed" style="width:auto"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select></label></div>
       <div class="row"><button type="button" data-a="copy">Copy frame</button><button type="button" data-a="paste">Paste frame</button>
         <button type="button" data-a="keyall" title="Key every joint on this frame as it is now">Key all joints</button>
+        <button type="button" data-a="tpose" title="Key every joint on this frame in the T-pose (all sliders 0)">Reset to T-pose</button>
         <button type="button" data-a="clear" title="Remove this frame's keys (it follows the frames around it)">Clear frame</button></div>
       <div class="row"><button type="button" data-a="undo">↶ Undo</button><button type="button" data-a="redo">↷ Redo</button></div></div>
     <div class="field"><span class="label">Pose on this frame</span>
@@ -245,7 +246,7 @@ export function createAnimEditor(ctx) {
       <p class="note" data-a="picknote">Click a blue joint on the figure to get the gizmo.</p>
       <div class="tabs" role="tablist" data-a="tabs">${GROUPS.map(([n], i) => `<button type="button" role="tab" data-tab="${i}">${n}</button>`).join('')}</div>
       <div data-a="joints" class="field"></div>
-      <p class="note">Degrees from the rest pose. A change (gizmo or slider) keys that joint on this frame only.</p></div>
+      <p class="note">Degrees from the T-pose. A change (gizmo or slider) keys that joint on this frame only.</p></div>
     <div class="field"><span class="label">Use in the game</span>
       <select data-a="use"></select>
       <div class="row"><button type="button" data-a="useclip">Use this animation</button>
@@ -484,6 +485,13 @@ export function createAnimEditor(ctx) {
     changed();
     status(`Keyed every joint on frame ${frame} (unsaved).`);
   }
+  function tPose() {
+    pushUndo();
+    for (const n of posedBones()) setKey(`${n}.quaternion`, rest.get(n).q.toArray());
+    setKey('Hips.position', rest.get('Hips').p.toArray());
+    changed();
+    status(`Frame ${frame} is in the T-pose (unsaved; Undo puts it back).`);
+  }
   function clearFrame() {
     const t = frameTime();
     const hit = clip.tracks.filter((tr) => tr.times.length > 2 && hasKey(tr, t));
@@ -651,6 +659,7 @@ export function createAnimEditor(ctx) {
   $('paste').onclick = () => pasteFrame();
   $('keyall').onclick = () => keyAll();
   $('clear').onclick = () => clearFrame();
+  $('tpose').onclick = () => tPose();
   $('undo').onclick = () => undo();
   $('redo').onclick = () => redo();
   $('trot').onclick = () => setTool('rotate');
@@ -829,9 +838,14 @@ export function createAnimEditor(ctx) {
     fighter = f;
     isOpen = true;
     panel.hidden = false;
-    // The rest pose the sliders count from: the bones as loaded, before any animation.
+    // The rest pose the sliders count from (and Reset to T-pose sets): the
+    // skeleton's bind pose, a T-pose. Read it, then put the bones back.
     f.mixer.stopAllAction();
+    const sk = f.mesh.skeleton;
+    const held = sk.bones.map((b) => [b.position.clone(), b.quaternion.clone(), b.scale.clone()]);
+    sk.pose();
     for (const n of posedBones()) rest.set(n, { q: f.bones[n].quaternion.clone(), p: f.bones[n].position.clone() });
+    sk.bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); b.scale.copy(held[i][2]); });
     fillClips('Idle_Sword_Out');
     markers.clear();
     for (const n of posedBones()) {
