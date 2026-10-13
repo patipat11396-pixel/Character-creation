@@ -90,11 +90,13 @@ export const ANIM_SLOTS = {
   sprint: { clip: 'Sprint_Relaxed', speed: 1 },           // also in the fight: sprinting runs
   walk: { clip: 'Walk_Relaxed', speed: 1 },
   // In the fight: steps forward / back / left / right against the facing.
-  // For now the whole ready stance (the fight idle), gliding; give them clips in the editor.
-  fightForward: { clip: 'Idle_Fight', speed: 1 },
-  fightBack: { clip: 'Idle_Fight', speed: 1 },
-  fightLeft: { clip: 'Idle_Fight', speed: 1 },
-  fightRight: { clip: 'Idle_Fight', speed: 1 },
+  // From the captured walk back (made at load): back, and forward / left /
+  // right made from it. Faster than captured, to keep up with the steps
+  // (the capture walks ~0.6 m/s; fight steps go 2.66 m/s).
+  fightForward: { clip: 'Fight_Forward', speed: 2.5 },
+  fightBack: { clip: 'Fight_Back', speed: 2.5 },
+  fightLeft: { clip: 'Fight_Left', speed: 2.5 },
+  fightRight: { clip: 'Fight_Right', speed: 2.5 },
   guard: { clip: 'Sword_Block', speed: 1.4, hold: 0.45 },   // held at `hold` s while parry is held
   guardForward: { clip: 'Walk_Sword', speed: 1 },         // legs while moving with the guard up (out of the fight)
   guardBack: { clip: 'Walk_Backwards_Sword', speed: 1 },

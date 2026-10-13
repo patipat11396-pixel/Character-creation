@@ -215,6 +215,19 @@ class Fighter {
     let fightIdle = null;
     try { fightIdle = opts.anims?.idleFight && makeBvhClip(this, opts.anims.idleFight, 'Idle_Fight'); } catch (e) { console.warn('idle_fight.bvh', e); }
     this.clips.set('Idle_Fight', fightIdle || this.clips.get('Idle_Sword_Out'));
+    // Fight steps, from the captured walk back (models/anims/fight_back.bvh),
+    // in place (the game moves the fighter), its steps turned to go straight
+    // back, forward, left or right of the sword's way (the capture walks back
+    // on a slant).
+    if (opts.anims?.fightBack) {
+      for (const [clipName, stepTo] of [['Fight_Back', 'back'], ['Fight_Forward', 'forward'], ['Fight_Left', 'left'], ['Fight_Right', 'right']]) {
+        try {
+          const c = makeBvhClip(this, opts.anims.fightBack, clipName, { inPlace: true, stepTo });
+          if (c) this.clips.set(clipName, c);
+        } catch (e) { console.warn(clipName, e); }
+      }
+    }
+    for (const n of ['Fight_Back', 'Fight_Forward', 'Fight_Left', 'Fight_Right']) if (!this.clips.has(n)) this.clips.set(n, this.clips.get('Idle_Fight'));
     // Light cut 1, from the references: ready -> wind-up -> follow-through -> ready.
     this.clips.set('Sword_Cut_1', makePoseClip(this, 'Sword_Cut_1',
       [[0, GUARD], [0.12, CUT1_UP], [0.24, CUT1_DOWN], [0.34, CUT1_DOWN], [0.52, GUARD]], 0.52));
@@ -863,8 +876,9 @@ function makeMirroredClip(f, clip, name) {
  * rig keeping the rig's own proportions: each joint turns in the world as the
  * capture's does from its T-pose (from the rig's T-pose, its bind pose), then
  * the arms are pointed at the capture's next joint; the legs follow the
- * capture's but stand higher and a little narrower (see below). The whole capture is turned so
- * its sword arm on the first frame points the way the rig faces. The hips drift as the capture's (scaled by leg
+ * capture's but stand higher and a little narrower (see below). The whole capture is turned with
+ * the sword as the anchor: the blade, on average over the clip, points the way
+ * the rig faces (straight ahead of the camera in the fight). The hips drift as the capture's (scaled by leg
  * length) and sit so the lower foot is on the floor. The sword hand is turned
  * so the blade carries on from the forearm, rising (the capture has no sword),
  * and the last `blend` s ease back into the first frame so the loop has no jump.
@@ -881,7 +895,7 @@ const BVH_LIMBS = {
   LeftUpLeg: ['LeftLeg', 'left_hip', 'left_knee'], LeftLeg: ['LeftFoot', 'left_knee', 'left_ankle'], LeftFoot: ['LeftToeBase', 'left_ankle', 'left_foot'],
   RightUpLeg: ['RightLeg', 'right_hip', 'right_knee'], RightLeg: ['RightFoot', 'right_knee', 'right_ankle'], RightFoot: ['RightToeBase', 'right_ankle', 'right_foot'],
 };
-function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, bend = 0.5, spread = 0.85 } = {}) {
+function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, bend = 0.5, spread = 0.85, inPlace = false, stepTo = null } = {}) {
   const res = new BVHLoader().parse(text);
   const holder = new THREE.Group();
   holder.add(res.skeleton.bones[0]);
@@ -896,8 +910,8 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
   mixer.clipAction(res.clip).play();
   mixer.setTime(0);
   holder.updateMatrixWorld(true);
-  // Facing: the sword arm (shoulder to wrist) on the first frame points the
-  // way the rig faces, so the stance is side-on with the sword forward.
+  // Facing, first guess: the sword arm (shoulder to wrist) on the first
+  // frame points the way the rig faces; then corrected so the blade does.
   const srcArm = Pw(sb.right_wrist).sub(Pw(sb.right_shoulder)).setY(0).normalize();
   const start = Pw(sb.pelvis);
   // The rig in its bind pose (a T-pose), facing yaw 0.
@@ -912,15 +926,24 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
   const tgtRest = Object.fromEntries(order.map((b) => [b.name, W(b)]));
   const ratio = (Pw(B.LeftUpLeg).distanceTo(Pw(B.LeftLeg)) + Pw(B.LeftLeg).distanceTo(Pw(B.LeftFoot))) / legS;
   const tgtFwd = Pw(B.LeftUpLeg).sub(Pw(B.RightUpLeg)).setY(0).normalize().cross(new THREE.Vector3(0, 1, 0));   // left x up = forward
-  const R = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(srcArm.z, srcArm.x) - Math.atan2(tgtFwd.z, tgtFwd.x));
+  const angle = (v) => Math.atan2(v.z, v.x);
   const hip0 = Pw(B.Hips), floorY = Math.min(Pw(B.LeftFoot).y, Pw(B.RightFoot).y);
-  const S = (n) => Pw(sb[n]).applyQuaternion(R);   // a capture joint, turned to the rig's facing
   const up = new THREE.Vector3(0, 1, 0);
-  const times = [], qv = Object.fromEntries(order.map((b) => [b.name, []])), pv = [];
+  const restQ = sk.bones.map((b) => b.quaternion.clone()), restP = sk.bones.map((b) => b.position.clone());
+  let R, S, times, qv, pv, bladeSum, footSum, footMean = null, stepQ = null;
+  // Bake every frame with the capture turned by `turn`. The sword is the
+  // anchor: the second bake turns it so the blade, on average, points ahead.
+  const bake = (turn) => {
+  sk.bones.forEach((b, i) => { b.quaternion.copy(restQ[i]); b.position.copy(restP[i]); });
+  f.root.updateMatrixWorld(true);
+  R = new THREE.Quaternion().setFromAxisAngle(up, turn);
+  S = (n) => Pw(sb[n]).applyQuaternion(R);   // a capture joint, turned to the rig's facing
+  times = []; qv = Object.fromEntries(order.map((b) => [b.name, []])); pv = []; bladeSum = new THREE.Vector3();
+  footSum = { left: new THREE.Vector3(), right: new THREE.Vector3() };
   for (let t = 0; t <= res.clip.duration + 1e-6; t += 1 / fps) {
     mixer.setTime(Math.min(t, res.clip.duration - 1e-4));
     holder.updateMatrixWorld(true);
-    const d = Pw(sb.pelvis).sub(start).applyQuaternion(R).multiplyScalar(ratio);
+    const d = inPlace ? new THREE.Vector3() : Pw(sb.pelvis).sub(start).applyQuaternion(R).multiplyScalar(ratio);
     B.Hips.position.copy(B.Hips.parent.worldToLocal(new THREE.Vector3(hip0.x + d.x, hip0.y, hip0.z + d.z)));
     B.Hips.updateMatrixWorld(true);
     for (const b of order) {
@@ -953,7 +976,12 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
       dir.x *= spread;
       dir.z *= spread;
       const pole = kneeS.clone().sub(hipS.clone().lerp(ankS, 0.5));
-      twoBoneIK(up_, mid, foot, Pw(up_).add(dir.normalize().multiplyScalar(lenT * reach)), pole);
+      let rel = dir.normalize().multiplyScalar(lenT * reach);
+      footSum[side].add(rel);
+      // A walk turned to another direction: each foot's swing about its
+      // average place turned by `stepQ`, the stance kept.
+      if (stepQ) rel = rel.sub(footMean[side]).applyQuaternion(stepQ).add(footMean[side]);
+      twoBoneIK(up_, mid, foot, Pw(up_).add(rel), pole);
       const toe = BVH_LIMBS[`${Side}Foot`];
       turnBoneWorld(foot, new THREE.Quaternion().setFromUnitVectors(Pw(B[toe[0]]).sub(Pw(foot)).normalize(), S(toe[2]).sub(S(toe[1])).normalize()));
     }
@@ -964,6 +992,25 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, b
     for (const b of order) qv[b.name].push(...b.quaternion.toArray());
     pv.push(...B.Hips.position.toArray());
     times.push(+t.toFixed(4));
+    const [bb, bt] = f.blade();
+    bladeSum.add(bt.sub(bb).setY(0).normalize());
+  }
+  };
+  const first = angle(srcArm) - angle(tgtFwd);
+  bake(first);
+  const turn = first + angle(bladeSum) - angle(tgtFwd);
+  bake(turn);
+  if (stepTo) {
+    // The capture's way of travel (in the rig's frame), turned onto `stepTo`
+    // ('forward' | 'back' | 'left' | 'right' of the fighter).
+    mixer.setTime(res.clip.duration - 1e-4);
+    holder.updateMatrixWorld(true);
+    const travel = Pw(sb.pelvis).sub(start).applyQuaternion(R).setY(0).normalize();
+    const left = up.clone().cross(tgtFwd);   // (up x forward)
+    const want = { forward: tgtFwd, back: tgtFwd.clone().negate(), left, right: left.clone().negate() }[stepTo];
+    stepQ = new THREE.Quaternion().setFromUnitVectors(travel, want);
+    footMean = { left: footSum.left.divideScalar(times.length), right: footSum.right.divideScalar(times.length) };
+    bake(turn);
   }
   sk.bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); b.scale.copy(held[i][2]); });
   f.root.rotation.y = yaw;
@@ -1273,6 +1320,8 @@ function applyAnim(data) {
   for (const [slot, clip] of Object.entries(was)) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the captured fight idle hold the made stance; drop those.
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
+  // Saves from before the captured fight steps hold the idle for them; drop those.
+  for (const slot of ['fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Fight') delete data.slots[slot];
   // Saves from before the relaxed steps hold the armed ones; drop those.
   for (const [slot, clip] of Object.entries({ run: 'Run_Sword', sprint: 'Sprint_Sword', walk: 'Walk_Sword' })) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the finisher was sped up hold its old default; drop it.
@@ -1595,6 +1644,7 @@ function engaged(f) {
   return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
 }
 const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
+const FIGHT_STEP_SPEED = 0.7;   // stepping in the fight, against running
 // In the fight, steps play the fight slots (the stance) instead.
 const FIGHT_STEPS = { run: 'fightForward', walk: 'fightForward', guardForward: 'fightForward', guardBack: 'fightBack', guardLeft: 'fightLeft', guardRight: 'fightRight' };
 /** The step slot for moving along `wish` against `f`'s facing. */
@@ -1984,7 +2034,9 @@ function playerUpdate(dt) {
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
-      p.vel.copy(wish).multiplyScalar(speed * legMul(p));
+      // Stepping in the fight is 30% slower than running.
+      const fightSlow = !p.sprinting && engaged(p) ? FIGHT_STEP_SPEED : 1;
+      p.vel.copy(wish).multiplyScalar(speed * fightSlow * legMul(p));
       // In the fight (not sprinting) the fighter faces where the camera looks
       // and steps in the stance; otherwise it turns to run where it goes.
       const fightStep = moving && !p.sprinting && engaged(p);
@@ -2302,7 +2354,7 @@ function enemyUpdate(dt) {
         e.playSlot('run', { fade: 0.2 });
       } else if (Math.abs(d - want) > 0.35) {
         // Edge in or back off, facing the player.
-        const v = THREE.MathUtils.clamp((d - want) * 1.6, -2.2, 2.4);
+        const v = THREE.MathUtils.clamp((d - want) * 1.6, -2.2, 2.4) * FIGHT_STEP_SPEED;
         e.state = v > 0 ? 'chase' : 'idle';
         e.vel.copy(toP).multiplyScalar(v * legMul(e));
         e.playSlot(v > 0 ? 'walk' : 'guardBack', { fade: 0.2 });
@@ -2567,7 +2619,8 @@ async function main() {
     const [g1, g2, defaults, idleFight] = await Promise.all([loadGLB(`models/character_${body}.glb`), loadGLB(`models/character_${other}.glb`),
       fetch('models/defaults.json').then((r) => r.json()).catch(() => null),
       fetch('models/anims/idle_fight.bvh').then((r) => (r.ok ? r.text() : null)).catch(() => null)]);
-    const anims = { idleFight };
+    const fightBack = await fetch('models/anims/fight_back.bvh').then((r) => (r.ok ? r.text() : null)).catch(() => null);
+    const anims = { idleFight, fightBack };
     captureText = idleFight;
     const [s1, s2] = await Promise.all([
       skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);

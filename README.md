@@ -196,11 +196,16 @@ turns to run where it goes.
 
 **Steps.** Out of the fight the fighter walks and runs with the sword
 hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,
-`Walk_Relaxed`). In the fight it keeps facing the foe and steps in the whole
-ready stance (the slots `fightForward`, `fightBack`, `fightLeft`,
-`fightRight`; for now all `Idle_Fight`, gliding, until clips are made for
-them in the editor); sprinting still runs. With the guard up the legs use the
-same fight slots under the guard.
+`Walk_Relaxed`). In the fight it faces where the camera looks and steps 30%
+slower than it runs (`FIGHT_STEP_SPEED`), playing the fight slots
+`fightForward`, `fightBack`, `fightLeft`, `fightRight` (`Fight_Forward`,
+`Fight_Back`, `Fight_Left`, `Fight_Right`, at 2.5×). They are made at load
+from a captured walk back (`models/anims/fight_back.bvh`), the same way as
+the fight idle, in place (the game moves the fighter); the capture walks
+back on a slant, so each foot's swing about its average place is turned to
+go straight back, forward, left or right of the sword's way, the stance
+kept. Sprinting still runs. With the guard up the legs use the same slots
+under the guard.
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
 away and no blow for 4 s) the fighter stands easy, the sword hanging point
