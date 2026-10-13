@@ -2036,15 +2036,8 @@ function playerUpdate(dt) {
       const g = ANIM_SLOTS.guard;
       // The guard is drawn only once the parry window has passed: a parry that
       // lands goes straight into its shove without the guard coming up first.
-      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
-        // Legs by the step's direction against the facing; the guard on top.
-        let legs = stepSlot(p, wish);
-        if (engaged(p)) legs = FIGHT_STEPS[legs];
-        const ls = ANIM_SLOTS[legs], travel = p.clips.get(ls.clip)?.userData?.travel;
-        const legSpeed = travel ? THREE.MathUtils.clamp((Math.hypot(p.vel.x, p.vel.z) / travel) * ls.speed, 0.4, 3) : ls.speed;
-        p.play(ls.clip, { speed: legSpeed, part: 'lower', fade: 0.15 });
-        p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
-      } else if (p.action?.getClip().name !== g.clip || p.upper) {
+      // With the guard held the whole body keeps the guard pose, moving or not.
+      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (p.action?.getClip().name !== g.clip || p.upper) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });
         if (a) a.holdAt = g.hold;
       }
