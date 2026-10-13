@@ -75,16 +75,15 @@ swordsman, with a third-person camera.
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
 | Alt | side step / dodge; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
-| Shift | hold: guard (−50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (1.5 m/s) with it up, the legs walking or strafing under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
+| Shift | hold: guard (−50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (0.9 m/s, crouched) with it up, the legs stepping under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
 | E | Feint 虚招 (skill): a fake heavy wind-up, then a fast stab that breaks a guard (cooldown 4 s); a broken guard cannot block or parry for 5 s |
 
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
-for 0.3 s while the parrier, at once (no guard raised first), shoves their
-blade out to the left, across and away from the body
-(`Parry_Sweep`, made at load by IK from the guard pose; an attack may cut
-it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
+(the foe 0.5 s, the player 0.35 s) while the parrier, at once (no guard
+raised first), cuts the blade aside with `Sword_Regular_A` (`PARRY_CLIP`;
+an attack may cut it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
 guard bounces off: the attacker is held for 0.1 s (the swing runs back a
 little) and the combo is cut short. Every blow that lands or is blocked, given
@@ -238,7 +237,8 @@ back on its heels for 0.5 s (no fall).
 
 **Pacing.** After an attack ends, guarding, parrying and dodging wait 0.1 s
 (and never happen mid-attack). A fighter caught in a combo stays stunned
-until the combo ends. A perfect parry staggers for 0.35 s.
+until the combo ends. A perfect parry staggers the foe for 0.5 s, the player
+for 0.35 s.
 
 **Enemy tactics.** Beyond reading your blows (parry, dodge, guard: it guards
 more, and keeps its guard up through a combo), it keeps just outside your

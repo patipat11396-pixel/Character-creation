@@ -1678,12 +1678,12 @@ function perfect(def, att, text, parry = false) {
   if (!def.isPlayer) { def.think = parry ? 0.3 : 0.05; def.plan = null; }   // and it counters
   if (parry) {
     const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
-    stagger(att, STAGGER.perfect, null);
-    // The parrier sweeps the other blade aside, out from the body (attacks may cut it short after 0.12 s).
+    stagger(att, att.isPlayer ? STAGGER.perfect : STAGGER.perfectFoe, null);
+    // The parrier cuts the other blade aside with Sword_Regular_A (attacks may cut it short after 0.12 s).
     def.move = null;
     def.setState('push');
     def.setUpper(null);
-    def.play('Parry_Sweep', { loop: false, fade: 0.04 });
+    def.play(PARRY_CLIP, { loop: false, fade: 0.04 });
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
@@ -1696,7 +1696,9 @@ function perfect(def, att, text, parry = false) {
 
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
-const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.35, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
+const PARRY_CLIP = 'Sword_Regular_A';   // played by whoever lands a perfect parry
+// perfect: the player parried; perfectFoe: the foe parried by the player.
+const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
   f.move = null;
   f.comboIndex = -1;
