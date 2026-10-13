@@ -227,6 +227,12 @@ class Fighter {
       const clip = makeArmedClip(this, name, base);
       if (clip) this.clips.set(name, clip);
     }
+    // Out of the fight: the same steps with the sword arm as in the relaxed
+    // idle, the blade hanging point down.
+    for (const [name, base] of [['Run_Relaxed', 'Jog'], ['Sprint_Relaxed', 'Sprint'], ['Walk_Relaxed', 'Walk']]) {
+      const clip = makeArmedClip(this, name, base, 'Idle_Relaxed');
+      if (clip) this.clips.set(name, clip);
+    }
     this.bladePrev = null;
     // Hit zones: capsules on the bones.
     this.zones = HIT_ZONES.filter((z) => this.bones[z.from] && (!z.to || this.bones[z.to]))
@@ -308,6 +314,7 @@ class Fighter {
 
   /** A pose slot (ANIM_SLOTS: idle, run, guard...) with its speed. */
   playSlot(slot, opts = {}) {
+    if (engaged(this) && FIGHT_STEPS[slot]) slot = FIGHT_STEPS[slot];
     const s = ANIM_SLOTS[slot];
     return this.play(s.clip, { speed: s.speed, ...opts });
   }
@@ -845,8 +852,8 @@ function makeMirroredClip(f, clip, name) {
 }
 
 /** `base` with the right arm (shoulder to hand) taken from the sword idle. */
-function makeArmedClip(f, name, base) {
-  const clip = f.clips.get(base), idle = f.clips.get('Idle_Sword');
+function makeArmedClip(f, name, base, armFrom = 'Idle_Sword') {
+  const clip = f.clips.get(base), idle = f.clips.get(armFrom);
   if (!clip || !idle) return null;
   const arm = /^Right(Shoulder|Arm|ForeArm|Hand)$/;
   return new THREE.AnimationClip(name, clip.duration, [
@@ -1130,6 +1137,8 @@ function applyAnim(data) {
   // Saves from before the sword-arm locomotion hold the plain clips; drop those.
   const was = { idle: 'Idle_Sword', run: 'Jog', sprint: 'Sprint', walk: 'Walk', guardForward: 'Walk', guardBack: 'Walk_Backwards', guardLeft: 'Strafe_left', guardRight: 'Strafe_right' };
   for (const [slot, clip] of Object.entries(was)) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
+  // Saves from before the relaxed steps hold the armed ones; drop those.
+  for (const [slot, clip] of Object.entries({ run: 'Run_Sword', sprint: 'Sprint_Sword', walk: 'Walk_Sword' })) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the finisher was sped up hold its old default; drop it.
   const old3 = data.moves?.['Light 3'];
   if (old3 && old3.clip === 'Sword_Regular_C' && old3.speed === 0.9 && old3.end === 0.75) delete data.moves['Light 3'];
@@ -1450,6 +1459,14 @@ function engaged(f) {
   return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
 }
 const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
+// In the fight, steps play the fight slots (the stance) instead.
+const FIGHT_STEPS = { run: 'fightForward', walk: 'fightForward', guardForward: 'fightForward', guardBack: 'fightBack', guardLeft: 'fightLeft', guardRight: 'fightRight' };
+/** The step slot for moving along `wish` against `f`'s facing. */
+function stepSlot(f, wish) {
+  const fw = f.forward(new THREE.Vector3());
+  const fwd = wish.dot(fw), side = wish.x * fw.z - wish.z * fw.x;
+  return Math.abs(fwd) >= Math.abs(side) ? (fwd >= 0 ? 'guardForward' : 'guardBack') : (side > 0 ? 'guardLeft' : 'guardRight');
+}
 
 /** Defending (guard, parry, dodge) waits DEFEND_DELAY s after an attack ends, and is never possible mid-attack. */
 const DEFEND_DELAY = 0.1;
@@ -1813,9 +1830,8 @@ function playerUpdate(dt) {
       // lands goes straight into its shove without the guard coming up first.
       if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
         // Legs by the step's direction against the facing; the guard on top.
-        const f = p.forward(tmp);
-        const fwd = wish.dot(f), side = wish.x * f.z - wish.z * f.x;
-        const legs = Math.abs(fwd) >= Math.abs(side) ? (fwd >= 0 ? 'guardForward' : 'guardBack') : (side > 0 ? 'guardLeft' : 'guardRight');
+        let legs = stepSlot(p, wish);
+        if (engaged(p)) legs = FIGHT_STEPS[legs];
         p.play(ANIM_SLOTS[legs].clip, { speed: ANIM_SLOTS[legs].speed, part: 'lower', fade: 0.15 });
         p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
       } else if (p.action?.getClip().name !== g.clip || p.upper) {
@@ -1832,9 +1848,13 @@ function playerUpdate(dt) {
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
       p.vel.copy(wish).multiplyScalar(speed * legMul(p));
-      if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
+      // In the fight (not sprinting) the fighter keeps facing the foe and steps
+      // in the stance; otherwise it turns to run where it goes.
+      const fightStep = moving && !p.sprinting && engaged(p);
+      if (fightStep) p.faceTarget(enemy, dt, 10);
+      else if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
       if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
-        p.playSlot(moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: moving ? 0.18 : 0.35 });
+        p.playSlot(fightStep ? stepSlot(p, wish) : moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: moving ? 0.18 : 0.35 });
         p.state = moving ? 'move' : 'idle';
       }
     }

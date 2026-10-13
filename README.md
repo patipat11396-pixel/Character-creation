@@ -168,6 +168,14 @@ this browser, for both fighters); Revert puts an animation back (or deletes a
 made one); Export JSON gives the edits and move settings to send in and bake
 into the game, Import JSON loads them.
 
+**Steps.** Out of the fight the fighter walks and runs with the sword
+hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,
+`Walk_Relaxed`). In the fight it keeps facing the foe and steps in the whole
+ready stance (the slots `fightForward`, `fightBack`, `fightLeft`,
+`fightRight`; for now all `Idle_Sword_Out`, gliding, until clips are made for
+them in the editor); sprinting still runs. With the guard up the legs use the
+same fight slots under the guard.
+
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
 away and no blow for 4 s) the fighter stands easy, the sword hanging point
 down (`Idle_Relaxed`, from Idle_A). Ready to fight it takes a wide, low,

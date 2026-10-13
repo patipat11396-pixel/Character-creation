@@ -85,12 +85,18 @@ export const ARTS = {
 export const ANIM_SLOTS = {
   idle: { clip: 'Idle_Sword_Out', speed: 1 },   // ready to fight: wide and side-on, the sword out at the foe (made at load)
   idleCalm: { clip: 'Idle_Relaxed', speed: 1 },  // not fighting: standing easy, the sword hanging point down (made at load)
-  // Locomotion clips with the sword arm held in the stance (made at load).
-  run: { clip: 'Run_Sword', speed: 1 },
-  sprint: { clip: 'Sprint_Sword', speed: 1 },
-  walk: { clip: 'Walk_Sword', speed: 1 },                 // the enemy closing in
+  // Out of the fight: steps with the sword hanging as in idleCalm (made at load).
+  run: { clip: 'Run_Relaxed', speed: 1 },
+  sprint: { clip: 'Sprint_Relaxed', speed: 1 },           // also in the fight: sprinting runs
+  walk: { clip: 'Walk_Relaxed', speed: 1 },
+  // In the fight: steps forward / back / left / right against the facing.
+  // For now the whole ready stance, gliding; give them clips in the editor.
+  fightForward: { clip: 'Idle_Sword_Out', speed: 1 },
+  fightBack: { clip: 'Idle_Sword_Out', speed: 1 },
+  fightLeft: { clip: 'Idle_Sword_Out', speed: 1 },
+  fightRight: { clip: 'Idle_Sword_Out', speed: 1 },
   guard: { clip: 'Sword_Block', speed: 1.4, hold: 0.45 },   // held at `hold` s while parry is held
-  guardForward: { clip: 'Walk_Sword', speed: 1 },         // legs while moving with the guard up
+  guardForward: { clip: 'Walk_Sword', speed: 1 },         // legs while moving with the guard up (out of the fight)
   guardBack: { clip: 'Walk_Backwards_Sword', speed: 1 },
   guardLeft: { clip: 'Strafe_left_Sword', speed: 1 },
   guardRight: { clip: 'Strafe_right_Sword', speed: 1 },
