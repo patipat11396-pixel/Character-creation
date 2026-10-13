@@ -152,7 +152,7 @@ export function clothMaterial(o, fit) {
 }
 
 /** Thighs turned inward (degrees) while animating, as set in the menu: the clips were made for wider hips. */
-export const LEG_DEFAULTS = { female: 6, male: 0 };
+export const LEG_DEFAULTS = { female: 0, male: 0 };
 
 /**
  * The setup's hairstyle on a fighter (in its bind pose, before it moves).

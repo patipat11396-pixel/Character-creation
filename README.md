@@ -154,8 +154,8 @@ animation (the animation editor). ← Menu on each page comes back to it;
 creator's style; the ✎ button in the fight opens it). Pick the body and an
 animation, then a frame (the numbered frame boxes, ‹ ›, or the , and . keys;
 gold boxes have keys). Click a blue joint and a gizmo comes up on it, as in a 3D tool: Rotate (E)
-turns it with the rings, Move (W) drags the hips, or a hand or foot with IK
-(the arm or leg follows), with the arrows; Local / World sets its axes, Esc
+turns it with the rings, Move (W) drags any joint with the arrows: the hips slide, a hand or foot
+pulls its arm or leg (IK), any other joint turns its parent to follow; Local / World sets its axes, Esc
 lets go. The joints are also in tabs (Body, Head, Right arm, Left
 arm, Right leg, Left leg; or click a blue joint on the figure): each has X / Y
 / Z sliders and number boxes in degrees from the T-pose (the skeleton's bind pose), and the hips also

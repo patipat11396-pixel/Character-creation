@@ -733,9 +733,9 @@ export function createAnimEditor(ctx) {
   };
 
   // ---- the gizmo, as in a 3D tool
-  const canMove = (name) => name === 'Hips' || !!IK_CHAINS[name];
+  // Move: the hips slide; a hand or foot pulls its arm or leg (two-bone IK);
+  // any other joint pulls its parent round to point at it.
   function setTool(t) {
-    if (t === 'move' && picked && !canMove(picked)) { status('Move works on the hips, a hand or a foot; other joints turn.'); return; }
     tool = t;
     $('trot').classList.toggle('on', t === 'rotate');
     $('tmove').classList.toggle('on', t === 'move');
@@ -743,7 +743,6 @@ export function createAnimEditor(ctx) {
   }
   function attachGizmo() {
     if (!picked || playing) { gizmo.detach(); return; }
-    if (tool === 'move' && !canMove(picked)) { tool = 'rotate'; $('trot').classList.add('on'); $('tmove').classList.remove('on'); }
     const b = fighter.bones[picked];
     if (tool === 'move' && picked !== 'Hips') {
       b.getWorldPosition(ikTarget.position);
@@ -759,7 +758,7 @@ export function createAnimEditor(ctx) {
   }
   // A drag keys the change against the frame's own values: the bones carry
   // finishPose's extras (the leg spread), which must not go into the keys.
-  const chainOf = (name) => (tool === 'move' && name !== 'Hips' ? [...IK_CHAINS[name]] : [name]);
+  const chainOf = (name) => (tool !== 'move' || name === 'Hips' ? [name] : IK_CHAINS[name] ? [...IK_CHAINS[name]] : [fighter.bones[name].parent.name]);
   gizmo.addEventListener('dragging-changed', (e) => {
     orbit.enabled = !e.value;
     if (e.value) {
@@ -781,9 +780,14 @@ export function createAnimEditor(ctx) {
     } else {
       if (tool === 'move') {
         // Back to the frame's pose, then reach for the target.
-        const [a, m] = IK_CHAINS[picked].map((n) => fighter.bones[n]);
         for (const [n, q] of drag.bones) fighter.bones[n].quaternion.copy(q);
         fighter.root.updateMatrixWorld(true);
+      }
+      if (tool === 'move' && !IK_CHAINS[picked]) {
+        const b = fighter.bones[picked];
+        aim(b.parent, b, ikTarget.position);
+      } else if (tool === 'move') {
+        const [a, m] = IK_CHAINS[picked].map((n) => fighter.bones[n]);
         const s0 = a.getWorldPosition(new THREE.Vector3()), e0 = fighter.bones[picked].getWorldPosition(new THREE.Vector3());
         const pole = m.getWorldPosition(new THREE.Vector3()).sub(s0.lerp(e0, 0.5));
         if (pole.lengthSq() < 1e-6) pole.set(0, 0, 1);
@@ -837,6 +841,8 @@ export function createAnimEditor(ctx) {
   function open(f) {
     fighter = f;
     isOpen = true;
+    // The pose as keyed, as in the T-pose: no leg spread from the menu on top.
+    f.legDeg = 0;
     panel.hidden = false;
     // The rest pose the sliders count from (and Reset to T-pose sets): the
     // skeleton's bind pose, a T-pose. Read it, then put the bones back.

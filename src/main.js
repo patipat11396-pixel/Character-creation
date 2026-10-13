@@ -96,7 +96,7 @@ const $ = (id) => document.getElementById(id);
 const canvas = $('view');
 
 const HEAD_SCALE = 0.88;
-const LEG_DEFAULTS = { female: 6, male: 0 };   // thighs turned inward (degrees) while animating
+const LEG_DEFAULTS = { female: 0, male: 0 };   // thighs turned inward (degrees) while animating
 const state = {
   name: '',
   tone: DEFAULT_TONE,

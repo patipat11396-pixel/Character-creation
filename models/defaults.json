@@ -307,7 +307,7 @@
   "clothFits": {},
   "robe": true,
   "legs": {
-    "female": 6,
+    "female": 0,
     "male": 0
   },
   "face": {
