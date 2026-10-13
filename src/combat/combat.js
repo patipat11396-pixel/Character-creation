@@ -401,6 +401,28 @@ class Fighter {
     this.turnTo(Math.atan2(d.x, d.z), dt, rate);
   }
 
+  /**
+   * Where a move's blow lands, as a turn from the facing (radians, like yaw):
+   * the blade tip at the hit, seen from the hips. Cuts sweep across, so the
+   * fighter turns by this much less to land the blow straight ahead.
+   */
+  strikeHeading(move) {
+    this.strikeH ??= {};
+    if (move.clip in this.strikeH) return this.strikeH[move.clip];
+    const clip = this.clips.get(move.clip);
+    if (!clip) return 0;
+    const bones = this.mesh.skeleton.bones, held = bones.map((b) => [b.position.clone(), b.quaternion.clone()]);
+    const yaw = this.root.rotation.y;
+    this.root.rotation.y = 0;
+    poseFromClip(this, clip, move.hit ?? 0);
+    const [, tip] = this.blade();
+    const v = tip.sub(this.bones.Hips.getWorldPosition(new THREE.Vector3()));
+    bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); });
+    this.root.rotation.y = yaw;
+    this.root.updateMatrixWorld(true);
+    return (this.strikeH[move.clip] = Math.atan2(v.x, v.z));
+  }
+
   /** Pose after the animation: fingers, head size, facing, the attack's aim. */
   finishPose(dt = 0) {
     for (const a of [this.upper, this.action]) {
@@ -422,6 +444,23 @@ class Fighter {
         bone.quaternion.premultiply(pw.clone().invert().multiply(turn).multiply(pw));
       }
       this.root.updateMatrixWorld(true);
+    }
+    // Crouch (moving with the guard held): the hips lowered by `crouch` m,
+    // the feet kept where they were by bending the legs.
+    this.crouchW = (this.crouchW ?? 0) + ((this.crouch ?? 0) - (this.crouchW ?? 0)) * Math.min(1, (dt || 0.016) * 8);
+    if (this.crouchW > 0.002) {
+      const legs = [['LeftUpLeg', 'LeftLeg', 'LeftFoot'], ['RightUpLeg', 'RightLeg', 'RightFoot']].map((n) => n.map((x) => this.bones[x]));
+      const feet = legs.map(([, , foot]) => foot.getWorldPosition(new THREE.Vector3()));
+      const footQ = legs.map(([, , foot]) => foot.getWorldQuaternion(new THREE.Quaternion()));
+      const hips = this.bones.Hips, hw = hips.getWorldPosition(new THREE.Vector3());
+      hips.position.copy(hips.parent.worldToLocal(hw.setY(hw.y - this.crouchW)));
+      this.root.updateMatrixWorld(true);
+      const fwd = this.forward(new THREE.Vector3());
+      legs.forEach(([up, mid, foot], i) => {
+        twoBoneIK(up, mid, foot, feet[i], fwd);
+        foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(footQ[i]));
+        foot.updateMatrixWorld(true);
+      });
     }
     // Aim: while attacking, the cut is tilted up or down by `aim` (radians,
     // + = up), a third by the body bending and the rest at the sword shoulder
@@ -1435,6 +1474,7 @@ let over = false;
 const hitLog = [];
 
 function startMove(f, move) {
+  f.moveId = (f.moveId ?? 0) + 1;
   f.move = move;
   f.moveHit = false;
   f.pendingZone = null;
@@ -1672,6 +1712,7 @@ function engaged(f) {
   return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
 }
 const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
+const GUARD_CROUCH = 0.26;   // m the hips sink while stepping with the guard held (down to the standing guard's height)
 const FIGHT_STEP_SPEED = 0.35;   // stepping in the fight against running (3.8 m/s -> 1.33 m/s)
 // In the fight, steps play the fight slots (the stance) instead.
 const FIGHT_STEPS = { run: 'fightForward', walk: 'fightForward', guardForward: 'fightForward', guardBack: 'fightBack', guardLeft: 'fightLeft', guardRight: 'fightRight' };
@@ -1936,6 +1977,7 @@ const tmp = new THREE.Vector3();
 function playerUpdate(dt) {
   const p = player;
   p.t += dt;
+  p.crouch = 0;   // (the guard sets it while stepping)
   // Movement input relative to the camera.
   const fwd = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw)).negate();
   const right = new THREE.Vector3(fwd.z, 0, -fwd.x).negate();
@@ -1979,10 +2021,19 @@ function playerUpdate(dt) {
     if (p.lungeLeft > 0 && mt < p.move.hit) {
       const step = Math.min(p.lungeLeft, (p.lungeTotal / Math.max(p.move.hit / (p.move.speed ?? 1), 0.05)) * dt);
       const dEnemy = enemy.pos.distanceTo(p.pos);
-      if (dEnemy > 0.75) p.pos.addScaledVector(p.forward(tmp), step);
+      if (dEnemy > 0.75) p.pos.addScaledVector(engaged(p) ? tmp.set(Math.sin(camFace), 0, Math.cos(camFace)) : p.forward(tmp), step);
       p.lungeLeft -= step;
     }
-    if (engaged(p) && mt < p.move.hit) p.turnTo(camFace, dt, 18);
+    // The blow lands straight ahead of the camera: turned by where the cut lands.
+    if (engaged(p) && mt < p.move.hit) p.turnTo(camFace - p.strikeHeading(p.move), dt, 30);
+    // At the blow, see where it really landed (the blend from the stance
+    // shifts it a little) and correct that move's turn for next time.
+    if (engaged(p) && mt >= p.move.hit && p.measured !== p.moveId) {
+      p.measured = p.moveId;
+      const tip = p.blade()[1].sub(p.bones.Hips.getWorldPosition(new THREE.Vector3()));
+      const err = THREE.MathUtils.euclideanModulo(Math.atan2(tip.x, tip.z) - camFace + Math.PI, Math.PI * 2) - Math.PI;
+      if (Math.abs(err) < 0.6) p.strikeH[p.move.clip] += err * 0.8;
+    }
     if (mt >= p.move.end) {
       if (p.queued && p.move !== ART.air && p.move !== ART.dash && p.comboIndex < ART.combo.length - 1) {
         p.comboIndex++;
@@ -2043,6 +2094,7 @@ function playerUpdate(dt) {
       const g = ANIM_SLOTS.guard;
       // The guard is drawn only once the parry window has passed: a parry that
       // lands goes straight into its shove without the guard coming up first.
+      p.crouch = wish.lengthSq() ? GUARD_CROUCH : 0;
       if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
         // Moving with the guard held: the guard on top, the legs stepping
         // slowly (guardSpeed) in the guard steps, which face straight ahead
@@ -2329,7 +2381,7 @@ function enemyUpdate(dt) {
       break;
     case 'attack': {
       const mt = e.moveTime();
-      if (mt < e.move.hit) e.faceTarget(player, dt, 6);
+      if (mt < e.move.hit) { const to = player.pos.clone().sub(e.pos); e.turnTo(Math.atan2(to.x, to.z) - e.strikeHeading(e.move), dt, 6); }
       if (e.lungeLeft > 0 && mt < e.move.hit && d > 0.75) {
         const step = Math.min(e.lungeLeft, (e.lungeTotal / (e.move.hit / e.move.speed)) * dt);
         e.pos.addScaledVector(e.forward(tmp), step);

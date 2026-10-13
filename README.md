@@ -191,8 +191,13 @@ looped, its sword arm turned the way the fighter faces), to compare with;
 "Show the capture" hides it.
 
 **Facing in the fight.** In the fight the player faces where the camera
-looks (standing, stepping, guarding, attacking, feinting); out of it, it
-turns to run where it goes.
+looks (standing, stepping, guarding, feinting); out of it, it turns to run
+where it goes. Attacking, it turns so the blow lands straight ahead: each
+move's blade tip at the hit, seen from the hips, gives the turn (cuts sweep
+across), corrected at each blow by where it really landed, and the lunge
+goes straight ahead too (the foe does the same towards the player).
+Stepping with the guard held, the hips sink to the standing guard's height,
+the feet kept on the ground by bending the legs.
 
 **Steps.** Out of the fight the fighter walks and runs with the sword
 hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,
@@ -207,7 +212,7 @@ back on a slant, so each foot's swing about its average place is turned to
 go straight back, left or right of the sword's way, the stance kept;
 forward is the walk back played backwards (so the feet roll the right way). Sprinting still runs. With the guard held the upper body keeps the guard
 and the legs step slowly in the guard steps (`guardForward`… at 0.6×,
-0.9 m/s `guardSpeed`), which face straight ahead like the guard and attacks
+0.9 m/s `guardSpeed`, crouched), which face straight ahead like the guard and attacks
 (the side-on fight steps under the guard twisted the body round).
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
