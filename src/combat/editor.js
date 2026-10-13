@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-// Animation editor: change the fighters' clips frame by frame, with sliders.
+// Animation editor: change the fighters' clips frame by frame.
 //
-// Pick an animation and a frame, then set each joint's turn (X / Y / Z, in
-// degrees from the rest pose) with the sliders, grouped in tabs as in the
-// character creator; a change keys that joint on that frame only. Preview
+// Pick an animation and a frame, then click a joint and turn it with the
+// gizmo's rings or move it with its arrows (the hips move; a hand or foot
+// moves with IK, the arm or leg following), as in a 3D tool; or set each
+// joint's turn (X / Y / Z, in degrees from the rest pose) with the sliders,
+// grouped in tabs as in the character creator. A change keys that joint on
+// that frame only. Preview
 // plays the animation. Copy / paste a frame, undo / redo. "Use in the game"
 // sets which move or pose plays an animation and the move's hit and end
 // frames. Everything is kept in this browser, used by the fight, and can be
@@ -83,6 +87,38 @@ function revertClip(clip, clips) {
   dropSplits(clips, clip.name);
 }
 
+/** Two-bone IK: turn `a` and `b` so the chain a -> b -> c ends at `target`, the middle joint toward `pole`. */
+function twoBoneIK(a, b, c, target, pole) {
+  const S = a.getWorldPosition(new THREE.Vector3());
+  const M = b.getWorldPosition(new THREE.Vector3()), E = c.getWorldPosition(new THREE.Vector3());
+  const l1 = S.distanceTo(M), l2 = M.distanceTo(E);
+  const toT = target.clone().sub(S);
+  const dist = THREE.MathUtils.clamp(toT.length(), Math.abs(l1 - l2) + 1e-4, (l1 + l2) * 0.9995);
+  const dir = toT.normalize();
+  const along = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+  const p = pole.clone().addScaledVector(dir, -pole.dot(dir));
+  if (p.lengthSq() < 1e-8) return;
+  p.normalize();
+  aim(a, b, S.clone().addScaledVector(dir, along).addScaledVector(p, h));
+  aim(b, c, S.clone().addScaledVector(dir, dist));
+}
+function aim(bone, child, target) {
+  const at = bone.getWorldPosition(new THREE.Vector3());
+  const cur = child.getWorldPosition(new THREE.Vector3()).sub(at).normalize();
+  const want = target.clone().sub(at).normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(cur, want);
+  const world = bone.getWorldQuaternion(new THREE.Quaternion());
+  const parent = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+  bone.quaternion.copy(parent.invert().multiply(q.multiply(world)));
+  bone.updateMatrixWorld(true);
+}
+// The chains a hand or foot drags with IK.
+const IK_CHAINS = {
+  RightHand: ['RightArm', 'RightForeArm'], LeftHand: ['LeftArm', 'LeftForeArm'],
+  RightFoot: ['RightUpLeg', 'RightLeg'], LeftFoot: ['LeftUpLeg', 'LeftLeg'],
+};
+
 // The joints, in tabs, and what each is called on the panel.
 const GROUPS = [
   ['Body', [['Hips', 'Hips (whole body)'], ['Spine', 'Lower back'], ['Spine1', 'Middle back'], ['Spine2', 'Chest']]],
@@ -136,6 +172,7 @@ const css = `
 #anim-editor .slider { display: grid; grid-template-columns: 1.6em 1fr 4.2em; align-items: center; gap: 8px; font-size: 12px; color: #9aa1b0; }
 #anim-editor .slider input[type=range] { width: 100%; accent-color: #e2b45a; }
 #anim-editor .slider input[type=number] { padding: 3px 4px; text-align: right; }
+#anim-editor .tool.on { background: #e2b45a; border-color: #e2b45a; color: #1a1a1a; }
 #anim-editor .note, #anim-editor .status { margin: 0; color: #9aa1b0; font-size: 12px; }
 #anim-editor textarea { width: 100%; height: 80px; font-size: 11px; }
 `;
@@ -166,6 +203,14 @@ export function createAnimEditor(ctx) {
   const markerMat = new THREE.MeshBasicMaterial({ color: 0x2f7fff, depthTest: false, transparent: true, opacity: 0.8 });
   const markerOn = new THREE.MeshBasicMaterial({ color: 0xe2b45a, depthTest: false });
 
+  const gizmo = new TransformControls(ctx.camera, ctx.canvas);
+  gizmo.setSize(0.75);
+  gizmo.setSpace('local');
+  ctx.scene.add(gizmo.getHelper());
+  const ikTarget = new THREE.Object3D();   // what the arrows drag for a hand or foot
+  ctx.scene.add(ikTarget);
+  let tool = 'rotate', drag = null;
+
   let fighter = null, clip = null, frame = 0, playing = false, isOpen = false, tab = 0, picked = null;
   let time = 0;   // while previewing; otherwise the frame's time
   let dirty = new Set();   // clip names changed since the last save
@@ -194,9 +239,13 @@ export function createAnimEditor(ctx) {
         <button type="button" data-a="clear" title="Remove this frame's keys (it follows the frames around it)">Clear frame</button></div>
       <div class="row"><button type="button" data-a="undo">↶ Undo</button><button type="button" data-a="redo">↷ Redo</button></div></div>
     <div class="field"><span class="label">Pose on this frame</span>
+      <div class="row"><button type="button" class="tool on" data-a="trot" title="Turn the joint with the rings (E)">⟳ Rotate (E)</button>
+        <button type="button" class="tool" data-a="tmove" title="Move with the arrows (W): the hips, or a hand or foot (IK)">✥ Move (W)</button>
+        <button type="button" data-a="tspace" title="Gizmo in the joint's own axes or the world's">Local</button></div>
+      <p class="note" data-a="picknote">Click a blue joint on the figure to get the gizmo.</p>
       <div class="tabs" role="tablist" data-a="tabs">${GROUPS.map(([n], i) => `<button type="button" role="tab" data-tab="${i}">${n}</button>`).join('')}</div>
       <div data-a="joints" class="field"></div>
-      <p class="note">Degrees from the rest pose. A change keys that joint on this frame only.</p></div>
+      <p class="note">Degrees from the rest pose. A change (gizmo or slider) keys that joint on this frame only.</p></div>
     <div class="field"><span class="label">Use in the game</span>
       <select data-a="use"></select>
       <div class="row"><button type="button" data-a="useclip">Use this animation</button>
@@ -221,6 +270,9 @@ export function createAnimEditor(ctx) {
   function pose(t = frameTime()) {
     if (!fighter || !clip) return;
     fighter.mixer.stopAllAction();
+    // Fresh bindings: the mixer skips writing a value it wrote last time, and
+    // the pose must be written whole before finishPose adds to it.
+    fighter.mixer.uncacheClip(clip);
     const action = fighter.mixer.clipAction(clip);
     action.reset().play();
     action.paused = true;
@@ -454,6 +506,7 @@ export function createAnimEditor(ctx) {
     playing = true;
     time = frame >= frameCount() ? 0 : frameTime();
     $('play').textContent = '❚❚ Stop';
+    gizmo.detach();
   }
   function stopPreview() {
     if (!playing) return;
@@ -462,6 +515,7 @@ export function createAnimEditor(ctx) {
     frame = THREE.MathUtils.clamp(Math.round(time * FPS), 0, frameCount());
     pose();
     syncFrame();
+    attachGizmo();
   }
 
   // ---- animations
@@ -599,6 +653,9 @@ export function createAnimEditor(ctx) {
   $('clear').onclick = () => clearFrame();
   $('undo').onclick = () => undo();
   $('redo').onclick = () => redo();
+  $('trot').onclick = () => setTool('rotate');
+  $('tmove').onclick = () => setTool('move');
+  $('tspace').onclick = () => { $('tspace').textContent = $('tspace').textContent === 'Local' ? 'World' : 'Local'; attachGizmo(); };
   $('tabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = Number(b.dataset.tab); buildJoints(); } };
   // A slider drag is one undo step: snapshot on its first move.
   let sliding = false;
@@ -666,12 +723,80 @@ export function createAnimEditor(ctx) {
     } catch { status('That is not valid JSON.'); }
   };
 
+  // ---- the gizmo, as in a 3D tool
+  const canMove = (name) => name === 'Hips' || !!IK_CHAINS[name];
+  function setTool(t) {
+    if (t === 'move' && picked && !canMove(picked)) { status('Move works on the hips, a hand or a foot; other joints turn.'); return; }
+    tool = t;
+    $('trot').classList.toggle('on', t === 'rotate');
+    $('tmove').classList.toggle('on', t === 'move');
+    if (picked) pickJoint(picked);
+  }
+  function attachGizmo() {
+    if (!picked || playing) { gizmo.detach(); return; }
+    if (tool === 'move' && !canMove(picked)) { tool = 'rotate'; $('trot').classList.add('on'); $('tmove').classList.remove('on'); }
+    const b = fighter.bones[picked];
+    if (tool === 'move' && picked !== 'Hips') {
+      b.getWorldPosition(ikTarget.position);
+      ikTarget.updateMatrixWorld();
+      gizmo.setMode('translate');
+      gizmo.setSpace('world');
+      gizmo.attach(ikTarget);
+    } else {
+      gizmo.setMode(tool === 'move' ? 'translate' : 'rotate');
+      gizmo.setSpace($('tspace').textContent === 'Local' ? 'local' : 'world');
+      gizmo.attach(b);
+    }
+  }
+  // A drag keys the change against the frame's own values: the bones carry
+  // finishPose's extras (the leg spread), which must not go into the keys.
+  const chainOf = (name) => (tool === 'move' && name !== 'Hips' ? [...IK_CHAINS[name]] : [name]);
+  gizmo.addEventListener('dragging-changed', (e) => {
+    orbit.enabled = !e.value;
+    if (e.value) {
+      stopPreview();
+      pushUndo();
+      drag = { bones: chainOf(picked).map((n) => [n, fighter.bones[n].quaternion.clone(), readQ(n)]),
+        p: fighter.bones.Hips.position.clone(), pKey: readP() };
+    } else {
+      drag = null;
+      attachGizmo();
+      status(`Keyed ${picked} on frame ${frame} (unsaved).`);
+    }
+  });
+  gizmo.addEventListener('objectChange', () => {
+    if (!drag) return;
+    if (tool === 'move' && picked === 'Hips') {
+      const d = fighter.bones.Hips.position.clone().sub(drag.p);
+      setKey('Hips.position', drag.pKey.clone().add(d).toArray());
+    } else {
+      if (tool === 'move') {
+        // Back to the frame's pose, then reach for the target.
+        const [a, m] = IK_CHAINS[picked].map((n) => fighter.bones[n]);
+        for (const [n, q] of drag.bones) fighter.bones[n].quaternion.copy(q);
+        fighter.root.updateMatrixWorld(true);
+        const s0 = a.getWorldPosition(new THREE.Vector3()), e0 = fighter.bones[picked].getWorldPosition(new THREE.Vector3());
+        const pole = m.getWorldPosition(new THREE.Vector3()).sub(s0.lerp(e0, 0.5));
+        if (pole.lengthSq() < 1e-6) pole.set(0, 0, 1);
+        twoBoneIK(a, m, fighter.bones[picked], ikTarget.position, pole);
+      }
+      for (const [n, q0, key] of drag.bones) {
+        const delta = q0.clone().invert().multiply(fighter.bones[n].quaternion);
+        setKey(`${n}.quaternion`, key.clone().multiply(delta).normalize().toArray());
+      }
+    }
+    dirty.add(clip.name);
+    rebind();
+    syncJoints();
+    drawFrames();
+  });
+
   // Click a joint marker to bring up its sliders.
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   let downAt = null;
   ctx.canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
   ctx.canvas.addEventListener('pointerup', (e) => {
-    if (!isOpen || e.button !== 0 || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+    if (!isOpen || e.button !== 0 || !downAt || gizmo.dragging || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
     const r = ctx.canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, ctx.camera);
@@ -683,12 +808,17 @@ export function createAnimEditor(ctx) {
     const t = GROUPS.findIndex(([, j]) => j.some(([n]) => n === name));
     if (t >= 0 && t !== tab) { tab = t; buildJoints(); } else syncJoints();
     for (const m of markers.children) m.material = m.userData.bone.name === name ? markerOn : markerMat;
-    panel.querySelector(`[data-joint="${name}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    $('picknote').textContent = name ? `${name}: ${tool === 'rotate' ? 'turn it with the rings' : 'move it with the arrows'}. Esc lets go.` : 'Click a blue joint on the figure to get the gizmo.';
+    attachGizmo();
+    if (name) panel.querySelector(`[data-joint="${name}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   addEventListener('keydown', (e) => {
     if (!isOpen || e.target.closest?.('input, select, textarea')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); redo(); return; }
+    if (e.code === 'KeyE') setTool('rotate');
+    if (e.code === 'KeyW') setTool('move');
+    if (e.code === 'Escape') pickJoint(null);
     if (e.code === 'Comma') goFrame(frame - 1);
     if (e.code === 'Period') goFrame(frame + 1);
     if (e.code === 'Space') { e.preventDefault(); $('play').click(); }
@@ -735,9 +865,9 @@ export function createAnimEditor(ctx) {
         pose(time);
         $('fnow').textContent = `${Math.round(time * FPS)} / ${frameCount()}  ·  ${time.toFixed(2)} s`;
       }
-    } else {
-      fighter.finishPose();
     }
+    // (Held on a frame, nothing is re-posed: finishPose turns the thighs by
+    // the menu's leg spread on top of the pose, and would add up.)
     fighter.hair?.rig.update(Math.max(dt, 1e-4), fighter.hair.state);
     for (const m of markers.children) m.userData.bone.getWorldPosition(m.position);
     orbit.update();

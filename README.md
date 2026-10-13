@@ -153,7 +153,10 @@ animation (the animation editor). ← Menu on each page comes back to it;
 **Animation editor** (`anim-editor.html`, its own page in the character
 creator's style; the ✎ button in the fight opens it). Pick the body and an
 animation, then a frame (the numbered frame boxes, ‹ ›, or the , and . keys;
-gold boxes have keys). The joints are in tabs (Body, Head, Right arm, Left
+gold boxes have keys). Click a blue joint and a gizmo comes up on it, as in a 3D tool: Rotate (E)
+turns it with the rings, Move (W) drags the hips, or a hand or foot with IK
+(the arm or leg follows), with the arrows; Local / World sets its axes, Esc
+lets go. The joints are also in tabs (Body, Head, Right arm, Left
 arm, Right leg, Left leg; or click a blue joint on the figure): each has X / Y
 / Z sliders and number boxes in degrees from the rest pose, and the hips also
 move (cm). A change keys that joint on that frame only; Unkey removes it, so
