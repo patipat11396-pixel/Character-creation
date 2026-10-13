@@ -175,8 +175,9 @@ into the game, Import JSON loads them.
 `Idle_Fight`, made at load from `models/anims/idle_fight.bvh` (a capture
 with an SMPL-style skeleton: pelvis, spine1–3, left_shoulder…), keeping the
 rig's own proportions: each joint turns as the capture's does from its
-T-pose, then every arm and leg bone points at the capture's next joint, so
-knees, elbows and feet bend as captured. The whole capture is turned so its
+T-pose, then the arms point at the capture's next joint; the legs follow
+the capture's but stand higher and a little narrower (the knee bend halved,
+the stance 0.85 as wide: its deep, wide squat dragged the shorts). The whole capture is turned so its
 sword arm points the way the fighter faces (a side-on stance, the sword
 forward). The hips drift as the capture's and sit so the lower foot is on
 the floor; the sword hand is turned so the blade carries on from the

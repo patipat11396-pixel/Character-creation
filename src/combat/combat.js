@@ -862,8 +862,8 @@ function makeMirroredClip(f, clip, name) {
  * left_shoulder...; rest = every rotation zero, a T-pose facing +Z), put on the
  * rig keeping the rig's own proportions: each joint turns in the world as the
  * capture's does from its T-pose (from the rig's T-pose, its bind pose), then
- * every arm and leg bone is pointed at the capture's next joint, so knees,
- * elbows and feet bend exactly as captured. The whole capture is turned so
+ * the arms are pointed at the capture's next joint; the legs follow the
+ * capture's but stand higher and a little narrower (see below). The whole capture is turned so
  * its sword arm on the first frame points the way the rig faces. The hips drift as the capture's (scaled by leg
  * length) and sit so the lower foot is on the floor. The sword hand is turned
  * so the blade carries on from the forearm, rising (the capture has no sword),
@@ -881,7 +881,7 @@ const BVH_LIMBS = {
   LeftUpLeg: ['LeftLeg', 'left_hip', 'left_knee'], LeftLeg: ['LeftFoot', 'left_knee', 'left_ankle'], LeftFoot: ['LeftToeBase', 'left_ankle', 'left_foot'],
   RightUpLeg: ['RightLeg', 'right_hip', 'right_knee'], RightLeg: ['RightFoot', 'right_knee', 'right_ankle'], RightFoot: ['RightToeBase', 'right_ankle', 'right_foot'],
 };
-function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45 } = {}) {
+function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45, bend = 0.5, spread = 0.85 } = {}) {
   const res = new BVHLoader().parse(text);
   const holder = new THREE.Group();
   holder.add(res.skeleton.bones[0]);
@@ -937,6 +937,25 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.45 } 
         const fore = Pw(B.RightHand).sub(Pw(B.RightForeArm)).normalize();
         turnBoneWorld(b, new THREE.Quaternion().setFromUnitVectors(tip.sub(base).normalize(), fore.addScaledVector(up, bladeRise).normalize()));
       }
+    }
+    // Legs: higher and a little narrower than captured (its deep, wide squat
+    // dragged the shorts): each foot along the capture's hip -> ankle line
+    // (sideways by `spread`), the knee's bend cut to `bend` of the capture's,
+    // bending the way the capture's does; the foot then pointed as captured.
+    for (const side of ['left', 'right']) {
+      const Side = side === 'left' ? 'Left' : 'Right';
+      const hipS = S(`${side}_hip`), kneeS = S(`${side}_knee`), ankS = S(`${side}_ankle`);
+      const lenS = hipS.distanceTo(kneeS) + kneeS.distanceTo(ankS);
+      const reach = 1 - (1 - hipS.distanceTo(ankS) / lenS) * bend;
+      const up_ = B[`${Side}UpLeg`], mid = B[`${Side}Leg`], foot = B[`${Side}Foot`];
+      const lenT = Pw(up_).distanceTo(Pw(mid)) + Pw(mid).distanceTo(Pw(foot));
+      const dir = ankS.clone().sub(hipS);
+      dir.x *= spread;
+      dir.z *= spread;
+      const pole = kneeS.clone().sub(hipS.clone().lerp(ankS, 0.5));
+      twoBoneIK(up_, mid, foot, Pw(up_).add(dir.normalize().multiplyScalar(lenT * reach)), pole);
+      const toe = BVH_LIMBS[`${Side}Foot`];
+      turnBoneWorld(foot, new THREE.Quaternion().setFromUnitVectors(Pw(B[toe[0]]).sub(Pw(foot)).normalize(), S(toe[2]).sub(S(toe[1])).normalize()));
     }
     // The lower foot on the floor.
     const low = Math.min(Pw(B.LeftFoot).y, Pw(B.RightFoot).y);
