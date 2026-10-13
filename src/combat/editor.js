@@ -852,7 +852,7 @@ export function createAnimEditor(ctx) {
     sk.pose();
     for (const n of posedBones()) rest.set(n, { q: f.bones[n].quaternion.clone(), p: f.bones[n].position.clone() });
     sk.bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); b.scale.copy(held[i][2]); });
-    fillClips('Idle_Sword_Out');
+    fillClips('Idle_Fight');
     markers.clear();
     for (const n of posedBones()) {
       const m = new THREE.Mesh(new THREE.SphereGeometry(n === 'Hips' ? 0.035 : 0.025, 10, 8), markerMat);

@@ -171,11 +171,21 @@ this browser, for both fighters); Revert puts an animation back (or deletes a
 made one); Export JSON gives the edits and move settings to send in and bake
 into the game, Import JSON loads them.
 
+**Fight idle (motion capture).** Ready to fight, the fighters play
+`Idle_Fight`, made at load from `models/anims/idle_fight.bvh` (a capture
+with an SMPL-style skeleton: pelvis, spine1–3, left_shoulder…). Each joint
+turns in the world as the capture's does from its T-pose, starting from the
+rig's own T-pose; the hips move as the capture's, scaled by leg length, with
+the lower foot on the floor; the sword hand is turned so the blade carries on
+from the forearm, rising (the capture has no sword); the last 0.4 s ease
+back into the first frame for a seamless loop. The made stance
+(`Idle_Sword_Out`) stands in if the file does not load.
+
 **Steps.** Out of the fight the fighter walks and runs with the sword
 hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,
 `Walk_Relaxed`). In the fight it keeps facing the foe and steps in the whole
 ready stance (the slots `fightForward`, `fightBack`, `fightLeft`,
-`fightRight`; for now all `Idle_Sword_Out`, gliding, until clips are made for
+`fightRight`; for now all `Idle_Fight`, gliding, until clips are made for
 them in the editor); sprinting still runs. With the guard up the legs use the
 same fight slots under the guard.
 
