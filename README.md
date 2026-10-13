@@ -74,7 +74,7 @@ swordsman, with a third-person camera.
 | Right click / Q | heavy attack: slow overhead blow, staggers, a blocked one drains 40 guard stamina; can follow a light hit |
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
-| Alt | dash / dodge forward, left, right or back (with W/A/D/S, against the camera's way in the fight; back with no direction): the longer it is held, the further (0.4 m for a tap up to 1.5 m, at 6 m/s); forward in the ready stance, the sword ahead; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
+| Alt | dash / dodge forward, left, right or back (with W/A/D/S, against the camera's way in the fight; back with no direction): the longer it is held, the further (0.4 m for a tap up to 1.5 m, at 6 m/s); forward as a quick duck, chest and head bent forward (`Dodge_Forward`); **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
 | Shift | hold: guard (up at once, the held pose in 0.08 s; −50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (0.9 m/s, crouched) with it up, the legs stepping under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
 | E | Feint 虚招 (skill): a fake heavy wind-up, then a fast stab that breaks a guard (cooldown 4 s); a broken guard cannot block or parry for 5 s |
 
@@ -200,6 +200,13 @@ corrected at each blow by where it really landed (the foe does the same
 towards the player).
 Stepping with the guard held, the hips sink to the standing guard's height,
 the feet kept on the ground by bending the legs.
+
+**Thrust.** The feint's strike is `Sword_Thrust`, made at load from the
+fight stance (`makeStanceMove`): from the chamber (`Thrust_Chamber`, the
+bait: the sword hand drawn back 14 cm, the weight sunk) the front foot steps
+out 42 cm as the arm drives straight at the foe and the hips follow low;
+the blow lands with the arm straight at 0.12 s, is held to 0.24 s, then the
+foot comes back and the stance returns by 0.48 s (end 0.42).
 
 **Steps.** Out of the fight the fighter walks and runs with the sword
 hanging as in the relaxed idle (`Run_Relaxed`, `Sprint_Relaxed`,

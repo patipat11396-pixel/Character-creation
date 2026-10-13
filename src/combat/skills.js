@@ -56,10 +56,10 @@ export const ARTS = {
       feint: {
         key: 'KeyE', name: 'Feint', name_cn: '虚招', cooldown: 4, stamina: 15,
         // The bait: drawing into the stab's chamber (both hands, blade level at the foe).
-        bait: { clip: 'Stab_Chamber', speed: 1, until: 0.3 },
-        // The real strike is a stab (made from the rig: the library has none).
-        strike: { clip: 'Sword_Stab', speed: 1.0, hit: 0.12, end: 0.42,
-          damage: 16, range: 2.4, arc: 70, lunge: 0.7, reach: 1.0, guardBreak: true, unblockable: true,
+        bait: { clip: 'Thrust_Chamber', speed: 1, until: 0.3 },
+        // The real strike is a thrust (made from the fight stance: the library has none).
+        strike: { clip: 'Sword_Thrust', speed: 1.0, hit: 0.12, end: 0.42,
+          damage: 16, range: 2.4, arc: 70, lunge: 0.4, reach: 1.0, guardBreak: true, unblockable: true,
           trail: 0.08, hitY: 0.65, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
@@ -106,7 +106,7 @@ export const ANIM_SLOTS = {
   dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
   dodgeRight: { clip: 'Dodge_right', speed: 1.5 },
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
-  dodgeForward: { clip: 'Idle_Fight', speed: 1 },   // dashing ahead: in the ready stance, the sword forward
+  dodgeForward: { clip: 'Dodge_Forward', speed: 1 },   // dashing ahead: a duck, chest and head bent forward (made at load)
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
   stagger: { clip: 'Stagger', speed: 1 },
