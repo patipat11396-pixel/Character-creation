@@ -1393,6 +1393,8 @@ function applyAnim(data) {
   for (const [slot, clip] of Object.entries(was)) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the captured fight idle hold the made stance; drop those.
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
+  // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
+  if (data.moves?.['Light 1']?.clip === 'Sword_Cut_1') delete data.moves['Light 1'];
   // Saves from before the slow guard steps hold them at full speed; drop those.
   for (const slot of ['guardForward', 'guardBack', 'guardLeft', 'guardRight']) if (data.slots?.[slot]?.speed === 1) delete data.slots[slot];
   // Saves from before the captured fight steps hold the idle for them; drop those.

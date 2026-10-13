@@ -35,9 +35,7 @@ export const ARTS = {
     combo: [
       // Ends once the cut is through (0.34; after that the clip whips the blade back round)
       // and eases back into the stance (its own recovery clip twirls the sword).
-      // The cut from the references (made at load): wind-up over the right shoulder by 0.12,
-      // swept down across to the left hip by 0.24 (the blow mid-swing), back to the ready stance.
-      { clip: 'Sword_Cut_1', speed: 1.0, hit: 0.19, end: 0.34, rec: 'idle', recFade: 0.2, chainFrom: 0.15,
+      { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.34, rec: 'idle', recFade: 0.25, chainFrom: 0.15,
         damage: 12, range: 2.1, arc: 110, lunge: 0.4, reach: 1.0, hitY: 0.8 },
       { clip: 'Sword_Regular_B', speed: 1.0, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec', chainFrom: 0.2,
         damage: 14, range: 2.1, arc: 110, lunge: 0.5, reach: 0.75, hitY: 0.45 },
