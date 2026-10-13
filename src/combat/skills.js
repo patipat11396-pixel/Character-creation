@@ -129,7 +129,7 @@ export const DEFAULT_STATS = {
   blockReduction: 0.5,   // share of damage taken away by holding parry
   counterBonus: 1.5,     // damage multiplier just after a perfect dodge or parry
   runSpeed: 3.8,
-  guardSpeed: 1.5,       // moving with the guard up (parry held)
+  guardSpeed: 0.9,       // moving with the guard up (parry held): slow, careful steps
   sprintSpeed: 6.6,
   aiSkill: 0.5,          // the enemy's defence: 0 none, 1 parries and dodges often and on time
 };

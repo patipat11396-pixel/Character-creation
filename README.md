@@ -205,8 +205,8 @@ from a captured walk back (`models/anims/fight_back.bvh`), the same way as
 the fight idle, in place (the game moves the fighter); the capture walks
 back on a slant, so each foot's swing about its average place is turned to
 go straight back, left or right of the sword's way, the stance kept;
-forward is the walk back played backwards (so the feet roll the right way). Sprinting still runs. With the guard held the whole body keeps the guard
-pose while it moves.
+forward is the walk back played backwards (so the feet roll the right way). Sprinting still runs. With the guard held the upper body keeps the guard
+and the legs step slowly in the same fight steps (0.9 m/s, `guardSpeed`).
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
 away and no blow for 4 s) the fighter stands easy, the sword hanging point

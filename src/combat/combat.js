@@ -25,7 +25,12 @@ const ART = ARTS.basicSword;
 
 const $ = (id) => document.getElementById(id);
 const stats = { ...DEFAULT_STATS, ...readStats() };
-function readStats() { try { return JSON.parse(localStorage.getItem(STATS_KEY)) ?? {}; } catch { return {}; } }
+function readStats() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STATS_KEY)) ?? {}; } catch { /* none */ }
+  if (saved.guardSpeed === 1.5) delete saved.guardSpeed;   // the old default: now slower
+  return saved;
+}
 function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* private mode */ } }
 
 // ------------------------------------------------------------------ scene
@@ -2036,8 +2041,16 @@ function playerUpdate(dt) {
       const g = ANIM_SLOTS.guard;
       // The guard is drawn only once the parry window has passed: a parry that
       // lands goes straight into its shove without the guard coming up first.
-      // With the guard held the whole body keeps the guard pose, moving or not.
-      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (p.action?.getClip().name !== g.clip || p.upper) {
+      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
+        // Moving with the guard held: the guard on top, the legs stepping
+        // slowly (guardSpeed) in the fight steps, matched to the speed.
+        let legs = stepSlot(p, wish);
+        if (engaged(p)) legs = FIGHT_STEPS[legs];
+        const ls = ANIM_SLOTS[legs], travel = p.clips.get(ls.clip)?.userData?.travel;
+        const legSpeed = travel ? THREE.MathUtils.clamp((Math.hypot(p.vel.x, p.vel.z) / travel) * ls.speed, 0.4, 3) : ls.speed;
+        p.play(ls.clip, { speed: legSpeed, part: 'lower', fade: 0.2 });
+        p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
+      } else if (p.action?.getClip().name !== g.clip || p.upper) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });
         if (a) a.holdAt = g.hold;
       }
