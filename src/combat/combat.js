@@ -426,7 +426,20 @@ class Fighter {
   }
 
   /** Pose after the animation: fingers, head size, facing, the attack's aim. */
+  /**
+   * Put back the pose as the mixer left it, before finishPose added to it.
+   * The mixer skips writing a value it wrote last time (a held clip), so
+   * without this finishPose's crouch and leg spread would add up every frame.
+   */
+  unfinishPose() {
+    if (!this.rawPose) return;
+    this.mesh.skeleton.bones.forEach((b, i) => { b.position.copy(this.rawPose[i][0]); b.quaternion.copy(this.rawPose[i][1]); });
+  }
+
   finishPose(dt = 0) {
+    // The pose as the mixer left it (see unfinishPose).
+    this.rawPose ??= this.mesh.skeleton.bones.map((b) => [b.position.clone(), b.quaternion.clone()]);
+    this.mesh.skeleton.bones.forEach((b, i) => { this.rawPose[i][0].copy(b.position); this.rawPose[i][1].copy(b.quaternion); });
     for (const a of [this.upper, this.action]) {
       if (a?.holdAt != null && a.time >= a.holdAt) { a.time = a.holdAt; a.timeScale = 0; }
     }
@@ -2609,7 +2622,7 @@ function frame() {
   // Nothing moves until the fight is started (the enemy waits too).
   if (!active) {
     // Waiting to start: both stand in the sword idle (nothing else moves).
-    for (const f of [player, enemy]) { f.mixer.update(real); f.finishPose(); f.hair?.rig.update(real, f.hair.state); }
+    for (const f of [player, enemy]) { f.unfinishPose(); f.mixer.update(real); f.finishPose(); f.hair?.rig.update(real, f.hair.state); }
     updateCamera(real);
     draw();
     return;
@@ -2640,6 +2653,7 @@ function tick(real) {
   // The player's cut follows the camera: looking down cuts low, looking up cuts high.
   player.aim = aimFromCamera();
   for (const f of [player, enemy]) {
+    f.unfinishPose();
     f.mixer.update(dt);
     f.finishPose(dt);
     f.hair?.rig.update(Math.max(dt, 1e-4), f.hair.state);
