@@ -1346,6 +1346,8 @@ function applyAnim(data) {
   for (const [slot, clip] of Object.entries(was)) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the captured fight idle hold the made stance; drop those.
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
+  // Saves from before the slow guard steps hold them at full speed; drop those.
+  for (const slot of ['guardForward', 'guardBack', 'guardLeft', 'guardRight']) if (data.slots?.[slot]?.speed === 1) delete data.slots[slot];
   // Saves from before the captured fight steps hold the idle for them; drop those.
   for (const slot of ['fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Fight') delete data.slots[slot];
   // Saves from before the relaxed steps hold the armed ones; drop those.
@@ -2043,12 +2045,10 @@ function playerUpdate(dt) {
       // lands goes straight into its shove without the guard coming up first.
       if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
         // Moving with the guard held: the guard on top, the legs stepping
-        // slowly (guardSpeed) in the fight steps, matched to the speed.
-        let legs = stepSlot(p, wish);
-        if (engaged(p)) legs = FIGHT_STEPS[legs];
-        const ls = ANIM_SLOTS[legs], travel = p.clips.get(ls.clip)?.userData?.travel;
-        const legSpeed = travel ? THREE.MathUtils.clamp((Math.hypot(p.vel.x, p.vel.z) / travel) * ls.speed, 0.4, 3) : ls.speed;
-        p.play(ls.clip, { speed: legSpeed, part: 'lower', fade: 0.2 });
+        // slowly (guardSpeed) in the guard steps, which face straight ahead
+        // like the guard (the side-on fight steps twisted the body round).
+        const ls = ANIM_SLOTS[stepSlot(p, wish)];
+        p.play(ls.clip, { speed: ls.speed, part: 'lower', fade: 0.2 });
         p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
       } else if (p.action?.getClip().name !== g.clip || p.upper) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });

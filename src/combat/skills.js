@@ -98,10 +98,12 @@ export const ANIM_SLOTS = {
   fightLeft: { clip: 'Fight_Left', speed: 1 },
   fightRight: { clip: 'Fight_Right', speed: 1 },
   guard: { clip: 'Sword_Block', speed: 1.4, hold: 0.45 },   // held at `hold` s while parry is held
-  guardForward: { clip: 'Walk_Sword', speed: 1 },         // legs while moving with the guard up (out of the fight)
-  guardBack: { clip: 'Walk_Backwards_Sword', speed: 1 },
-  guardLeft: { clip: 'Strafe_left_Sword', speed: 1 },
-  guardRight: { clip: 'Strafe_right_Sword', speed: 1 },
+  // Legs while moving with the guard up: facing straight ahead like the
+  // guard, slow, careful steps (guardSpeed 0.9 m/s).
+  guardForward: { clip: 'Walk_Sword', speed: 0.6 },
+  guardBack: { clip: 'Walk_Backwards_Sword', speed: 0.6 },
+  guardLeft: { clip: 'Strafe_left_Sword', speed: 0.6 },
+  guardRight: { clip: 'Strafe_right_Sword', speed: 0.6 },
   jump: { clip: 'Jump_air', speed: 1 },
   dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
   dodgeRight: { clip: 'Dodge_right', speed: 1.5 },

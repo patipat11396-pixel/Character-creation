@@ -206,7 +206,9 @@ the fight idle, in place (the game moves the fighter); the capture walks
 back on a slant, so each foot's swing about its average place is turned to
 go straight back, left or right of the sword's way, the stance kept;
 forward is the walk back played backwards (so the feet roll the right way). Sprinting still runs. With the guard held the upper body keeps the guard
-and the legs step slowly in the same fight steps (0.9 m/s, `guardSpeed`).
+and the legs step slowly in the guard steps (`guardForward`… at 0.6×,
+0.9 m/s `guardSpeed`), which face straight ahead like the guard and attacks
+(the side-on fight steps under the guard twisted the body round).
 
 **Stances.** Out of the fight (before it starts, or with the foe over 6 m
 away and no blow for 4 s) the fighter stands easy, the sword hanging point
