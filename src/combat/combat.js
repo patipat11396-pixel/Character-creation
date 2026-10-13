@@ -1683,7 +1683,7 @@ function perfect(def, att, text, parry = false) {
     def.move = null;
     def.setState('push');
     def.setUpper(null);
-    def.play(PARRY_CLIP, { loop: false, fade: 0.04 });
+    def.play(PARRY_CLIP, { loop: false, fade: 0.04, speed: PARRY_CUT / PARRY_TIME });
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
     shake(0.05);
@@ -1697,6 +1697,7 @@ function perfect(def, att, text, parry = false) {
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
 const PARRY_CLIP = 'Sword_Regular_A';   // played by whoever lands a perfect parry
+const PARRY_CUT = 0.34, PARRY_TIME = 0.2;   // its cut (clip seconds), played in PARRY_TIME s
 // perfect: the player parried; perfectFoe: the foe parried by the player.
 const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
@@ -2022,7 +2023,7 @@ function playerUpdate(dt) {
     doDodge(wish);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
-    if (p.t > 0.35) p.setState('idle');
+    if (p.t > PARRY_TIME) p.setState('idle');
   } else if (p.state === 'dodge') {
     const k = p.t < 0.32 ? 1 : 0;
     p.vel.copy(p.dodgeDir).multiplyScalar(k * 8.5 * legMul(p) * (1 - p.t / 0.32));
@@ -2384,7 +2385,7 @@ function enemyUpdate(dt) {
     case 'push':
       e.vel.set(0, 0, 0);
       e.faceTarget(player, dt, 10);
-      if (e.t > 0.35) { e.setState('idle'); e.think = 0; }
+      if (e.t > PARRY_TIME) { e.setState('idle'); e.think = 0; }
       break;
     case 'hit':
     case 'stagger':
