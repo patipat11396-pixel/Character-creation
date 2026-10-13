@@ -360,7 +360,8 @@ class Fighter {
     a.setLoop(THREE.LoopOnce, 1);
     a.clampWhenFinished = true;
     a.timeScale = speed;
-    a.fadeIn(0.12).play();
+    if (hold != null) a.time = hold;   // straight into the held pose
+    a.fadeIn(0.08).play();
     a.holdAt = hold;
     this.upper = a;
   }
@@ -2119,10 +2120,10 @@ function playerUpdate(dt) {
       if (engaged(p)) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(stats.guardSpeed * legMul(p));
       const g = ANIM_SLOTS.guard;
-      // The guard is drawn only once the parry window has passed: a parry that
-      // lands goes straight into its shove without the guard coming up first.
+      // The guard comes up at once (a parry that lands cuts straight into its
+      // clip anyway).
       p.crouch = wish.lengthSq() ? GUARD_CROUCH : 0;
-      if (p.t < stats.parryWindow) { /* still the parry tap */ } else if (wish.lengthSq()) {
+      if (wish.lengthSq()) {
         // Moving with the guard held: the guard on top, the legs stepping
         // slowly (guardSpeed) in the guard steps, which face straight ahead
         // like the guard (the side-on fight steps twisted the body round).
@@ -2130,7 +2131,8 @@ function playerUpdate(dt) {
         p.play(ls.clip, { speed: ls.speed, part: 'lower', fade: 0.2 });
         p.setUpper(g.clip, { hold: g.hold, speed: g.speed });
       } else if (p.action?.getClip().name !== g.clip || p.upper) {
-        const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.1 });
+        // Straight into the held guard pose (not raised over the clip's first 0.3 s).
+        const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.08, from: g.hold });
         if (a) a.holdAt = g.hold;
       }
     } else if (heavyPress && p.grounded && p.stamina >= ART.heavy.stamina) {
