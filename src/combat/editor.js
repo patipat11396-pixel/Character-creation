@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
 
 // Animation editor: change the fighters' clips frame by frame.
 //
@@ -234,6 +235,7 @@ export function createAnimEditor(ctx) {
       <div class="row"><button type="button" data-a="play">▶ Preview</button>
         <label><input type="checkbox" data-a="loop" checked> loop</label>
         <label>speed <select data-a="pspeed" style="width:auto"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select></label></div>
+      <label class="row" data-a="mqrow" hidden><input type="checkbox" data-a="mq" checked> Show the capture (grey mannequin, as in the file)</label>
       <div class="row"><button type="button" data-a="copy">Copy frame</button><button type="button" data-a="paste">Paste frame</button>
         <button type="button" data-a="keyall" title="Key every joint on this frame as it is now">Key all joints</button>
         <button type="button" data-a="tpose" title="Key every joint on this frame in the T-pose (all sliders 0)">Reset to T-pose</button>
@@ -267,6 +269,62 @@ export function createAnimEditor(ctx) {
   const trackOf = (name) => clip?.tracks.find((t) => t.name === name);
   const hasKey = (tr, t) => !!tr && Array.from(tr.times).some((x) => Math.abs(x - t) < 1e-3);
 
+  // ---- the capture as a grey mannequin: its own skeleton playing the file
+  // as is, beside the fighter, at the editor's time (looped), to compare.
+  let mq = null;
+  function makeMannequin() {
+    if (!ctx.capture || mq) return;
+    const res = new BVHLoader().parse(ctx.capture);
+    const holder = new THREE.Group();
+    holder.add(res.skeleton.bones[0]);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, roughness: 0.7 });
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const b of res.skeleton.bones) {
+      const head = b.name === 'head';
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(head ? 0.1 : 0.035, 16, 12), mat);
+      if (head) ball.position.set(0, 0.06, 0.01);
+      ball.castShadow = true;
+      b.add(ball);
+      for (const c of b.children.filter((o) => o.isBone)) {
+        const len = c.position.length();
+        if (len < 1e-4) continue;
+        const thick = /hip|knee|spine|pelvis/.test(b.name) ? 0.055 : /shoulder|collar|neck/.test(b.name) ? 0.04 : 0.032;
+        const limb = new THREE.Mesh(new THREE.CapsuleGeometry(thick, Math.max(0.001, len - thick * 1.2), 6, 12), mat);
+        limb.position.copy(c.position).multiplyScalar(0.5);
+        limb.quaternion.setFromUnitVectors(up, c.position.clone().normalize());
+        limb.castShadow = true;
+        b.add(limb);
+      }
+    }
+    const mixer = new THREE.AnimationMixer(holder);
+    mixer.clipAction(res.clip).play();
+    const sb = Object.fromEntries(res.skeleton.bones.map((b) => [b.name, b]));
+    const Pw = (o) => o.getWorldPosition(new THREE.Vector3());
+    mixer.setTime(0);
+    holder.updateMatrixWorld(true);
+    // Its sword arm on the first frame points the way the fighter faces; feet on the floor.
+    const arm = Pw(sb.right_wrist).sub(Pw(sb.right_shoulder)).setY(0).normalize();
+    const fwd = fighter.forward(new THREE.Vector3()).setY(0).normalize();
+    holder.rotation.y = Math.atan2(arm.z, arm.x) - Math.atan2(fwd.z, fwd.x);
+    holder.updateMatrixWorld(true);
+    const low = Math.min(Pw(sb.left_ankle).y, Pw(sb.right_ankle).y);
+    // Beside the fighter as the editor's camera first sees it.
+    const toCam = new THREE.Vector3(1.2, 0, 4.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), fighter.yaw).normalize();
+    const side = new THREE.Vector3(toCam.z, 0, -toCam.x);
+    const outer = new THREE.Group();
+    outer.position.copy(fighter.pos).addScaledVector(side, 1.2).setY(0.08 - low);
+    const pel = Pw(sb.pelvis).setY(0);
+    holder.position.sub(pel.sub(holder.position.clone().setY(0)));
+    outer.add(holder);
+    ctx.scene.add(outer);
+    mq = { outer, mixer, dur: res.clip.duration, side };
+  }
+  function mannequinAt(t) {
+    if (!mq) return;
+    mq.outer.visible = $('mq').checked;
+    mq.mixer.setTime(((t % mq.dur) + mq.dur) % mq.dur);
+  }
+
   // ---- showing a frame
   function pose(t = frameTime()) {
     if (!fighter || !clip) return;
@@ -280,6 +338,7 @@ export function createAnimEditor(ctx) {
     action.time = t;
     fighter.mixer.update(0);
     fighter.finishPose();
+    mannequinAt(t);
   }
   function rebind() {
     fighter.mixer.stopAllAction();
@@ -862,11 +921,22 @@ export function createAnimEditor(ctx) {
     }
     markers.visible = true;
     fillUse();
+    if (ctx.capture) {
+      try { makeMannequin(); } catch (e) { console.warn('mannequin', e); }
+      $('mqrow').hidden = !mq;
+      $('mq').onchange = () => { if (mq) mq.outer.visible = $('mq').checked; };
+    }
     // Framed as in the character creator.
     ctx.camera.fov = 30;
     ctx.camera.updateProjectionMatrix();
     orbit.target.copy(f.pos).add(new THREE.Vector3(0, 0.9, 0));
     ctx.camera.position.copy(f.pos).add(new THREE.Vector3(1.2, 1.3, 4.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw));
+    if (mq) {
+      // Frame both: centred between the fighter and the mannequin, a little further back.
+      const shift = mq.side.clone().multiplyScalar(0.6);
+      orbit.target.add(shift);
+      ctx.camera.position.add(shift).add(new THREE.Vector3(1.2, 0.2, 4.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw).multiplyScalar(0.25));
+    }
     orbit.enabled = true;
     clip = fighter.clips.get($('clip').value);
     buildJoints();

@@ -185,6 +185,11 @@ forearm, rising (the capture has no sword); the last 0.4 s ease back into
 the first frame. The made stance (`Idle_Sword_Out`) stands in if the file
 does not load.
 
+In the animation editor a grey mannequin stands beside the fighter: the
+capture's own skeleton playing the file as it is (at the editor's frame,
+looped, its sword arm turned the way the fighter faces), to compare with;
+"Show the capture" hides it.
+
 **Facing in the fight.** In the fight the player faces where the camera
 looks (standing, stepping, guarding, attacking, feinting); out of it, it
 turns to run where it goes.

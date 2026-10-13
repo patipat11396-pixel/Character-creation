@@ -2412,10 +2412,11 @@ let stepping = false;   // tests drive tick() themselves
 // ------------------------------------------------------------------ animation editor
 // Pauses the fight; the player's fighter is posed alone in the room.
 let editor = null;
+let captureText = null;   // the fight idle capture (BVH), shown as a mannequin in the editor
 function openEditor() {
   if (!player) return;
   editor ??= createAnimEditor({ scene, camera, canvas, fighters: () => [player, enemy], onClose: closeEditor, page: !!window.ANIM_EDITOR_PAGE,
-    moves: MOVES, slots: ANIM_SLOTS, saveAnim, loadAnim: (d) => { applyAnim(d); saveAnim(); } });
+    moves: MOVES, slots: ANIM_SLOTS, saveAnim, loadAnim: (d) => { applyAnim(d); saveAnim(); }, capture: captureText });
   try { document.exitPointerLock?.(); } catch { /* not locked */ }
   active = false;
   for (const id of ['hud', 'help', 'side', 'start', 'back']) $(id).hidden = true;
@@ -2567,6 +2568,7 @@ async function main() {
       fetch('models/defaults.json').then((r) => r.json()).catch(() => null),
       fetch('models/anims/idle_fight.bvh').then((r) => (r.ok ? r.text() : null)).catch(() => null)]);
     const anims = { idleFight };
+    captureText = idleFight;
     const [s1, s2] = await Promise.all([
       skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
     player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, defaults, anims, tint: 0xc9a227 });
