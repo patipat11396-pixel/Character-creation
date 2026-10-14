@@ -1834,6 +1834,9 @@ function staggerDrift(f) {
  */
 function recoil(att, def) {
   const held = 0.61 * (att.move?.end ?? att.action?.getClip().duration ?? 0);
+  // Which light cut was stopped: attacking again goes on to the next one.
+  att.blockedCombo = ART.combo.indexOf(att.move);
+  att.blockQueued = false;
   att.move = null;
   att.comboIndex = -1;
   att.queued = false;
@@ -2092,7 +2095,14 @@ function playerUpdate(dt) {
   const afterHit = p.state === 'attack' && p.moveHit;
 
   if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil') {
-    if (p.t > p.hitDur) p.setState('idle');
+    // A light cut stopped by a guard: attacking (during the hold or just
+    // after) carries on with the next light cut, as if it had landed.
+    if (p.state === 'recoil' && attackPress) p.blockQueued = true;
+    if (p.t > p.hitDur) {
+      const next = p.state === 'recoil' && p.blockedCombo >= 0 && p.blockedCombo < ART.combo.length - 1 ? p.blockedCombo + 1 : -1;
+      if (p.state === 'recoil') p.recoilEndAt = gameTime;
+      if (next >= 0 && p.blockQueued) { p.blockQueued = false; p.comboIndex = next; startMove(p, ART.combo[next]); } else p.setState('idle');
+    }
   } else if (dodgePress && canAct && canDefend(p) && p.stamina >= stats.dodgeCost && p.grounded) {
     doDodge(wish, fwd);
   } else if (p.state === 'push' && !cutPush) {
@@ -2180,7 +2190,13 @@ function playerUpdate(dt) {
     if (attackPress) {
       if (!p.grounded) { p.comboIndex = -1; startMove(p, ART.air); p.vy = Math.min(p.vy, -2); }
       else if (p.sprinting && p.stamina > 10) { p.comboIndex = -1; p.stamina -= 10; startMove(p, ART.dash); }
-      else { p.comboIndex = 0; startMove(p, ART.combo[0]); }
+      else {
+        // Just after a light cut was stopped by a guard, the next one follows.
+        const next = gameTime - (p.recoilEndAt ?? -99) < 0.4 && p.blockedCombo >= 0 && p.blockedCombo < ART.combo.length - 1 ? p.blockedCombo + 1 : 0;
+        p.blockedCombo = -1;
+        p.comboIndex = next;
+        startMove(p, ART.combo[next]);
+      }
     } else if (jumpPress && p.grounded && p.stamina >= stats.jumpCost) {
       p.vy = 5.4 * (legsBroken(p) ? 0.6 : 1);   // a jump only drops to 60% (the -60% left no jump at all)
       p.grounded = false;
