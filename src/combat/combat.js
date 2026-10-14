@@ -271,6 +271,12 @@ class Fighter {
       const clip = makeRunCarryClip(this, name, base);
       if (clip) this.clips.set(name, clip);
     }
+    // The dash strike carries the body forward in its clip (root motion), then
+    // walks it back: played in place, the fighter itself carried (rootMotion).
+    for (const name of ['Sword_Dash_RM']) {
+      const clip = makeInPlaceClip(this, name);
+      if (clip) this.clips.set(name, clip);
+    }
     this.bladePrev = null;
     // Hit zones: capsules on the bones.
     this.zones = HIT_ZONES.filter((z) => this.bones[z.from] && (!z.to || this.bones[z.to]))
@@ -1255,6 +1261,53 @@ function makeRunCarryClip(f, name, base) {
 }
 
 /**
+ * A root-motion clip played in place: the hips keep their height but not
+ * their travel, and userData.motion holds how far ahead they had gone (m,
+ * fighter's forward, never back) at each key, for rootMotion to carry the
+ * fighter itself (and so the camera) that way.
+ */
+function makeInPlaceClip(f, name) {
+  const clip = f.clips.get(name);
+  const tr = clip?.tracks.find((t) => t.name === 'Hips.position');
+  if (!tr) return null;
+  const hips = () => f.bones.Hips.getWorldPosition(new THREE.Vector3());
+  poseFromClip(f, clip, 0);
+  const fwd = new THREE.Vector3(0, 0, 1).transformDirection(f.root.matrixWorld).setY(0).normalize();
+  const start = hips();
+  const ahead = [];
+  let most = 0;
+  for (const t of tr.times) {
+    poseFromClip(f, clip, t);
+    most = Math.max(most, hips().sub(start).dot(fwd));
+    ahead.push(most);
+  }
+  const v = tr.values.slice();
+  for (let i = 0; i < tr.times.length; i++) { v[i * 3] = tr.values[0]; v[i * 3 + 2] = tr.values[2]; }
+  const out = new THREE.AnimationClip(name, clip.duration, [
+    ...clip.tracks.filter((t) => t !== tr), new THREE.VectorKeyframeTrack('Hips.position', tr.times.slice(), v),
+  ]);
+  out.userData = { motion: { times: Array.from(tr.times), ahead } };
+  poseFromClip(f, f.clips.get('Idle_Sword'), 0);
+  return out;
+}
+/** Carry an attacking fighter along its move's root motion (makeInPlaceClip), stopping short of the foe. */
+function rootMotion(f) {
+  const m = f.clips.get(f.move?.clip)?.userData?.motion;
+  if (!m) return;
+  const t = f.moveTime();
+  let i = 0;
+  while (i < m.times.length - 2 && t > m.times[i + 1]) i++;
+  const u = THREE.MathUtils.clamp((t - m.times[i]) / (m.times[i + 1] - m.times[i]), 0, 1);
+  const ahead = m.ahead[i] + (m.ahead[i + 1] - m.ahead[i]) * u;
+  const step = ahead - (f.rmDone ?? 0);
+  f.rmDone = ahead;
+  const foe = f === player ? enemy : player;
+  const fwd = f.forward(new THREE.Vector3());
+  const toFoe = foe.pos.clone().sub(f.pos).setY(0);
+  if (step > 0 && !(toFoe.length() < 0.8 && toFoe.dot(fwd) > 0)) f.pos.addScaledVector(fwd, step);
+}
+
+/**
  * A broken guard: thrown back on the heels for 0.5 s, the body arching back
  * and the head snapping back (the reel's steps back, sped up), then upright
  * again. No fall.
@@ -1631,6 +1684,7 @@ const hitLog = [];
 
 function startMove(f, move) {
   f.moveId = (f.moveId ?? 0) + 1;
+  f.rmDone = 0;
   // (A straight thrust already points ahead: its arm is not turned.)
   f.armTurn = move.straight ? 0 : f.strikeHeading(move);
   f.move = move;
@@ -2355,6 +2409,7 @@ function playerUpdate(dt) {
     // Facing ahead of the camera; the sword arm swings the cut round so the
     // blow lands there too (finishPose, armTurn).
     if (engaged(p) && mt < p.move.hit) p.turnTo(camFace, dt, 30);
+    rootMotion(p);
     // At the blow, see where it really landed (the blend from the stance
     // shifts it a little) and correct that move's turn for next time.
     if (engaged(p) && !p.move.straight && mt >= p.move.hit && p.measured !== p.moveId) {
@@ -2790,6 +2845,7 @@ function enemyUpdate(dt) {
     case 'attack': {
       const mt = e.moveTime();
       if (mt < e.move.hit) e.faceTarget(player, dt, 6);
+      rootMotion(e);
       if (e.lungeLeft > 0 && mt < e.move.hit && d > 0.75) {
         const step = Math.min(e.lungeLeft, (e.lungeTotal / (e.move.hit / e.move.speed)) * dt);
         e.pos.addScaledVector(e.forward(tmp), step);

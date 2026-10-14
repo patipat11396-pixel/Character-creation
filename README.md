@@ -265,6 +265,11 @@ tip as it reaches out.
 and one in ten knocks the fighter down: spun round to the attacker, thrown on
 the back, lying 0.5 s, then getting up (about 2 s in all).
 
+**Dash strike.** Its clip (Sword_Dash_RM) carries the body forward in the
+animation, then walks it back; it plays in place and the fighter itself (and
+the camera) goes the way the hips went (about 3.9 m, never back, stopping
+short of the foe), so it ends where the strike took it.
+
 **Jump attack.** In the air the attack is Light 1's cut on its own, once a
 jump: the upper body cuts while the legs keep the jump, and the jump carries
 on (no pull to the ground, momentum kept); no combo follows it.
