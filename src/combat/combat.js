@@ -1290,7 +1290,7 @@ function makeInPlaceClip(f, name) {
   poseFromClip(f, f.clips.get('Idle_Sword'), 0);
   return out;
 }
-/** Carry an attacking fighter along its move's root motion (makeInPlaceClip), stopping short of the foe. */
+/** Carry an attacking fighter along its move's root motion (makeInPlaceClip), through the foe if it is in the way. */
 function rootMotion(f) {
   const m = f.clips.get(f.move?.clip)?.userData?.motion;
   if (!m) return;
@@ -1301,11 +1301,10 @@ function rootMotion(f) {
   const ahead = m.ahead[i] + (m.ahead[i + 1] - m.ahead[i]) * u;
   const step = ahead - (f.rmDone ?? 0);
   f.rmDone = ahead;
-  const foe = f === player ? enemy : player;
-  const fwd = f.forward(new THREE.Vector3());
-  const toFoe = foe.pos.clone().sub(f.pos).setY(0);
-  if (step > 0 && !(toFoe.length() < 0.8 && toFoe.dot(fwd) > 0)) f.pos.addScaledVector(fwd, step);
+  if (step > 0) f.pos.addScaledVector(f.forward(new THREE.Vector3()), step);
 }
+/** Dashing along a root-motion move: passes through bodies (not pushed apart). */
+const passing = (f) => f.state === 'attack' && !!f.clips.get(f.move?.clip)?.userData?.motion;
 
 /**
  * A broken guard: thrown back on the heels for 0.5 s, the body arching back
@@ -3083,7 +3082,7 @@ function tick(real) {
   // Keep the two apart.
   const sep = enemy.pos.clone().sub(player.pos).setY(0);
   const dd = sep.length(), minD = player.radius + enemy.radius;
-  if (dd < minD && dd > 1e-4 && player.state !== 'dead' && enemy.state !== 'dead') {
+  if (dd < minD && dd > 1e-4 && player.state !== 'dead' && enemy.state !== 'dead' && !passing(player) && !passing(enemy)) {
     sep.multiplyScalar((minD - dd) / dd / 2);
     enemy.pos.add(sep);
     player.pos.sub(sep);
