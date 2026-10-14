@@ -1828,14 +1828,16 @@ function staggerDrift(f) {
 }
 
 /**
- * A blow stopped by a guard: the attacker's swing stops dead (held at 61%
- * of the move) and they are staggered for STAGGER.recoil s, the combo cut
+ * A blow stopped by a guard: the attacker's swing stops dead (held part way
+ * through the move, BLOCK_HOLD) and they are staggered for STAGGER.recoil s, the combo cut
  * short.
  */
+// How far through its move a blocked swing is held: Light 1, 2, 3, others.
+const BLOCK_HOLD = { 0: 0.61, 1: 0.55, 2: 0.68, other: 0.61 };
 function recoil(att, def) {
-  const held = 0.61 * (att.move?.end ?? att.action?.getClip().duration ?? 0);
   // Which light cut was stopped: attacking again goes on to the next one.
   att.blockedCombo = ART.combo.indexOf(att.move);
+  const held = (BLOCK_HOLD[att.blockedCombo] ?? BLOCK_HOLD.other) * (att.move?.end ?? att.action?.getClip().duration ?? 0);
   att.blockQueued = false;
   att.move = null;
   att.comboIndex = -1;

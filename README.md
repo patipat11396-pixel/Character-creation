@@ -88,7 +88,8 @@ in 0.2 s, fast at first and slowing to its end, cut straight into with no
 blend;
 an attack may cut it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
-guard stops dead: the attacker's swing is held at 61% of the move and they are staggered for 0.2 s, the combo cut short. Every blow that lands or is blocked, given
+guard stops dead: the attacker's swing is held part way through the move
+(Light 1 at 61%, Light 2 at 55%, Light 3 at 68%, others at 61%) and they are staggered for 0.2 s, the combo cut short. Every blow that lands or is blocked, given
 or taken, shakes the camera; a dodge leaves a short motion blur. The third
 light hit, the finisher, is over in under 0.5 s.
 
