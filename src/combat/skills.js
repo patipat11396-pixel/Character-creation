@@ -66,8 +66,9 @@ export const ARTS = {
     },
     // The sparring partner's moves (the same art, read from the other side).
     enemy: [
-      { name: 'slash', clip: 'Sword_Cut_1', speed: 0.55, hit: 0.19, end: 0.34, rec: 'idle',
-        damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6, hitY: 0.56 },
+      // The same cuts as the player's light 1, 2, 3 (a little slower, to be read).
+      { name: 'slash', clip: 'Sword_Regular_A', speed: 0.6, hit: 0.22, end: 0.34, rec: 'idle', recFade: 0.25,
+        damage: 12, range: 2.3, arc: 100, lunge: 0.5, next: 'slash2', nextChance: 0.6, hitY: 0.8 },
       { name: 'slash2', clip: 'Sword_Regular_B', speed: 0.6, hit: 0.24, end: 0.54, rec: 'Sword_Regular_B_Rec',
         damage: 14, range: 2.3, arc: 100, lunge: 0.5, hitY: 0.6 },
       { name: 'heavy', clip: 'Sword_Attack', speed: 0.6, hit: 0.52, end: 1.1, damage: 28, range: 2.6, arc: 120,
@@ -75,6 +76,9 @@ export const ARTS = {
       // The spinning cut: the blow as the spin comes round (0.65 of the clip, 0.59 s at 1.1x).
       { name: 'thrust', clip: 'Sword_Regular_C', speed: 1.1, hit: 0.65, end: 0.92, damage: 20, range: 2.6, arc: 70,
         lunge: 1.0, stagger: true, hitY: 0.69 },
+      // The player's feint thrust (crouched, straight ahead): it breaks a guard.
+      { name: 'stab', clip: 'Sword_Thrust', speed: 1.1, hit: 0.22, end: 0.5, straight: true, damage: 16, range: 2.4, arc: 70,
+        lunge: 0.6, reach: 1.0, guardBreak: true, unblockable: true, hitY: 0.65 },
     ],
   },
 };

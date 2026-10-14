@@ -203,6 +203,11 @@ towards the player).
 Stepping with the guard held, the hips sink to the standing guard's height,
 the feet kept on the ground by bending the legs.
 
+**The foe's moves** are the player's: its first cut is `Sword_Regular_A`
+(Light 1), then `Sword_Regular_B`, the spinning `Sword_Regular_C`, the heavy
+`Sword_Attack`, and the feint's crouched straight thrust (`stab`,
+`Sword_Thrust`, breaking a guard), all a little slower to be read.
+
 **Thrust.** The feint's strike is `Sword_Thrust`: the captured right jab
 (`Fighting_Right_Jab`), its timing and body kept, the sword hand run on a
 straight line from where the jab cocks it to the arm's length straight

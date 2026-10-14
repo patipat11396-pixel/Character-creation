@@ -1483,6 +1483,8 @@ function applyAnim(data) {
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
   // The feint's strike is the new thrust; saves holding the old stab drop it.
   if (['Sword_Stab', 'Sword_Regular_A'].includes(data.moves?.['Feint strike']?.clip)) delete data.moves['Feint strike'];
+  // The foe's first cut is the player's Light 1 now; saves holding the made cut drop it.
+  if (data.moves?.['Enemy slash']?.clip === 'Sword_Cut_1') delete data.moves['Enemy slash'];
   // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
   if (data.moves?.['Light 1']?.clip === 'Sword_Cut_1') delete data.moves['Light 1'];
   // Saves from before the slow guard steps hold them at full speed; drop those.
@@ -2462,7 +2464,7 @@ function enemyGuard(e, time) {
 function enemyAttack(e, pressing) {
   const pool = ART.enemy.filter((m) => m.name !== 'slash2');
   const r = Math.random();
-  const name = pressing ? (r < 0.75 ? 'slash' : r < 0.9 ? 'thrust' : 'heavy') : (r < 0.55 ? 'slash' : r < 0.75 ? 'thrust' : 'heavy');
+  const name = pressing ? (r < 0.65 ? 'slash' : r < 0.8 ? 'thrust' : r < 0.9 ? 'stab' : 'heavy') : (r < 0.45 ? 'slash' : r < 0.65 ? 'thrust' : r < 0.8 ? 'stab' : 'heavy');
   e.timedChecked = false;
   startMove(e, pool.find((m) => m.name === name));
 }
