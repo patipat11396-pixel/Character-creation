@@ -112,7 +112,8 @@ export const ANIM_SLOTS = {
   dodgeLeft: { clip: 'Dodge_left', speed: 1.5 },
   dodgeRight: { clip: 'Dodge_right', speed: 1.5 },
   dodgeBack: { clip: 'Dodge_back', speed: 1.5 },
-  dodgeForward: { clip: 'Dodge_left', speed: 1.5 },   // dashing ahead: the left dodge, turned so its left is ahead
+  dodgeForward: { clip: 'Dodge_left', speed: 1.5 },
+  roll: { clip: 'Roll', speed: 1.6 },   // the roll (Tab): a dive roll, up again by 1.2 s of clip (0.75 s)   // dashing ahead: the left dodge, turned so its left is ahead
   hitLight: { clip: 'Hit_Chest', speed: 1.1 },
   hitLight2: { clip: 'Hit_Head', speed: 1.1 },
   stagger: { clip: 'Stagger', speed: 1 },

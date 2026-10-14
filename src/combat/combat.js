@@ -404,6 +404,7 @@ class Fighter {
     this.state = s;
     this.t = 0;
     this.knocked = false;
+    this.rolling = false;
   }
 
   turnTo(yaw, dt, rate = 12) {
@@ -1434,7 +1435,8 @@ const typing = (e) => /INPUT|SELECT|TEXTAREA/.test(e.target?.tagName ?? '');
 addEventListener('keydown', (e) => {
   if (typing(e)) return;
   if (['AltLeft', 'AltRight', 'Space', 'Tab', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyW' && e.ctrlKey) e.preventDefault();   // (the browser may still close the tab: use fullscreen, F)
+  if (e.code === 'KeyW' && e.ctrlKey) e.preventDefault();   // (the browser may still close the tab: use fullscreen, F11)
+  if (e.code === 'F11') e.preventDefault();   // the game's own fullscreen (it locks the keyboard)
   if (!keys.has(e.code)) pressed.add(e.code);
   keys.add(e.code);
 });
@@ -1680,11 +1682,21 @@ function resolveHit(att, def, zone) {
     return;
   }
   if (gameTime < def.invulnUntil) return;
+  // Mid-roll the blow passes through.
+  if (def.state === 'dodge' && def.rolling && def.t >= ROLL.iframes[0] && def.t <= ROLL.iframes[1]) return;
   // Perfect parry: a tap of parry within the window before the blow.
   const sinceParry = gameTime - (def.parryAt ?? -99);
   const facing = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) < THREE.MathUtils.degToRad(70);
   if (facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) {
     perfect(def, att, 'Perfect Parry!', true);
+    return;
+  }
+  // Auto parry: in the combat stance and not busy (standing or stepping, no
+  // guard, attack or dodge), a blow from the front is parried perfectly one time in four.
+  const free = def.isPlayer ? ['idle', 'move'] : ['idle', 'chase', 'strafe'];
+  if (facing && engaged(def) && free.includes(def.state) && def.grounded && !guardBroken(def) && move.parryable !== false
+    && Math.random() < AUTO_PARRY) {
+    perfect(def, att, 'Auto Parry!', true);
     return;
   }
   let dmg = move.damage * zone.damage;
@@ -1850,6 +1862,7 @@ function perfect(def, att, text, parry = false) {
 
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
+const AUTO_PARRY = 0.25;   // chance of an auto parry (resolveHit)
 const PARRY_CLIP = 'Sword_Regular_A';   // played by whoever lands a perfect parry
 const PARRY_CUT = 0.34, PARRY_TIME = 0.2;   // its cut (clip seconds), played in PARRY_TIME s
 /** The parry cut eased: fast at first, slowing to a stop at its end (clip time = cut x (1 - (1 - t)^3)). */
@@ -1886,6 +1899,8 @@ function flinch(f, att, hard) {
 let lastCombatAt = -99;
 function engaged(f) {
   if (!active) return false;
+  // F sets the player's stance by hand (on, or off until F again); until then it is automatic.
+  if (f.stance !== undefined) return f.stance;
   const foe = f === player ? enemy : player;
   return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
 }
@@ -2281,15 +2296,19 @@ function playerUpdate(dt) {
       if (p.state === 'recoil') p.recoilEndAt = gameTime;
       if (next >= 0 && p.blockQueued) { p.blockQueued = false; p.comboIndex = next; startMove(p, ART.combo[next]); } else p.setState('idle');
     }
-  } else if (dodgePress && canAct && canDefend(p) && p.stamina >= stats.dodgeCost && p.grounded) {
+  } else if (dodgePress && canAct && canDefend(p) && p.stamina >= dodgeCost(p) && p.grounded) {
     doDodge(wish, fwd);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
     parryEase(p);
     if (p.t > PARRY_TIME) p.setState('idle');
+  } else if (p.state === 'dodge' && p.rolling) {
+    rollVel(p, dt);
+    if (p.t >= ROLL.end) p.setState('idle');
   } else if (p.state === 'dodge') {
     // The dash runs while Alt is held, from DASH.min up to DASH.max.
     const d = p.dash;
+    if (attackPress) p.stepCut = true;   // a cut pressed during the step comes out as it stops
     if (!(keys.has('AltLeft') || keys.has('AltRight'))) d.held = false;
     if (d.doneAt == null) {
       const v = DASH.speed * legMul(p);
@@ -2364,6 +2383,12 @@ function playerUpdate(dt) {
     p.setState('feint');
     p.play(feint.bait.clip, { loop: false, speed: feint.bait.speed, fade: 0.08 });
     p.vel.set(0, 0, 0);
+  } else if (p.state === 'dodge' && !p.rolling && p.dash?.doneAt != null && (attackPress || p.stepCut) && p.grounded) {
+    // The side step is answered at once: the cut comes straight out of it (no settling).
+    p.stepCut = false;
+    p.blockedCombo = -1;
+    p.comboIndex = 0;
+    startMove(p, ART.combo[0]);
   } else if (canAct && p.state !== 'dodge' && p.state !== 'attack') {
     if (attackPress) {
       if (!p.grounded) { p.comboIndex = -1; startMove(p, ART.air); p.vy = Math.min(p.vy, -2); }
@@ -2443,7 +2468,8 @@ function doDodge(wish, camFwd) {
   p.move = null;
   p.comboIndex = -1;
   p.queued = false;
-  p.stamina -= stats.dodgeCost;
+  p.stepCut = false;
+  p.stamina -= dodgeCost(p);
   p.dodgeAt = gameTime;
   p.setState('dodge');
   // A dash forward / left / right / back from the input, against the way the
@@ -2455,6 +2481,7 @@ function doDodge(wish, camFwd) {
   else if (wish.dot(ahead) > 0.5) { dir = wish.clone().normalize(); clip = 'dodgeForward'; }
   else if (wish.dot(side) >= 0) { dir = side; clip = 'dodgeLeft'; }
   else { dir = side.clone().negate(); clip = 'dodgeRight'; }
+  if (p.dodgeMode === 'roll') { startRoll(p, dir); return; }
   p.dodgeDir = dir;
   // Forward is the left dodge as it is, turned so its left (where it leans
   // its head) is ahead.
@@ -2464,6 +2491,32 @@ function doDodge(wish, camFwd) {
   p.playSlot(clip, { loop: clip === 'dodgeForward', fade: 0.05 });
 }
 const DASH = { speed: 6, min: 0.4, max: 1.5, settle: 0.12 };   // m/s, m, m, s after it stops
+// The roll (Tab switches the dodge between the side step and the roll): a dive
+// roll (Roll, in place, at its slot's speed) carried ROLL.dist along Roll_RM's
+// root motion (path: clip s -> share of the way), untouchable over ROLL.iframes
+// (s into it), slower to get up from (ROLL.end s in all). Further and safer
+// than the step, for wide blows; the step is quicker and cuts straight out.
+const ROLL = { dist: 3, end: 1.0, iframes: [0.1, 0.4], stamina: 25,
+  path: [[0, 0], [0.13, 0.14], [0.27, 0.26], [0.4, 0.39], [0.53, 0.54], [0.67, 0.67], [0.8, 0.8], [0.93, 0.89], [1.07, 0.97], [1.2, 1]] };
+function rollShare(t) {
+  const ct = t * (ANIM_SLOTS.roll.speed ?? 1), P = ROLL.path;
+  if (ct <= 0) return 0;
+  for (let i = 1; i < P.length; i++) if (ct <= P[i][0]) return P[i - 1][1] + (P[i][1] - P[i - 1][1]) * (ct - P[i - 1][0]) / (P[i][0] - P[i - 1][0]);
+  return 1;
+}
+/** A rolling fighter's velocity for this frame (its `t` already moved on by dt). */
+function rollVel(f, dt) {
+  const step = (rollShare(f.t) - rollShare(f.t - dt)) * ROLL.dist * legMul(f);
+  f.vel.copy(f.dodgeDir).multiplyScalar(step / Math.max(dt, 1e-6));
+}
+/** Roll along `dir` (the fighter turns to it: the roll goes ahead). */
+function startRoll(f, dir) {
+  f.rolling = true;
+  f.dodgeDir = dir;
+  f.yaw = Math.atan2(dir.x, dir.z);
+  f.playSlot('roll', { loop: false, fade: 0.05 });
+}
+const dodgeCost = (f) => (f.dodgeMode === 'roll' ? ROLL.stamina : stats.dodgeCost);
 
 function dist2(a, b) { return (a.pos.x - b.pos.x) ** 2 + (a.pos.z - b.pos.z) ** 2; }
 
@@ -2513,18 +2566,19 @@ function enemyRead(e, d) {
       if (lead >= AI.reaction && r < AI.parry && !guardBroken(e) && p.move.parryable !== false) {
         e.plan = { kind: 'parry', at: p.hitAt - stats.parryWindow * 0.5 + jitter(), serial: p.moveSerial };
       } else if (lead >= AI.reaction && r < AI.parry + AI.dodge && e.stamina >= stats.dodgeCost) {
-        e.plan = { kind: 'dodge', at: p.hitAt - stats.dodgeWindow * 0.5 + jitter(), serial: p.moveSerial };
+        // A wide blow (arc 120+: the heavy, the spinning finisher) is rolled from; a narrow one side-stepped.
+        e.plan = { kind: 'dodge', at: p.hitAt - stats.dodgeWindow * 0.5 + jitter(), serial: p.moveSerial, roll: (p.move.arc ?? 0) >= 120 };
       } else if (r < AI.parry + AI.dodge + AI.block && !guardBroken(e) && !p.move.unblockable) {
         e.plan = { kind: 'block', at: gameTime + Math.min(Math.max(0, lead - 0.05), AI.reaction), serial: p.moveSerial };
       }
     }
   }
   if (!e.plan || gameTime < e.plan.at) return;
-  const kind = e.plan.kind;
+  const kind = e.plan.kind, roll = !!e.plan.roll;
   e.plan = null;
   if (!['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state) || !canDefend(e)) return;
   if (kind === 'dodge') {
-    e.stamina -= stats.dodgeCost;
+    e.stamina = Math.max(0, e.stamina - (roll ? ROLL.stamina : stats.dodgeCost));
     e.dodgeAt = gameTime;
     e.move = null;
     e.setState('dodge');
@@ -2536,8 +2590,11 @@ function enemyRead(e, d) {
     const r = Math.random();
     let slot;
     if (r < 0.4) { e.dodgeDir = side; slot = 'dodgeLeft'; } else if (r < 0.8) { e.dodgeDir = side.clone().negate(); slot = 'dodgeRight'; } else { e.dodgeDir = toP.clone().negate(); slot = 'dodgeBack'; }
-    e.yaw = Math.atan2(toP.x, toP.z);
-    e.playSlot(slot, { loop: false, fade: 0.05 });
+    if (roll) startRoll(e, e.dodgeDir);
+    else {
+      e.yaw = Math.atan2(toP.x, toP.z);
+      e.playSlot(slot, { loop: false, fade: 0.05 });
+    }
   } else {
     // A parry is a tap of the guard: held a moment, it blocks if the timing was off.
     if (kind === 'parry') e.parryAt = gameTime;
@@ -2668,6 +2725,11 @@ function enemyUpdate(dt) {
   enemyRead(e, d);
   switch (e.state) {
     case 'dodge': {
+      if (e.rolling) {
+        rollVel(e, dt);
+        if (e.t >= ROLL.end) { e.setState('idle'); e.think = 0.1; }
+        break;
+      }
       const k = e.t < 0.32 ? 1 : 0;
       e.vel.copy(e.dodgeDir).multiplyScalar(k * 8.5 * (e.stepScale ?? 1) * legMul(e) * (1 - e.t / 0.32));
       if (e.t > (e.stepEnd ?? 0.5)) {
@@ -2912,7 +2974,15 @@ function tick(real) {
   if (pressed.has('KeyR')) reset();
   if (pressed.has('KeyH')) { assist = !assist; message(assist ? 'Timing assist on' : 'Timing assist off'); }
   if (pressed.has('KeyB')) showZones = !showZones;
-  if (pressed.has('KeyF')) fullscreen();
+  if (pressed.has('F11')) fullscreen();
+  if (pressed.has('Tab')) {
+    player.dodgeMode = player.dodgeMode === 'roll' ? 'step' : 'roll';
+    message(player.dodgeMode === 'roll' ? 'Dodge: roll' : 'Dodge: side step');
+  }
+  if (pressed.has('KeyF') && active && player.state !== 'dead') {
+    player.stance = !engaged(player);
+    message(player.stance ? 'Combat stance' : 'Combat stance off');
+  }
   // Slow motion after a perfect move, hit stop on a landed blow.
   if (hitStop > 0) { hitStop -= real; timeScale = 0.05; } else timeScale = gameTime < slowUntil ? 0.3 : 1;
   const dt = real * timeScale;
@@ -2986,6 +3056,7 @@ function reset() {
     f.plan = null;
     f.parryAt = -99;
     f.dodgeAt = -99;
+    f.stance = undefined;   // the combat stance automatic again
     f.move = null;
     f.comboIndex = -1;
     f.setState('idle');

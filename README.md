@@ -73,9 +73,11 @@ swordsman, with a third-person camera.
 | Left click | light attack: Basic Sword 3-hit combo; in the air a single cut (Light 1, no combo after it); while sprinting a dash strike |
 | Right click / Q | heavy attack: slow overhead blow, staggers, a blocked one drains 40 guard stamina; can follow a light hit |
 | Space | jump |
-| Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
+| Ctrl (or C) | sprint, uses stamina (in fullscreen, F11, the keyboard is locked so Ctrl+W cannot close the tab) |
 | Alt | dash / dodge forward, left, right or back (with W/A/D/S, against the camera's way in the fight; back with no direction): the longer it is held, the further (0.4 m for a tap up to 1.5 m, at 6 m/s); forward as the left dodge as it is, turned so its left (where it leans its head) is ahead; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
 | Shift | hold: guard (up at once, the held pose in 0.08 s; −50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (0.9 m/s, crouched) with it up, the legs stepping under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
+| Tab | switch the dodge (Alt) between the **side step** (below; quick, and a cut pressed during it comes straight out as it stops, no settling) and the **roll** (a dive roll 3 m along the input, untouchable 0.1–0.4 s into it, up again at 1.0 s, 25 stamina; for wide blows). The foe rolls from wide blows (arc 120 and over: the heavy, the spinning finisher) and side-steps the rest |
+| F | combat stance on / off (it comes on by itself near the foe or after a blow; turned off, it stays off until F again). In the stance, standing or walking (no guard, attack or dodge), a blow from the front (±70°) is parried by itself one time in four: a perfect parry. The foe has the same |
 | E | Feint 虚招 (skill): a crouch and the arm cocked (the bait), then a straight stab; it can be blocked, but a guard that blocks it breaks (cooldown 4 s); a broken guard cannot block or parry for 5 s |
 
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
