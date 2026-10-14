@@ -263,6 +263,9 @@ class Fighter {
       [[0, GUARD], [0.12, CUT1_UP], [0.24, CUT1_DOWN], [0.34, CUT1_DOWN], [0.52, GUARD]], 0.52));
     { const easy = this.clips.get('Idle_A') ?? this.clips.get('Idle_Sword');
       this.clips.set('Idle_Relaxed', makeLungeClip(this, 'Idle_Relaxed', [[0, STAB.relaxed], [easy.duration, STAB.relaxed]], easy.duration, easy, 0.1)); }
+    // Charging the wave: the sword raised up to the left (both hands on the hilt).
+    { const st = this.clips.get('Idle_Fight') ?? this.clips.get('Idle_Sword');
+      this.clips.set('Charge_Pose', makeLungeClip(this, 'Charge_Pose', [[0, STAB.charge], [st.duration, STAB.charge]], st.duration, st, 0.1)); }
     // The feint: the chamber (the bait), then the lunge (the real strike).
     this.clips.set('Stab_Chamber', makeLungeClip(this, 'Stab_Chamber', [[0, STAB.stance], [0.2, STAB.chamber], [0.6, STAB.chamber]], 0.6));
     this.clips.set('Sword_Stab', makeLungeClip(this, 'Sword_Stab', [[0, STAB.chamber], [0.12, STAB.lunge], [0.3, STAB.lunge], [0.5, STAB.stance]], 0.5));
@@ -600,6 +603,10 @@ const STAB = {
   // the idle has it.
   // (Straight: reach 0.995, the elbow's bend, what there is, pointing back.)
   relaxed: { armDir: [0.58, 0.45, -1], reach: 0.995, pole: [-1, 0.25, 0], blade: [0.85, 0.3, -0.45], left: null, look: 'ahead' },
+  // Charging the wave: the hilt in both hands in front of the chest, a little
+  // to the left, the blade raised up to the left at 45 degrees, the body
+  // coiled a little; eyes ahead. (The crouch comes from ART.wave.crouch.)
+  charge: { twist: 12, hand: [0.3, -0.24, -0.16], blade: [0.15, -0.7, 0.7], left: 'grip', look: 'ahead' },
   // The ready stance: side-on, wide and low, the front (sword side) leg long
   // toward the foe, the weight on the bent back knee; the sword arm straight
   // out at the foe a little below the shoulder, the blade in line rising a
@@ -1966,12 +1973,16 @@ function chargeTick(p, dt) {
   const W = ART.wave;
   p.chargeT = Math.min(W.max, p.chargeT + dt);
   if (!rightHeld || p.chargeT >= W.max) p.chargeFire = true;
-  const steel = p.sword.userData.steel;
-  const full = p.chargeT >= W.max - 1e-3;
+  chargeGlow(p);
+}
+function chargeGlow(f) {
+  const W = ART.wave;
+  const steel = f.sword.userData.steel;
+  const full = f.chargeT >= W.max - 1e-3;
   steel.emissive.setHex(full ? 0xff2020 : 0xffa020);
-  steel.emissiveIntensity = 0.15 + 0.85 * (p.chargeT / W.max);
-  p.flashUntil = gameTime + 0.05;   // (the glow goes when the charge does)
-  if (full && !p.chargeMaxed) { p.chargeMaxed = true; floatText(p.zones[0].a, 'Charge MAX', 'crit'); }
+  steel.emissiveIntensity = 0.15 + 0.85 * (f.chargeT / W.max);
+  f.flashUntil = gameTime + 0.05;   // (the glow goes when the charge does)
+  if (full && !f.chargeMaxed) { f.chargeMaxed = true; floatText(f.zones[0].a, 'Charge MAX', 'crit'); }
 }
 /** Let the charge go: the reversed spin, jumping back, the wave launched as the blade comes round in front (launchWave). */
 function fireCharge(p) {
@@ -1986,6 +1997,16 @@ function fireCharge(p) {
   p.grounded = false;
   const airtime = (2 * W.hop) / 14;   // (gravity 14 m/s2)
   p.vel.copy(p.forward(new THREE.Vector3()).multiplyScalar(-W.back / airtime));
+}
+/** The foe charging the wave: crouched, the sword raised, facing the player, for its chosen time; then it goes. */
+function enemyCharge(e) {
+  e.move = null;
+  e.setState('charge');
+  e.chargeT = 0;
+  e.chargeMaxed = false;
+  e.chargeFor = 0.6 + Math.random() * 2.4;
+  e.play(ART.wave.pose.clip, { fade: 0.15 });
+  e.vel.set(0, 0, 0);
 }
 
 // ------------------------------------------------------------------ sword waves
@@ -2007,14 +2028,14 @@ const waveMaterial = (power) => new THREE.ShaderMaterial({
       float across = sin(vUv.y * 3.14159);                 // 0 at the edges, 1 along the middle
       float tips = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
       float k = across * tips * fade;
-      vec2 off = vec2(0.012, 0.02) * power * k * (1.0 + 0.35 * sin(vUv.x * 40.0 + time * 30.0));
+      vec2 off = vec2(0.02, 0.032) * power * k * (1.0 + 0.35 * sin(vUv.x * 40.0 + time * 30.0));
       vec3 c = vec3(0.0);
-      for (int i = -2; i <= 2; i++) c += texture2D(tScene, uv + off + vec2(float(i), float(-i)) * 0.0025 * k).rgb;
+      for (int i = -2; i <= 2; i++) c += texture2D(tScene, uv + off + vec2(float(i), float(-i)) * 0.004 * k).rgb;
       c /= 5.0;
       // No colour, but it must read over a plain floor too: a darker rim along
       // both edges (the pressed air's front and back) and a lighter middle.
       float edge = smoothstep(0.55, 0.95, abs(vUv.y * 2.0 - 1.0)) * tips * fade;
-      c *= 1.0 + 0.12 * k - 0.28 * edge;
+      c *= 1.0 + 0.22 * k - 0.5 * edge;
       gl_FragColor = vec4(c, max(smoothstep(0.0, 0.15, k), edge));
     }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -2049,7 +2070,7 @@ function launchWave(f) {
   const dir = f.forward(new THREE.Vector3());
   const pos = f.pos.clone().addScaledVector(dir, 0.6).setY(0.95);
   const half = W.width * power;
-  const mesh = new THREE.Mesh(crescentGeometry(half, 0.3 * power, 0.22 * power, 0.25 * power), waveMaterial(power));
+  const mesh = new THREE.Mesh(crescentGeometry(half, 0.3 * power, 0.26 * power, 0.4 * power), waveMaterial(power));
   mesh.renderOrder = 11;
   mesh.position.copy(pos);
   mesh.lookAt(pos.clone().add(dir));
@@ -2057,6 +2078,30 @@ function launchWave(f) {
   waveMeshes.add(mesh);
   waves.push({ owner: f, mesh, pos, dir, half, dmg: W.damage * power, left: W.run, seen: new Set() });
   sound('swing');
+}
+/** Parried: the wave goes back the way it came, the parrier's now (a full run again), with the parry's cut and flash. */
+function reflectWave(w, def, auto) {
+  w.owner = def;
+  w.dir.negate();
+  w.pos.copy(def.pos).addScaledVector(w.dir, def.radius + 0.3).setY(w.pos.y);
+  w.left = ART.wave.run;
+  w.seen.clear();
+  w.aiSeen = false;
+  w.mesh.lookAt(w.pos.clone().add(w.dir));
+  def.move = null;
+  def.setState('push');
+  def.setUpper(null);
+  def.mixer.stopAllAction();
+  def.action = null;
+  def.play(PARRY_CLIP, { loop: false, fade: 0, speed: PARRY_CUT / PARRY_TIME });
+  def.parryShook = false;
+  def.invulnUntil = gameTime + 0.3;
+  if (!def.isPlayer) { def.think = 0.3; def.plan = null; }
+  sound('perfect');
+  hitStop = 0.06;
+  const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
+  perfectFx(at, 0xf0a800, true, def.isPlayer);
+  message(def.isPlayer ? (auto ? 'Auto Parry — wave reflected!' : 'Wave reflected!') : 'Your wave was reflected!', def.isPlayer ? 'good' : 'bad');
 }
 function updateWaves(dt) {
   for (let i = waves.length - 1; i >= 0; i--) {
@@ -2089,10 +2134,16 @@ function updateWaves(dt) {
     }
   }
 }
-/** A wave reaching `def`: through a dodge, else it lands (no guard or parry stops it). True if it is spent. */
+/** A wave reaching `def`: through a dodge, back the way it came off a parry (or an auto parry), else it lands (no guard stops it). True if it is spent. */
 function waveHit(w, def) {
   const att = w.owner;
   if (def.state === 'dodge' || gameTime < def.invulnUntil) { if (def.isPlayer) message('Dodged the wave', 'good'); return false; }
+  const facing = def.forward().angleTo(w.dir.clone().negate()) < THREE.MathUtils.degToRad(70);
+  const sinceParry = gameTime - (def.parryAt ?? -99);
+  const parried = facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02;
+  const free = def.isPlayer ? ['idle', 'move'] : ['idle', 'chase', 'strafe'];
+  const auto = !parried && facing && engaged(def) && free.includes(def.state) && def.grounded && !guardBroken(def) && Math.random() < AUTO_PARRY;
+  if (parried || auto) { reflectWave(w, def, auto); return false; }
   const zone = def.zones.find((z) => z.name === 'chest') ?? def.zones[0];
   const dmg = w.dmg * zone.damage;
   lastCombatAt = gameTime;
@@ -2577,6 +2628,7 @@ function playerUpdate(dt) {
       const ls = wish.lengthSq() ? ANIM_SLOTS[stepSlot(p, wish)] : ANIM_SLOTS[idleSlot(p)];
       p.play(ls.clip, { speed: wish.lengthSq() ? ls.speed : 1, part: 'lower', fade: 0.2 });
       p.setUpper(ART.wave.pose.clip, { hold: ART.wave.pose.at });
+      p.crouch = ART.wave.crouch;
     }
   } else if (p.state === 'dodge' && p.rolling) {
     rollVel(p, dt);
@@ -2966,6 +3018,13 @@ function enemyStart(e, move) {
 
 function enemyDecide(e, d, adv, pressing) {
   const r = Math.random();
+  // Out of reach, now and then: charge the wave and throw it.
+  if (!pressing && d > 4 && d < 14 && gameTime >= (e.waveReady ?? 0) && r < 0.3) {
+    e.waveReady = gameTime + 6 + Math.random() * 4;
+    enemyCharge(e);
+    e.think = 0.5;
+    return;
+  }
   const inReach = d < 2.6;
   if (pressing) {
     // The upper hand: in and at it.
@@ -3005,12 +3064,28 @@ function enemyStrafe(e) {
 function enemyUpdate(dt) {
   const e = enemy;
   e.t += dt;
+  e.crouch = 0;
+  // A wave coming: parried back (timed on its arrival), or side-stepped, now and then.
   for (const w of waves) {
     if (w.owner === e || w.aiSeen) continue;
     const rel = e.pos.clone().sub(w.pos).setY(0), along = rel.dot(w.dir);
-    if (along > 0 && along / ART.wave.flight < 0.3) {
+    if (along > 0 && along / ART.wave.flight < 0.45) {
       w.aiSeen = true;
-      if (Math.random() < aiFor(stats.aiSkill ?? 0.5).dodge * 2 && ['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state)) enemyStep(e, 'side');
+      const AI = aiFor(stats.aiSkill ?? 0.5), r = Math.random();
+      if (!['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state)) continue;
+      if (r < AI.parry * 1.5 && !guardBroken(e)) e.wavePlan = { at: gameTime + (along - e.radius) / ART.wave.flight - stats.parryWindow * 0.5 };
+      else if (r < AI.parry * 1.5 + AI.dodge * 2) enemyStep(e, 'side');
+    }
+  }
+  if (e.wavePlan && gameTime >= e.wavePlan.at) {
+    e.wavePlan = null;
+    if (['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state) && canDefend(e)) {
+      e.faceTarget(player, 1, 100);
+      e.parryAt = gameTime;
+      e.setState('block');
+      e.blockFor = 0.4;
+      const a = e.playSlot('guard', { loop: false, fade: 0.08 });
+      if (a) a.holdAt = ANIM_SLOTS.guard.hold;
     }
   }
   const d = Math.sqrt(dist2(e, player));
@@ -3020,6 +3095,14 @@ function enemyUpdate(dt) {
   if (e.state !== 'block' && e.state !== 'dodge') e.stamina = Math.min(stats.maxStamina, e.stamina + stats.staminaRegen * dt);
   enemyRead(e, d);
   switch (e.state) {
+    case 'charge':
+      e.faceTarget(player, dt, 8);
+      e.vel.set(0, 0, 0);
+      e.crouch = ART.wave.crouch;
+      e.chargeT = Math.min(ART.wave.max, e.chargeT + dt);
+      chargeGlow(e);
+      if (e.chargeT >= e.chargeFor) { e.crouch = 0; fireCharge(e); e.think = 0.3; }
+      break;
     case 'dodge': {
       if (e.rolling) {
         rollVel(e, dt);
@@ -3060,8 +3143,9 @@ function enemyUpdate(dt) {
       break;
     case 'attack': {
       const mt = e.moveTime();
-      if (mt < e.move.hit) e.faceTarget(player, dt, 6);
+      if (mt < e.move.hit && !e.move.launch) e.faceTarget(player, dt, 6);
       rootMotion(e);
+      if (e.move.launch != null && !e.waveDone && mt >= e.move.launch) { e.waveDone = true; launchWave(e); }
       if (e.lungeLeft > 0 && mt < e.move.hit && d > 0.75) {
         const step = Math.min(e.lungeLeft, (e.lungeTotal / (e.move.hit / e.move.speed)) * dt);
         e.pos.addScaledVector(e.forward(tmp), step);
@@ -3074,7 +3158,7 @@ function enemyUpdate(dt) {
         if (!nextName && pressing && e.move.name === 'slash2' && Math.random() < 0.6) nextName = 'thrust';
         const next = nextName && d < 3 ? ART.enemy.find((m) => m.name === nextName) : null;
         if (next) { e.timedChecked = false; startMove(e, next); }
-        else if (isFinisher(e.move)) { spent(e); e.think = 0; }
+        else if (isFinisher(e.move) || e.move.spent) { spent(e); e.think = 0; }
         else {
           const rec = e.move.rec;
           e.move = null;
@@ -3084,7 +3168,7 @@ function enemyUpdate(dt) {
           e.justAttacked = true;   // hit and run: often steps back out afterwards
         }
       }
-      e.vel.multiplyScalar(Math.max(0, 1 - dt * 10));
+      if (e.grounded) e.vel.multiplyScalar(Math.max(0, 1 - dt * 10));   // (in the air, the wave's hop back carries on)
       break;
     }
     case 'block':
@@ -3442,6 +3526,7 @@ window.combat = {
   /** Hold (or let go of) the right button: charging the wave. */
   rightHold(on) { rightHeld = on; if (on) rightClicked = true; },
   get waves() { return waves; },
+  enemyWave() { enemyCharge(enemy); },
   look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },
   /** Damage a fighter's body part directly (as a landed blow on that zone would). */
   hurt(who, zoneName, dmg) { const f = who === 'enemy' ? enemy : player; return hurtPart(f, f.zones.find((z) => z.name === zoneName), dmg); },
