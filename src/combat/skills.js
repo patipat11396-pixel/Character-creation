@@ -51,15 +51,15 @@ export const ARTS = {
     // Jump attack: Light 1's cut on its own (no combo follows it).
     air: { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.34, damage: 12, range: 2.1, arc: 110, hitY: 0.8 },
     // Right button: hold to charge (up to `max` s; let go, or at `max`, it
-    // goes): a backflip (the forward flip cut played backwards, Flip_Back)
-    // jumping `back` m back, a sword wave thrown off the blade at `launch`
-    // (clip s) that runs `run` m at `flight` m/s, `width` m to each side,
-    // damage and width x1 to x2 with the charge. No guard or parry stops the
-    // wave, only a dodge. Charging: the sword drawn back (`pose`), walking slowly
-    // (`walk` m/s), no guard; only a side step. Spent 0.6 s after.
-    wave: { clip: 'Flip_Back', speed: 1.25, hit: 0.55, launch: 0.55, end: 0.95, damage: 20, range: 0, arc: 0,
+    // goes): Light 3's spinning cut played backwards (Spin_Back), jumping
+    // `back` m back, a sword wave thrown off the blade at `launch` (clip s: the
+    // blade coming round in front) that runs `run` m at `flight` m/s, `width` m
+    // to each side, damage and width x1 to x2 with the charge. No guard or parry
+    // stops the wave, only a dodge. Charging: the sword drawn back (`pose`),
+    // walking slowly (`walk` m/s), no guard; only a side step. Spent 0.6 s after.
+    wave: { clip: 'Spin_Back', speed: 2.0, hit: 0.27, launch: 0.27, end: 0.92, damage: 20, range: 0, arc: 0,
       straight: true, noBlade: true, spent: true, unblockable: true, parryable: false, rec: 'idle',
-      max: 3, hop: 4.5, back: 2.5, walk: 0.9, run: 10, flight: 20, width: 0.9, pose: { clip: 'Sword_Attack', at: 0.3 } },
+      max: 3, hop: 3.2, back: 2.5, walk: 0.9, run: 10, flight: 20, width: 0.9, pose: { clip: 'Sword_Attack', at: 0.3 } },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows a bait, then thrusts in fast: blocked, it
     // breaks the guard (the target is staggered).

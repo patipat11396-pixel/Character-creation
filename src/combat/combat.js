@@ -273,8 +273,8 @@ class Fighter {
     }
     // The dash strike carries the body forward in its clip (root motion), then
     // walks it back: played in place, the fighter itself carried (rootMotion).
-    // The right button's backflip: the flip cut (forward flip) played backwards.
-    { const c = makeReversedClip(this, 'Sword_Attack_Air_Vertical', 'Flip_Back', 0, 0.95); if (c) this.clips.set('Flip_Back', c); }
+    // The right button's move: Light 3's spinning cut (Sword_Regular_C) played backwards.
+    { const c = makeReversedClip(this, 'Sword_Regular_C', 'Spin_Back', 0, 0.92); if (c) this.clips.set('Spin_Back', c); }
     for (const name of ['Sword_Dash_RM']) {
       const clip = makeInPlaceClip(this, name);
       if (clip) this.clips.set(name, clip);
@@ -1959,7 +1959,7 @@ function chargeTick(p, dt) {
   p.flashUntil = gameTime + 0.05;   // (the glow goes when the charge does)
   if (full && !p.chargeMaxed) { p.chargeMaxed = true; floatText(p.zones[0].a, 'Charge MAX', 'crit'); }
 }
-/** Let the charge go: the backflip, jumping back, the wave launched part way (launchWave). */
+/** Let the charge go: the reversed spin, jumping back, the wave launched as the blade comes round in front (launchWave). */
 function fireCharge(p) {
   const W = ART.wave, t = Math.min(p.chargeT ?? 0, W.max);
   const m = Object.create(W);
@@ -1975,7 +1975,7 @@ function fireCharge(p) {
 }
 
 // ------------------------------------------------------------------ sword waves
-// A crescent of light thrown off the blade (the right button's backflip): it
+// A crescent of light thrown off the blade (the right button's reversed spin): it
 // runs ART.wave.run m at ART.wave.flight m/s along the thrower's facing, at
 // chest height, `half` m to each side; it cannot be blocked or parried, a
 // dodge (in it as the wave passes) lets it through; it goes on the first body it hits.
@@ -2756,7 +2756,7 @@ function physics(f, dt) {
     if (f.pos.y <= 0) {
       f.pos.y = 0;
       f.vy = 0;
-      if (!f.grounded) { f.grounded = true; if (f.state !== 'attack') f.setState('idle'); }
+      if (!f.grounded) { f.grounded = true; if (f.state !== 'attack' && f.state !== 'exposed') f.setState('idle'); }
     } else f.grounded = false;
   }
   f.pos.x = THREE.MathUtils.clamp(f.pos.x, -ROOM + 0.5, ROOM - 0.5);
