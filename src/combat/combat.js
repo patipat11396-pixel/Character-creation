@@ -264,8 +264,11 @@ class Fighter {
     }
     // Out of the fight: the same steps with the sword arm as in the relaxed
     // idle, the blade hanging point down.
-    for (const [name, base] of [['Run_Relaxed', 'Jog'], ['Sprint_Relaxed', 'Sprint'], ['Walk_Relaxed', 'Walk']]) {
-      const clip = makeArmedClip(this, name, base, 'Idle_Relaxed');
+    { const clip = makeArmedClip(this, 'Walk_Relaxed', 'Walk', 'Idle_Relaxed'); if (clip) this.clips.set('Walk_Relaxed', clip); }
+    // Running, the idle's arm pressed the hand into the hip and stood the
+    // blade on the floor: the sword hand runs out from the hip, the point trailing.
+    for (const [name, base] of [['Run_Relaxed', 'Jog'], ['Sprint_Relaxed', 'Sprint']]) {
+      const clip = makeRunCarryClip(this, name, base);
       if (clip) this.clips.set(name, clip);
     }
     this.bladePrev = null;
@@ -400,6 +403,7 @@ class Fighter {
     if ((this.state === 'attack' || this.state === 'feint') && s !== this.state) this.actionEndAt = gameTime;
     this.state = s;
     this.t = 0;
+    this.knocked = false;
   }
 
   turnTo(yaw, dt, rate = 12) {
@@ -1207,6 +1211,48 @@ function makeArmedClip(f, name, base, armFrom = 'Idle_Sword') {
   ]);
 }
 
+// Running with the sword out of the fight: the hand (forward, right, up from
+// the shoulder, m) out from the hip, swinging a little with the run (`swing`
+// of the run's own hand swing); the blade (forward, right, up) slanting
+// forward, down and out, clear of the legs and the floor.
+const RUN_CARRY = { hand: [0.1, 0.3, -0.4], swing: 0.45, blade: [0.65, 0.4, -0.35] };
+
+/** A run (`base`) with the sword arm by two-bone IK holding RUN_CARRY. */
+function makeRunCarryClip(f, name, base) {
+  const clip = f.clips.get(base);
+  if (!clip) return null;
+  const B = f.bones;
+  const record = ['RightArm', 'RightForeArm', 'RightHand'];
+  const up = new THREE.Vector3(0, 1, 0);
+  const Pw = (b) => b.getWorldPosition(new THREE.Vector3());
+  const times = [];
+  for (let t = 0; t <= clip.duration + 1e-6; t += 1 / 30) times.push(Math.round(t * 1000) / 1000);
+  // The run's own hand swing (forward of the shoulder), about its middle.
+  const fwdAt = () => new THREE.Vector3(0, 0, 1).transformDirection(f.root.matrixWorld).setY(0).normalize();
+  const swing = times.map((t) => { poseFromClip(f, clip, t); return Pw(B.RightHand).sub(Pw(B.RightArm)).dot(fwdAt()); });
+  const mid = (Math.max(...swing) + Math.min(...swing)) / 2;
+  const values = Object.fromEntries(record.map((n) => [n, []]));
+  times.forEach((t, i) => {
+    poseFromClip(f, clip, t);
+    const fwd = fwdAt(), right = fwd.clone().cross(up);
+    const S = Pw(B.RightArm);
+    const [hf, hr, hu] = RUN_CARRY.hand;
+    const T = S.clone().addScaledVector(fwd, hf + (swing[i] - mid) * RUN_CARRY.swing).addScaledVector(right, hr).addScaledVector(up, hu);
+    twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, T, fwd.clone().negate().addScaledVector(right, 0.4));
+    const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
+    const [bf, br, bu] = RUN_CARRY.blade;
+    const want = fwd.clone().multiplyScalar(bf).addScaledVector(right, br).addScaledVector(up, bu).normalize();
+    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(blade, want));
+    for (const n of record) values[n].push(...B[n].quaternion.toArray());
+  });
+  const tracks = [
+    ...clip.tracks.filter((tr) => !(record.includes(trackBone(tr)) && tr.name.endsWith('.quaternion'))),
+    ...record.map((n) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, values[n])),
+  ];
+  poseFromClip(f, f.clips.get('Idle_Sword'), 0);
+  return new THREE.AnimationClip(name, clip.duration, tracks);
+}
+
 /**
  * A broken guard: thrown back on the heels for 0.5 s, the body arching back
  * and the head snapping back (the reel's steps back, sped up), then upright
@@ -1491,6 +1537,8 @@ function applyAnim(data) {
   for (const k of Object.keys(data.moves ?? {})) if (k.startsWith('Enemy ')) delete data.moves[k];
   // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
   if (data.moves?.['Light 1']?.clip === 'Sword_Cut_1') delete data.moves['Light 1'];
+  // The jump attack is Light 1's cut now; saves holding the old overhead drop it.
+  if (data.moves?.Air?.clip === 'Sword_Attack') delete data.moves.Air;
   // Saves from before the slow guard steps hold them at full speed; drop those.
   for (const slot of ['guardForward', 'guardBack', 'guardLeft', 'guardRight']) if (data.slots?.[slot]?.speed === 1) delete data.slots[slot];
   // Saves from before the captured fight steps hold the idle for them; drop those.
@@ -1641,6 +1689,9 @@ function resolveHit(att, def, zone) {
   }
   let dmg = move.damage * zone.damage;
   let crit = false;
+  // From behind (the attacker in the rear BACKSTAB.arc): double damage, and now and then knocked down.
+  const behind = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) > THREE.MathUtils.degToRad(180 - BACKSTAB.arc / 2);
+  if (behind) dmg *= BACKSTAB.damage;
   if (partBroken(att, 'armR')) dmg *= PART_RULES.armRDamage;
   if (partBroken(def, 'torso')) dmg *= PART_RULES.torsoDamage;
   if (gameTime < (def.dazedUntil ?? 0)) dmg *= PART_RULES.dazedDamage;
@@ -1680,7 +1731,7 @@ function resolveHit(att, def, zone) {
   } else {
     if (blocking && move.unblockable && def.isPlayer) message('Unblockable!', 'bad');
     sound(crit ? 'crit' : 'hit');
-    floatText(zone.a.clone().lerp(zone.b, 0.5), `${crit ? 'CRIT ' : ''}${zone.label} ${Math.round(dmg)}`, crit ? 'crit' : def.isPlayer ? 'taken' : '');
+    floatText(zone.a.clone().lerp(zone.b, 0.5), `${behind ? 'BACKSTAB ' : ''}${crit ? 'CRIT ' : ''}${zone.label} ${Math.round(dmg)}`, crit || behind ? 'crit' : def.isPlayer ? 'taken' : '');
     hitStop = crit ? 0.1 : 0.05;
     fightShake(att, def, crit ? 0.09 : 0.06);
   }
@@ -1688,7 +1739,10 @@ function resolveHit(att, def, zone) {
   hitLog.push(`  ${Math.round(dmg * 10) / 10}${blocking && !move.unblockable ? ' blocked' : ''}`);
   if (def.hp <= 0) { die(def); return; }
   if (!blocking || move.unblockable) {
+    // Down already: the blow lands, but there is nothing more to knock.
+    if (def.knocked) { hurtPart(def, zone, dmg); return; }
     if (hurtPart(def, zone, dmg) === 'head') return;   // dazed
+    if (behind && Math.random() < BACKSTAB.knockChance) { knockDown(def, att); return; }
     addPoise(def, move, dmg);
     // Flinch, unless attacking with armour (the enemy's heavy blows) and not a
     // staggering blow; a full stagger gauge staggers anyway.
@@ -1886,6 +1940,32 @@ function recoil(att, def) {
   att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(1.2));
 }
 
+/**
+ * Hit from behind: double damage, and a 10% chance of being knocked down —
+ * spun round by the blow to face the attacker, thrown on the back
+ * (Hit_Knockback up to the floor), lying KNOCKDOWN.lie s, then getting up (LayToIdle).
+ */
+const BACKSTAB = { arc: 120, damage: 2, knockChance: 0.1 };
+const KNOCKDOWN = { fall: 0.29, lie: 0.5 };   // (Hit_Knockback is flat on the floor at 0.29; LayToIdle is up just before its end, its last key the lying pose again)
+function knockDown(f, att) {
+  stagger(f, 0, null, 'knockdown');
+  const up = ANIM_SLOTS.getUp;
+  f.hitDur = KNOCKDOWN.fall + KNOCKDOWN.lie + ((f.clips.get(up.clip)?.duration ?? 1.5) - 0.08) / (up.speed ?? 1);
+  f.knocked = true;
+  f.knockYaw = Math.atan2(att.pos.x - f.pos.x, att.pos.z - f.pos.z);
+  f.comboIndex = -1;
+  floatText(f.zones[0].a, 'Knocked down', 'status');
+  if (f.isPlayer) message('Knocked down', 'bad');
+}
+/** Each frame for a knocked-down fighter: turn to the attacker, fall, lie still, get up. */
+function knockUpdate(f, dt) {
+  if (!f.knocked || f.state !== 'stagger') return;
+  if (f.t < 0.15) f.turnTo(f.knockYaw, dt, 25);
+  if (f.t >= KNOCKDOWN.fall && f.t < KNOCKDOWN.fall + KNOCKDOWN.lie) { if (f.action) f.action.timeScale = 0; }
+  else if (f.t >= KNOCKDOWN.fall + KNOCKDOWN.lie && !f.gettingUp) { f.gettingUp = true; f.playSlot('getUp', { loop: false, fade: 0.15 }); }
+  if (f.t < KNOCKDOWN.fall) f.gettingUp = false;
+}
+
 function stagger(f, dur, text, slot = 'stagger') {
   f.move = null;
   f.setState('stagger');
@@ -1916,7 +1996,9 @@ const fxList = [];
 const flashEl = document.createElement('div');
 flashEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;opacity:0';
 document.getElementById('view').after(flashEl);   // under the HUD and panels
-let flashLife = 1, fovKick = 0;
+let flashLife = 1, fovKick = 0, speedFov = 0;
+// The stab's lunge: from the bait's end until just past the thrust.
+const stabbing = (f) => f.state === 'attack' && f.move?.straight && f.moveTime() < f.move.hit + 0.08;
 function perfectFx(pos, color, parry, screen = true) {
   const c = new THREE.Color(color);
   // The room is white: the effects are strong colours drawn normally (additive light would vanish).
@@ -2004,6 +2086,20 @@ function updateFx(real) {
       continue;
     }
     if (f.kind === 'pane') { f.m.scale.setScalar(1 + k * 0.15); f.m.material.opacity = 0.55 * (1 - k); continue; }
+    if (f.kind === 'pierce') {
+      f.m.visible = true;
+      f.m.position.addScaledVector(f.vel, real);
+      f.m.scale.setScalar(0.05 + f.size * (1 - (1 - k) ** 3));
+      f.m.material.opacity = 1 - k;
+      continue;
+    }
+    if (f.kind === 'dart') {
+      f.m.position.addScaledVector(f.vel, real);
+      f.vel.multiplyScalar(Math.exp(-real * 8));
+      f.m.scale.z = 1 - k * 0.6;
+      f.m.material.opacity = 1 - k;
+      continue;
+    }
     if (f.kind === 'wave') {
       f.m.visible = true;
       f.m.quaternion.copy(camera.quaternion);
@@ -2018,11 +2114,15 @@ function updateFx(real) {
   }
   flashLife += real;
   flashEl.style.opacity = String(Math.max(0, 0.75 * (1 - flashLife / 0.35)));
+  // The view widens a little during the stab's lunge (speed), and kicks in on a perfect.
+  speedFov += ((stabbing(player) ? 7 : 0) - speedFov) * Math.min(1, real * (stabbing(player) ? 18 : 6));
+  if (speedFov < 0.01) speedFov = 0;
+  let fov = 55 + speedFov;
   if (fovKick > 0.01) {
-    camera.fov = 55 - fovKick * Math.min(1, flashLife / 0.06);
+    fov -= fovKick * Math.min(1, flashLife / 0.06);
     fovKick *= Math.exp(-real * 5);
-    camera.updateProjectionMatrix();
-  } else if (camera.fov !== 55) { camera.fov = 55; camera.updateProjectionMatrix(); }
+  }
+  if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
 }
 
 // ------------------------------------------------------------------ sword trails
@@ -2070,6 +2170,39 @@ function updateTrails() {
   for (const f of [player, enemy]) {
     if (!trails.has(f)) trails.set(f, new SwordTrail());
     trails.get(f).update(f);
+    // The stab: a burst off the tip as the thrust reaches out.
+    if (f.state === 'attack' && f.move?.straight && f.stabFxId !== f.moveId && f.moveTime() >= f.move.hit - 0.03) {
+      f.stabFxId = f.moveId;
+      stabFx(f);
+    }
+  }
+}
+
+/** A thrust's tip: rings of air pierced along the blade, and darts shot on ahead. */
+function stabFx(f) {
+  const [base, tip] = f.blade();
+  const dir = tip.clone().sub(base).normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+  for (const [delay, thick, size] of [[0, 0.62, 0.3], [0.04, 0.74, 0.45], [0.08, 0.84, 0.6]]) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(thick, 1, 48),
+      new THREE.MeshBasicMaterial({ color: delay ? 0x2f7bff : 0x0b2a66, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+    ring.position.copy(tip).addScaledVector(dir, 0.05);
+    ring.quaternion.copy(q);
+    ring.renderOrder = 11;
+    ring.visible = false;
+    scene.add(ring);
+    fxList.push({ kind: 'pierce', m: ring, life: -delay, dur: 0.22, size, vel: dir.clone().multiplyScalar(2.5 + delay * 20) });
+  }
+  sparks(tip, 0x2f7bff);
+  for (let i = 0; i < 10; i++) {
+    const d = dir.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.35)).normalize();
+    const dart = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.28 + Math.random() * 0.2),
+      new THREE.MeshBasicMaterial({ color: i % 3 ? 0x2f7bff : 0x0b2a66, transparent: true, depthWrite: false }));
+    dart.position.copy(tip);
+    dart.lookAt(tip.clone().add(d));
+    dart.renderOrder = 11;
+    scene.add(dart);
+    fxList.push({ kind: 'dart', m: dart, life: 0, dur: 0.16 + Math.random() * 0.1, vel: d.multiplyScalar(8 + Math.random() * 5) });
   }
 }
 
@@ -2815,11 +2948,13 @@ function tick(real) {
     if (s.life > 0.25) { scene.remove(s.m); sparkPool.splice(i, 1); }
   }
   for (const f of [player, enemy]) healParts(f, dt);
+  for (const f of [player, enemy]) knockUpdate(f, dt);
   for (const f of [player, enemy]) {
     if (f.poise > 0 && gameTime - (f.poiseAt ?? 0) > STAGGER.decayAfter) f.poise = Math.max(0, f.poise - STAGGER.decay * dt);
   }
   // Dodge motion blur: trails while dodging, fading out quickly after.
-  const want = player.state === 'dodge' && (player.t < 0.4 || gameTime < slowUntil) ? 0.7 : 0;
+  // The stab's lunge blurs too.
+  const want = player.state === 'dodge' && (player.t < 0.4 || gameTime < slowUntil) ? 0.7 : stabbing(player) ? 0.6 : 0;
   blur.uniforms.damp.value += (want - blur.uniforms.damp.value) * Math.min(1, real * (want ? 30 : 12));
   updateRing();
   updateFx(real);

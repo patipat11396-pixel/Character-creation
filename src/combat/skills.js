@@ -48,7 +48,8 @@ export const ARTS = {
     // blocked one costs the defender a lot of guard (stamina).
     heavy: { clip: 'Sword_Attack', speed: 0.95, hit: 0.52, end: 1.05, damage: 30, range: 2.4, arc: 120,
       lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55, hitY: 1.13 },
-    air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
+    // Jump attack: Light 1's cut on its own (no combo follows it).
+    air: { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.34, damage: 12, range: 2.1, arc: 110, hitY: 0.8 },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows a bait, then thrusts in fast: blocked, it
     // breaks the guard (the target is staggered).
@@ -117,6 +118,8 @@ export const ANIM_SLOTS = {
   stagger: { clip: 'Stagger', speed: 1 },
   daze: { clip: 'Dizzy', speed: 1 },
   staggerBack: { clip: 'Stagger_Back', speed: 1 },   // a broken guard: thrown back on the heels, 0.5 s          // head broken: dazed (looped)   // reeling back two steps (~1 s): a full gauge, a parried blow, a broken guard
+  knockdown: { clip: 'Hit_Knockback', speed: 1 },   // hit from behind (10%): thrown on the back...
+  getUp: { clip: 'LayToIdle', speed: 1.2 },         // ...and up again
   death: { clip: 'Death_A', speed: 1 },
 };
 
