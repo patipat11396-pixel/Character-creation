@@ -410,6 +410,7 @@ class Fighter {
     this.state = s;
     this.t = 0;
     this.knocked = false;
+    if (['hit', 'stagger', 'recoil', 'dead', 'exposed', 'push', 'feint'].includes(s)) { this.chargeT = null; this.chargeFire = false; }
     this.rolling = false;
   }
 
@@ -1483,6 +1484,7 @@ function updateBars() {
 const keys = new Set();
 const pressed = new Set();     // this frame
 let mouseDown = false;
+let rightHeld = false;   // right button held (charging the flip cut)
 let clicked = false;
 let rightClicked = false;
 let locked = false;
@@ -1501,7 +1503,7 @@ addEventListener('keyup', (e) => {
   if (e.code.startsWith('Alt')) e.preventDefault();
   keys.delete(e.code);
 });
-addEventListener('blur', () => keys.clear());
+addEventListener('blur', () => { keys.clear(); rightHeld = false; });
 // The mouse is captured on the first click; where a page may not capture it
 // (some embedded frames), right-drag turns the camera instead.
 let active = false;
@@ -1515,7 +1517,7 @@ canvas.addEventListener('mousedown', (e) => {
   }
   if (!locked && e.button === 0 && !document.pointerLockElement) { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* no */ } }
   if (e.button === 0) { mouseDown = true; clicked = true; }
-  if (e.button === 2 && locked) rightClicked = true;   // (unlocked, right-drag turns the camera)
+  if (e.button === 2 && locked) { rightClicked = true; rightHeld = true; }   // (unlocked, right-drag turns the camera)
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // The "Click to fight" box covers the view: clicking it starts the fight.
@@ -1524,7 +1526,7 @@ $('start').addEventListener('click', () => {
   $('start').hidden = true;
   try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* not allowed */ }
 });
-addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
+addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; if (e.button === 2) rightHeld = false; });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
 });
@@ -1571,7 +1573,7 @@ function buildSettings() {
 const ANIM_KEY = 'character-creation:combat-anim';
 const MOVES = [
   ['Light 1', ART.combo[0]], ['Light 2', ART.combo[1]], ['Light 3', ART.combo[2]], ['Heavy', ART.heavy],
-  ['Air', ART.air], ['Dash', ART.dash], ['Feint strike', ART.skills.feint.strike],
+  ['Air', ART.air], ['Charge', ART.charge], ['Dash', ART.dash], ['Feint strike', ART.skills.feint.strike],
 ];
 const BUILT_IN = JSON.parse(JSON.stringify({ moves: MOVES.map(([, m]) => pickMove(m)), slots: ANIM_SLOTS }));
 function pickMove(m) { return { clip: m.clip, speed: m.speed ?? 1, hit: m.hit, end: m.end }; }
@@ -1689,6 +1691,8 @@ const hitLog = [];
 function startMove(f, move) {
   f.moveId = (f.moveId ?? 0) + 1;
   f.rmDone = 0;
+  f.chargeT = null;
+  f.chargeFire = false;
   // (A straight thrust already points ahead: its arm is not turned.)
   f.armTurn = move.straight ? 0 : f.strikeHeading(move);
   f.move = move;
@@ -1818,6 +1822,7 @@ function resolveHit(att, def, zone) {
     if (def.knocked) { hurtPart(def, zone, dmg); return; }
     if (hurtPart(def, zone, dmg) === 'head') return;   // dazed
     if (behind && Math.random() < BACKSTAB.knockChance) { knockDown(def, att); return; }
+    if (move.sitChance && Math.random() < move.sitChance) { sitDown(def, att); return; }
     addPoise(def, move, dmg);
     // Flinch, unless attacking with armour (the enemy's heavy blows) and not a
     // staggering blow; a full stagger gauge staggers anyway.
@@ -1926,6 +1931,62 @@ function perfect(def, att, text, parry = false) {
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
 const AUTO_PARRY = 0.25;   // chance of an auto parry (resolveHit)
+/** Chance a charged flip cut puts the foe on the floor: none under 1 s, 10% at 1 s, 50% at 3 s, 75% at 5 s. */
+function chargeSitChance(t) {
+  if (t < 1) return 0;
+  if (t <= 3) return 0.1 + ((t - 1) / 2) * 0.4;
+  return 0.5 + (Math.min(t, 5) - 3) / 2 * 0.25;
+}
+/** The charge running on (while charging or stepping aside): the blade glows hotter, red when full. */
+function chargeTick(p, dt) {
+  const C = ART.charge;
+  p.chargeT = Math.min(C.max, p.chargeT + dt);
+  if (!rightHeld || p.chargeT >= C.max) p.chargeFire = true;
+  const steel = p.sword.userData.steel;
+  const full = p.chargeT >= C.max - 1e-3;
+  steel.emissive.setHex(full ? 0xff2020 : 0xffa020);
+  steel.emissiveIntensity = 0.15 + 0.85 * (p.chargeT / C.max);
+  p.flashUntil = gameTime + 0.05;   // (the glow goes when the charge does)
+  for (const [at, text] of [[1, '10%'], [3, '50%'], [5, 'MAX']]) {
+    if (p.chargeT >= at && (p.chargeMark ?? 0) < at) { p.chargeMark = at; floatText(p.zones[0].a, `Charge ${text}`, at >= 5 ? 'crit' : 'status'); }
+  }
+}
+/** Let the charge go: a jump into the forward flip, the blade coming down; harder and likelier to floor the foe the longer it was held. */
+function fireCharge(p) {
+  const C = ART.charge, t = Math.min(p.chargeT ?? 0, C.max);
+  const full = t >= C.max - 1e-3;
+  const m = Object.create(C);
+  m.damage = C.damage * (1 + t / C.max);   // x1 .. x2 at full
+  m.sitChance = chargeSitChance(t);
+  m.unblockable = full;   // a full charge cannot be blocked or parried: only dodged
+  m.parryable = !full;
+  p.setUpper(null);
+  p.crouch = 0;
+  p.comboIndex = -1;
+  startMove(p, m);
+  p.vy = C.hop;
+  p.grounded = false;
+  if (full) flashSword(p, 0xff2020);
+}
+/**
+ * Floored by a charged flip cut: dropped on the backside, leaning back on the
+ * hands (LayToIdle at SIT.at), sat there SIT.hold s, then up (the rest of LayToIdle).
+ */
+const SIT = { at: 0.5, drop: 0.15, hold: 1.5 };
+function sitDown(f, att) {
+  const up = ANIM_SLOTS.getUp, speed = up.speed ?? 1;
+  f.move = null;
+  f.comboIndex = -1;
+  f.setState('stagger');
+  f.hitDur = SIT.drop + SIT.hold + ((f.clips.get(up.clip)?.duration ?? 1.5) - 0.08 - SIT.at) / speed;
+  f.knocked = true;
+  f.knockKind = 'sit';
+  const a = f.play(up.clip, { loop: false, fade: SIT.drop, from: SIT.at, speed });
+  if (a) a.timeScale = 0;
+  f.vel.copy(f.pos.clone().sub(att.pos).setY(0).normalize().multiplyScalar(1.2));
+  floatText(f.zones[0].a, 'Floored', 'status');
+  if (f.isPlayer) message('Floored', 'bad');
+}
 // After the combo's last cut (the spin, Light 3) the fighter is spent for
 // COMBO_GAP s: no attack, guard, parry or dodge (the foe's opening to counter).
 const COMBO_GAP = 0.6;
@@ -2005,7 +2066,7 @@ function addPoise(f, move, dmg) {
 
 /** While staggering, the fighter is carried back with its steps (at least 0.75 m/s for 0.9 s). */
 function staggerDrift(f) {
-  if (f.state !== 'stagger' || f.t > 0.9 || gameTime < (f.dazedUntil ?? 0)) return;
+  if (f.state !== 'stagger' || f.t > 0.9 || gameTime < (f.dazedUntil ?? 0) || (f.knocked && f.knockKind === 'sit')) return;
   const back = f.forward(new THREE.Vector3()).negate();
   f.vel.copy(back.multiplyScalar(Math.max(0.75, f.vel.dot(back))));
 }
@@ -2044,6 +2105,7 @@ function knockDown(f, att) {
   const up = ANIM_SLOTS.getUp;
   f.hitDur = KNOCKDOWN.fall + KNOCKDOWN.lie + ((f.clips.get(up.clip)?.duration ?? 1.5) - 0.08) / (up.speed ?? 1);
   f.knocked = true;
+  f.knockKind = 'back';
   f.knockYaw = Math.atan2(att.pos.x - f.pos.x, att.pos.z - f.pos.z);
   f.comboIndex = -1;
   floatText(f.zones[0].a, 'Knocked down', 'status');
@@ -2052,6 +2114,10 @@ function knockDown(f, att) {
 /** Each frame for a knocked-down fighter: turn to the attacker, fall, lie still, get up. */
 function knockUpdate(f, dt) {
   if (!f.knocked || f.state !== 'stagger') return;
+  if (f.knockKind === 'sit') {
+    if (f.t >= SIT.drop + SIT.hold && f.action?.timeScale === 0) f.action.timeScale = ANIM_SLOTS.getUp.speed ?? 1;
+    return;
+  }
   if (f.t < 0.15) f.turnTo(f.knockYaw, dt, 25);
   if (f.t >= KNOCKDOWN.fall && f.t < KNOCKDOWN.fall + KNOCKDOWN.lie) { if (f.action) f.action.timeScale = 0; }
   else if (f.t >= KNOCKDOWN.fall + KNOCKDOWN.lie && !f.gettingUp) { f.gettingUp = true; f.playSlot('getUp', { loop: false, fade: 0.15 }); }
@@ -2356,11 +2422,11 @@ function playerUpdate(dt) {
   const dodgePress = pressed.has('AltLeft') || pressed.has('AltRight');
   const parryPress = (pressed.has('ShiftLeft') || pressed.has('ShiftRight')) && !guardBroken(p) && canDefend(p);
   const jumpPress = pressed.has('Space');
-  const heavyPress = rightClicked || pressed.has('KeyQ');
+  const chargePress = rightClicked;   // right button: charge the flip cut (the heavy attack is gone)
   if (parryPress) p.parryAt = gameTime;
 
   // The parry sweep plays out unless an action cuts it off (after 0.12 s).
-  const cutPush = p.state === 'push' && p.t > 0.12 && (attackPress || heavyPress || dodgePress || jumpPress || pressed.has(ART.skills.feint.key));
+  const cutPush = p.state === 'push' && p.t > 0.12 && (attackPress || chargePress || dodgePress || jumpPress || pressed.has(ART.skills.feint.key));
   const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12) || cutPush;
   const afterHit = p.state === 'attack' && p.moveHit;
 
@@ -2376,12 +2442,23 @@ function playerUpdate(dt) {
       if (p.state === 'recoil') p.recoilEndAt = gameTime;
       if (next >= 0 && p.blockQueued) { p.blockQueued = false; p.comboIndex = next; startMove(p, ART.combo[next]); } else p.setState('idle');
     }
-  } else if (dodgePress && canAct && p.stamina >= dodgeCost(p) && p.grounded) {   // (no DEFEND_DELAY: a dodge goes at once after an attack)
+  } else if (dodgePress && (canAct || p.state === 'charge') && p.stamina >= dodgeCost(p) && p.grounded) {   // (no DEFEND_DELAY: a dodge goes at once after an attack)
     doDodge(wish, fwd);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
     parryEase(p);
     if (p.t > PARRY_TIME) p.setState('idle');
+  } else if (p.state === 'charge') {
+    chargeTick(p, dt);
+    if (p.chargeFire) fireCharge(p);
+    else {
+      // Walking slowly while charging; no guard or parry (only a side step).
+      if (engaged(p)) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
+      p.vel.copy(wish).multiplyScalar(ART.charge.walk * legMul(p));
+      const ls = wish.lengthSq() ? ANIM_SLOTS[stepSlot(p, wish)] : ANIM_SLOTS[idleSlot(p)];
+      p.play(ls.clip, { speed: wish.lengthSq() ? ls.speed : 1, part: 'lower', fade: 0.2 });
+      p.setUpper(ART.charge.pose.clip, { hold: ART.charge.pose.at });
+    }
   } else if (p.state === 'dodge' && p.rolling) {
     rollVel(p, dt);
     if (p.t >= ROLL.end) p.setState('idle');
@@ -2389,6 +2466,7 @@ function playerUpdate(dt) {
     // The dash runs while Alt is held, from DASH.min up to DASH.max.
     const d = p.dash;
     if (attackPress) p.stepCut = true;   // a cut pressed during the step comes out as it stops
+    if (p.chargeT != null) chargeTick(p, dt);   // stepping aside goes on charging
     if (!(keys.has('AltLeft') || keys.has('AltRight'))) d.held = false;
     if (d.doneAt == null) {
       const v = DASH.speed * legMul(p);
@@ -2454,11 +2532,7 @@ function playerUpdate(dt) {
     if (engaged(p)) p.turnTo(camFace, dt, 14);
     if (p.t * feint.bait.speed >= feint.bait.until) { p.comboIndex = -1; startMove(p, feint.strike); }
   }
-  if (heavyPress && afterHit && p.move !== ART.heavy && p.grounded && p.stamina >= ART.heavy.stamina) {
-    p.comboIndex = -1;
-    p.stamina -= ART.heavy.stamina;
-    startMove(p, ART.heavy);
-  } else if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
+  if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
     p.stamina -= feint.stamina;
     p.feintReady = gameTime + feint.cooldown;
     p.move = null;
@@ -2466,12 +2540,17 @@ function playerUpdate(dt) {
     p.setState('feint');
     p.play(feint.bait.clip, { loop: false, speed: feint.bait.speed, fade: 0.08 });
     p.vel.set(0, 0, 0);
+  } else if (p.state === 'dodge' && !p.rolling && p.dash?.doneAt != null && p.chargeFire && p.grounded) {
+    // A charge let go during the side step goes as the step stops.
+    fireCharge(p);
   } else if (p.state === 'dodge' && !p.rolling && p.dash?.doneAt != null && (attackPress || p.stepCut) && p.grounded) {
     // The side step is answered at once: the cut comes straight out of it (no settling).
     p.stepCut = false;
     p.blockedCombo = -1;
     p.comboIndex = 0;
     startMove(p, ART.combo[0]);
+  } else if (canAct && p.chargeT != null && p.grounded) {
+    p.setState('charge');   // back to charging after a side step, the button still held
   } else if (canAct && p.state !== 'dodge' && p.state !== 'attack') {
     if (attackPress) {
       if (!p.grounded) { if (!p.airCut) { p.airCut = true; p.comboIndex = -1; startMove(p, ART.air); } }   // one cut a jump
@@ -2510,10 +2589,13 @@ function playerUpdate(dt) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.08, from: g.hold });
         if (a) a.holdAt = g.hold;
       }
-    } else if (heavyPress && p.grounded && p.stamina >= ART.heavy.stamina) {
+    } else if (chargePress && p.grounded) {
+      // Right button held: charging the flip cut (released, or at its most, it goes).
+      p.move = null;
       p.comboIndex = -1;
-      p.stamina -= ART.heavy.stamina;
-      startMove(p, ART.heavy);
+      p.chargeT = 0;
+      p.chargeMark = 0;
+      p.setState('charge');
     } else {
       if (p.state === 'block') { p.setState('idle'); p.setUpper(null); }
       const moving = wish.lengthSq() > 0;
@@ -2549,6 +2631,7 @@ function playerUpdate(dt) {
 
 function doDodge(wish, camFwd) {
   const p = player;
+  const charge = p.chargeT, chargeMark = p.chargeMark;
   p.move = null;
   p.comboIndex = -1;
   p.queued = false;
@@ -2556,6 +2639,8 @@ function doDodge(wish, camFwd) {
   p.stamina -= dodgeCost(p);
   p.dodgeAt = gameTime;
   p.setState('dodge');
+  p.chargeT = charge;   // (a charge carries on through the side step)
+  p.chargeMark = chargeMark;
   // A dash forward / left / right / back from the input, against the way the
   // fighter faces: the camera's in the fight, else the enemy's direction.
   const ahead = engaged(p) ? camFwd.clone().setY(0).normalize() : enemy.pos.clone().sub(p.pos).setY(0).normalize();
@@ -2565,7 +2650,7 @@ function doDodge(wish, camFwd) {
   else if (wish.dot(ahead) > 0.5) { dir = wish.clone().normalize(); clip = 'dodgeForward'; }
   else if (wish.dot(side) >= 0) { dir = side; clip = 'dodgeLeft'; }
   else { dir = side.clone().negate(); clip = 'dodgeRight'; }
-  if (p.dodgeMode === 'roll') { startRoll(p, dir); return; }
+  if (p.dodgeMode === 'roll' && p.chargeT == null) { startRoll(p, dir); return; }
   p.dodgeDir = dir;
   // Forward is the left dodge as it is, turned so its left (where it leans
   // its head) is ahead.
@@ -2600,7 +2685,7 @@ function startRoll(f, dir) {
   f.yaw = Math.atan2(dir.x, dir.z);
   f.playSlot('roll', { loop: false, fade: 0.05 });
 }
-const dodgeCost = (f) => (f.dodgeMode === 'roll' ? ROLL.stamina : stats.dodgeCost);
+const dodgeCost = (f) => (f.dodgeMode === 'roll' && f.chargeT == null ? ROLL.stamina : stats.dodgeCost);
 
 function dist2(a, b) { return (a.pos.x - b.pos.x) ** 2 + (a.pos.z - b.pos.z) ** 2; }
 
@@ -3223,6 +3308,8 @@ window.combat = {
   press(code) { pressed.add(code); keys.add(code); setTimeout(() => keys.delete(code), 60); },
   hold(code, on) { if (on) keys.add(code); else keys.delete(code); },
   click() { clicked = true; },
+  /** Hold (or let go of) the right button: charging the flip cut. */
+  rightHold(on) { rightHeld = on; if (on) rightClicked = true; },
   look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },
   /** Damage a fighter's body part directly (as a landed blow on that zone would). */
   hurt(who, zoneName, dmg) { const f = who === 'enemy' ? enemy : player; return hurtPart(f, f.zones.find((z) => z.name === zoneName), dmg); },
