@@ -1643,7 +1643,12 @@ function startMove(f, move) {
   if (held?.state === 'hit' && held.stunBy === f) held.hitDur = Math.max(held.hitDur, held.t + move.hit / (move.speed ?? 1) + 0.05);
   f.bladePrev = null;
   f.setState('attack');
-  f.play(move.clip, { loop: false, speed: move.speed ?? 1, fade: 0.08 });
+  if (move === ART.air && !f.grounded) {
+    // In the air: the cut on the upper body only, the legs keeping the jump (no pull to the ground).
+    f.play(ANIM_SLOTS.jump.clip, { part: 'lower', speed: ANIM_SLOTS.jump.speed ?? 1, fade: 0.08 });
+    f.upperName = null;
+    f.setUpper(move.clip, { speed: move.speed ?? 1 });
+  } else f.play(move.clip, { loop: false, speed: move.speed ?? 1, fade: 0.08 });
   f.hitAt = gameTime + move.hit / (move.speed ?? 1);   // scheduled moment of the blow (game time)
   // The enemy aims too: mostly the body, often the legs, now and then the head.
   if (!f.isPlayer) {
@@ -1863,6 +1868,19 @@ function perfect(def, att, text, parry = false) {
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
 const AUTO_PARRY = 0.25;   // chance of an auto parry (resolveHit)
+// After the combo's last cut (the spin, Light 3) the fighter is spent for
+// COMBO_GAP s: no attack, guard, parry or dodge (the foe's opening to counter).
+const COMBO_GAP = 0.6;
+const isFinisher = (m) => { const last = ART.combo[ART.combo.length - 1]; return !!m && (m === last || last.isPrototypeOf(m)); };
+function spent(f) {
+  f.move = null;
+  f.queued = false;
+  f.comboIndex = -1;
+  f.setState('exposed');
+  f.hitDur = COMBO_GAP;
+  f.exposedId = (f.exposedId ?? 0) + 1;
+  f.playSlot(idleSlot(f), { fade: 0.4 });   // easing slowly back into the stance
+}
 const PARRY_CLIP = 'Sword_Regular_A';   // played by whoever lands a perfect parry
 const PARRY_CUT = 0.34, PARRY_TIME = 0.2;   // its cut (clip seconds), played in PARRY_TIME s
 /** The parry cut eased: fast at first, slowing to a stop at its end (clip time = cut x (1 - (1 - t)^3)). */
@@ -1951,7 +1969,8 @@ function recoil(att, def) {
   att.queued = false;
   att.setState('recoil');
   att.hitDur = STAGGER.recoil;
-  if (att.action) { att.action.time = held; att.action.timeScale = 0; }
+  const act = att.upper ?? att.action;   // (a jump cut is on the upper layer)
+  if (act) { act.time = held; act.timeScale = 0; }
   att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(1.2));
 }
 
@@ -2287,7 +2306,7 @@ function playerUpdate(dt) {
   const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12) || cutPush;
   const afterHit = p.state === 'attack' && p.moveHit;
 
-  if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil') {
+  if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil' || p.state === 'exposed') {
     // A light cut stopped by a guard: attacking (during the hold or just
     // after) carries on with the next light cut, as if it had landed.
     if (p.state === 'recoil' && attackPress) p.blockQueued = true;
@@ -2346,6 +2365,8 @@ function playerUpdate(dt) {
         p.comboIndex++;
         p.queued = false;
         startMove(p, ART.combo[p.comboIndex]);
+      } else if (isFinisher(p.move)) {
+        spent(p);
       } else {
         const rec = p.move.rec, recFade = p.move.recFade ?? 0.1;
         p.move = null;
@@ -2391,7 +2412,7 @@ function playerUpdate(dt) {
     startMove(p, ART.combo[0]);
   } else if (canAct && p.state !== 'dodge' && p.state !== 'attack') {
     if (attackPress) {
-      if (!p.grounded) { p.comboIndex = -1; startMove(p, ART.air); p.vy = Math.min(p.vy, -2); }
+      if (!p.grounded) { if (!p.airCut) { p.airCut = true; p.comboIndex = -1; startMove(p, ART.air); } }   // one cut a jump
       else if (p.sprinting && p.stamina > 10) { p.comboIndex = -1; p.stamina -= 10; startMove(p, ART.dash); }
       else {
         // Just after a light cut was stopped by a guard, the next one follows.
@@ -2401,6 +2422,7 @@ function playerUpdate(dt) {
         startMove(p, ART.combo[next]);
       }
     } else if (jumpPress && p.grounded && p.stamina >= stats.jumpCost) {
+      p.airCut = false;
       p.vy = 5.4 * (legsBroken(p) ? 0.6 : 1);   // a jump only drops to 60% (the -60% left no jump at all)
       p.grounded = false;
       p.stamina -= stats.jumpCost;
@@ -2450,7 +2472,7 @@ function playerUpdate(dt) {
     }
   }
   if (p.state !== 'move') p.sprinting = false;
-  if (p.state === 'attack' || p.state === 'recover' || p.state === 'stagger' || p.state === 'feint') p.vel.multiplyScalar(Math.max(0, 1 - dt * 10));
+  if (((p.state === 'attack' && p.grounded) || p.state === 'recover' || p.state === 'stagger' || p.state === 'feint' || p.state === 'exposed')) p.vel.multiplyScalar(Math.max(0, 1 - dt * 10));
   if (p.state === 'hit' || p.state === 'recoil') p.vel.multiplyScalar(Math.max(0, 1 - dt * 6));
   staggerDrift(p);
 
@@ -2614,7 +2636,7 @@ function enemyRead(e, d) {
 function advantage(e) {
   const p = player;
   let a = 0;
-  if (['stagger', 'hit', 'recoil'].includes(p.state) || guardBroken(p)) a += 2;
+  if (['stagger', 'hit', 'recoil', 'exposed'].includes(p.state) || guardBroken(p)) a += 2;
   if (p.state === 'recover' || (p.state !== 'attack' && !canDefend(p))) a += 1;
   if (gameTime < (e.counterUntil ?? 0)) a += 2;
   if (p.stamina < 25) a += 1;
@@ -2757,6 +2779,7 @@ function enemyUpdate(dt) {
     case 'hit':
     case 'stagger':
     case 'recoil':
+    case 'exposed':
       e.vel.multiplyScalar(Math.max(0, 1 - dt * 6));
       staggerDrift(e);
       if (e.t > e.hitDur) { e.setState('idle'); e.think = 0.25 + Math.random() * 0.4; }
@@ -2776,6 +2799,7 @@ function enemyUpdate(dt) {
         if (!nextName && pressing && e.move.name === 'slash2' && Math.random() < 0.6) nextName = 'thrust';
         const next = nextName && d < 3 ? ART.enemy.find((m) => m.name === nextName) : null;
         if (next) { e.timedChecked = false; startMove(e, next); }
+        else if (isFinisher(e.move)) { spent(e); e.think = 0; }
         else {
           const rec = e.move.rec;
           e.move = null;
@@ -2791,19 +2815,27 @@ function enemyUpdate(dt) {
     case 'block':
       e.faceTarget(player, dt, 8);
       e.vel.set(0, 0, 0);
-      if (e.t > e.blockFor) { e.setState('idle'); e.think = 0.2; }
+      if (e.t > e.blockFor || player.state === 'exposed') { e.setState('idle'); e.think = 0.2; }
       break;
     case 'strafe': {
       e.faceTarget(player, dt, 8);
       const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
       const side = new THREE.Vector3(toP.z, 0, -toP.x).multiplyScalar(e.strafeDir);
       e.vel.copy(side).multiplyScalar(1.6).addScaledVector(toP, (d - 2.9) * 0.8).multiplyScalar(legMul(e));
-      if (e.t > e.strafeFor) { e.setState('idle'); e.think = 0; }
+      if (e.t > e.strafeFor || player.state === 'exposed') { e.setState('idle'); e.think = 0; }
       break;
     }
     default: {   // idle, chase, recover: footwork around its preferred distance
       e.faceTarget(player, dt, 6);
       if (e.state === 'recover' && e.think > 0) { e.vel.multiplyScalar(0.8); break; }
+      // The player spent after a full combo: in at once and cut (most times, more with skill).
+      if (player.state === 'exposed' && e.punished !== player.exposedId) {
+        e.punished = player.exposedId;
+        if (Math.random() < 0.6 + 0.4 * (stats.aiSkill ?? 0.5)) {
+          if (d < 2.6) { enemyStart(e, ART.enemy.find((m) => m.name === 'slash')); break; }
+          if (d < 4.5 && enemyStep(e, 'in', 'attack')) break;
+        }
+      }
       // A feint's wind-up looks like a heavy blow, and is often met with a guard.
       if (!guardBroken(e) && player.state === 'feint' && Math.random() < dt * 6) { enemyGuard(e, 0.7 + Math.random() * 0.5); break; }
       const adv = advantage(e);

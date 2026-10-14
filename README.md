@@ -70,7 +70,7 @@ swordsman, with a third-person camera.
 | Input | Action |
 |---|---|
 | WASD, mouse | move, look (the mouse is captured on click; else right-drag looks) |
-| Left click | light attack: Basic Sword 3-hit combo; in the air a single cut (Light 1, no combo after it); while sprinting a dash strike |
+| Left click | light attack: Basic Sword 3-hit combo; after the third cut the fighter is spent for 0.6 s (no attack, guard, parry or dodge; the foe comes in to counter, and is spent the same after its own spin); in the air a single cut a jump (Light 1 on the upper body, the legs keeping the jump, no pull to the ground, no combo after it); while sprinting a dash strike |
 | Right click / Q | heavy attack: slow overhead blow, staggers, a blocked one drains 40 guard stamina; can follow a light hit |
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F11, the keyboard is locked so Ctrl+W cannot close the tab) |
@@ -265,8 +265,9 @@ tip as it reaches out.
 and one in ten knocks the fighter down: spun round to the attacker, thrown on
 the back, lying 0.5 s, then getting up (about 2 s in all).
 
-**Jump attack.** In the air the attack is Light 1's cut on its own; no combo
-follows it.
+**Jump attack.** In the air the attack is Light 1's cut on its own, once a
+jump: the upper body cuts while the legs keep the jump, and the jump carries
+on (no pull to the ground, momentum kept); no combo follows it.
 
 **Running out of the fight.** The sword hand runs out from the hip (it
 swings a little with the run), the blade slanting forward and down, clear of
