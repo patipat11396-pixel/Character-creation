@@ -1562,6 +1562,8 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   if (e.code.startsWith('Alt')) e.preventDefault();
+  // (On a Mac, Caps Lock sends keydown only when it turns on and keyup when it turns off: each is a press.)
+  if (e.code === 'CapsLock' && /Mac/.test(navigator.platform) && !typing(e)) pressed.add('CapsLock');
   keys.delete(e.code);
 });
 addEventListener('blur', () => { keys.clear(); rightHeld = false; });
@@ -2237,6 +2239,20 @@ function flinch(f, att, hard) {
  * started and the foe is near, or there was a blow in the last 4 s.
  */
 let lastCombatAt = -99;
+// Lock-on (Caps Lock): the player faces the foe, whatever the camera does.
+let lockOn = false;
+const lockMark = new THREE.Mesh(new THREE.RingGeometry(0.06, 0.1, 32),
+  new THREE.MeshBasicMaterial({ color: 0xe0303a, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false }));
+lockMark.renderOrder = 12;
+lockMark.visible = false;
+scene.add(lockMark);
+function updateLock() {
+  if (lockOn && (enemy.state === 'dead' || Math.sqrt(dist2(player, enemy)) > 30)) { lockOn = false; message('Lock-on off'); }
+  lockMark.visible = lockOn;
+  if (!lockOn) return;
+  lockMark.position.copy(enemy.bones.Head.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.38, 0));
+  lockMark.quaternion.copy(camera.quaternion);
+}
 function engaged(f) {
   if (!active) return false;
   // F sets the player's stance by hand (on, or off until F again); until then it is automatic.
@@ -2606,8 +2622,10 @@ function playerUpdate(dt) {
   // Movement input relative to the camera.
   const fwd = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw)).negate();
   const right = new THREE.Vector3(fwd.z, 0, -fwd.x).negate();
-  // In the fight the fighter faces where the camera looks.
-  const camFace = Math.atan2(fwd.x, fwd.z);
+  // In the fight the fighter faces where the camera looks; locked on (Caps
+  // Lock), it faces the foe (the camera stays free).
+  const camFace = lockOn ? Math.atan2(enemy.pos.x - p.pos.x, enemy.pos.z - p.pos.z) : Math.atan2(fwd.x, fwd.z);
+  const facing = engaged(p) || lockOn;
   const wish = new THREE.Vector3();
   if (keys.has('KeyW')) wish.add(fwd);
   if (keys.has('KeyS')) wish.sub(fwd);
@@ -2655,7 +2673,7 @@ function playerUpdate(dt) {
     if (p.chargeFire) fireCharge(p);
     else {
       // Walking slowly while charging; no guard or parry (only a side step).
-      if (engaged(p)) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
+      if (facing) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(ART.wave.walk * legMul(p));
       // The legs as stepping in the stance (the fight steps, at the walking speed), the charging arms on top.
       p.playSlot(wish.lengthSq() ? stepSlot(p, wish) : idleSlot(p), { part: 'lower', fade: 0.2 });
@@ -2692,7 +2710,7 @@ function playerUpdate(dt) {
     }
     // Facing ahead of the camera; the sword arm swings the cut round so the
     // blow lands there too (finishPose, armTurn).
-    if (engaged(p) && mt < p.move.hit) p.turnTo(camFace, dt, 30);
+    if (facing && mt < p.move.hit) p.turnTo(camFace, dt, 30);
     rootMotion(p);
     if (p.move.launch != null && !p.waveDone && mt >= p.move.launch) { p.waveDone = true; launchWave(p); }
     // At the blow, see where it really landed (the blend from the stance
@@ -2732,7 +2750,7 @@ function playerUpdate(dt) {
   // Feint (skill key): the bait wind-up, then the real cut.
   const feint = ART.skills.feint;
   if (p.state === 'feint') {
-    if (engaged(p)) p.turnTo(camFace, dt, 14);
+    if (facing) p.turnTo(camFace, dt, 14);
     if (p.t * feint.bait.speed >= feint.bait.until) { p.comboIndex = -1; startMove(p, feint.strike); }
   }
   if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
@@ -2774,7 +2792,7 @@ function playerUpdate(dt) {
     } else if (blockKey && p.grounded) {
       // Guard (parry held): walk slowly with the guard up, facing the enemy.
       if (p.state !== 'block') p.setState('block');
-      if (engaged(p)) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
+      if (facing) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(stats.guardSpeed * legMul(p));
       const g = ANIM_SLOTS.guard;
       // The guard comes up at once (a parry that lands cuts straight into its
@@ -2810,7 +2828,7 @@ function playerUpdate(dt) {
       // In the fight (not sprinting) the fighter faces where the camera looks
       // and steps in the stance; otherwise it turns to run where it goes.
       const fightStep = moving && !p.sprinting && engaged(p);
-      if (fightStep || (!moving && engaged(p))) p.turnTo(camFace, dt, 10);
+      if (fightStep || (!moving && facing)) p.turnTo(camFace, dt, 10);
       else if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
       if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
         p.playSlot(fightStep ? stepSlot(p, wish) : moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: moving ? 0.18 : 0.35 });
@@ -2845,7 +2863,7 @@ function doDodge(wish, camFwd) {
   p.chargeT = charge;   // (a charge carries on through the side step)
   // A dash forward / left / right / back from the input, against the way the
   // fighter faces: the camera's in the fight, else the enemy's direction.
-  const ahead = engaged(p) ? camFwd.clone().setY(0).normalize() : enemy.pos.clone().sub(p.pos).setY(0).normalize();
+  const ahead = engaged(p) && !lockOn ? camFwd.clone().setY(0).normalize() : enemy.pos.clone().sub(p.pos).setY(0).normalize();
   const side = new THREE.Vector3(ahead.z, 0, -ahead.x);
   let dir, clip;
   if (wish.lengthSq() === 0 || wish.dot(ahead) < -0.5) { dir = ahead.clone().negate(); clip = 'dodgeBack'; }
@@ -3396,6 +3414,7 @@ function tick(real) {
   if (pressed.has('KeyH')) { assist = !assist; message(assist ? 'Timing assist on' : 'Timing assist off'); }
   if (pressed.has('KeyB')) showZones = !showZones;
   if (pressed.has('F11')) fullscreen();
+  if (pressed.has('CapsLock') && active && enemy.state !== 'dead') { lockOn = !lockOn; message(lockOn ? 'Lock-on' : 'Lock-on off'); }
   if (pressed.has('Tab')) {
     player.dodgeMode = player.dodgeMode === 'roll' ? 'step' : 'roll';
     message(player.dodgeMode === 'roll' ? 'Dodge: roll' : 'Dodge: side step');
@@ -3449,6 +3468,7 @@ function tick(real) {
   const want = player.state === 'dodge' && (player.t < 0.4 || gameTime < slowUntil) ? 0.7 : stabbing(player) ? 0.6 : 0;
   blur.uniforms.damp.value += (want - blur.uniforms.damp.value) * Math.min(1, real * (want ? 30 : 12));
   updateRing();
+  updateLock();
   updateFx(real);
   updateZoneDebug();
   updateCamera(real);
@@ -3462,6 +3482,7 @@ function tick(real) {
 
 function reset() {
   over = false;
+  lockOn = false;
   for (const w of waves) { scene.remove(w.mesh); waveMeshes.delete(w.mesh); }
   waves.length = 0;
   msgEl.className = '';
