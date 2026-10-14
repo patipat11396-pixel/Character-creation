@@ -280,6 +280,20 @@ on (no pull to the ground, momentum kept); no combo follows it.
 swings a little with the run), the blade slanting forward and down, clear of
 the legs and the floor.
 
+**The foe's skills are the player's.** Its attacks are the player's moves
+(light cuts, the spin, the feint; no heavy). It also uses the dash cut through
+the player (2.2–3.4 m away, 3 s cooldown; a guard stops it in front), the jump
+cut (a jump at the player, Light 1 once in reach), the sword wave (charged out
+of reach), side steps and rolls, parries and auto parries; and, losing (under
+35% health or well behind), it drops its stance and runs off for 1.5–2.5 s
+before coming back. It reads feints now and then (30% to 75% with its skill):
+it steps away from the bait instead of raising its guard, lets a raised guard
+go to step away, or side-steps the thrust.
+
+**Letting go of the guard while stepping.** The guard's upper layer fades out
+with the next clip's fade-in, at the same pace (a quicker fade had pulled the
+chest and arms part way to the bind pose for a moment).
+
 **Pacing.** After an attack ends, guarding and parrying wait 0.1 s (and
 never happen mid-attack); a dodge (side step or roll) goes at once, also out
 of a recovery and out of the 0.6 s spent after the combo's last cut. A fighter caught in a combo stays stunned

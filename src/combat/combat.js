@@ -407,7 +407,9 @@ class Fighter {
   play(name, { fade = 0.12, loop = true, speed = 1, from = 0, part = null } = {}) {
     const clip = this.clip(name, part);
     if (!clip) return null;
-    if (!part && this.upper) this.setUpper(null);
+    // A whole-body clip takes over from both layers at the same pace (a quicker
+    // fade of the upper layer left the chest and arms part way to the bind pose).
+    if (!part && this.upper) { this.upper.fadeOut(fade); this.upper = null; this.upperName = null; }
     const a = this.mixer.clipAction(clip);
     if (this.action === a && loop) { a.timeScale = speed; return a; }
     a.reset();
@@ -2851,7 +2853,7 @@ function playerUpdate(dt) {
       p.chargeMaxed = false;
       p.setState('charge');
     } else {
-      if (p.state === 'block') { p.setState('idle'); p.setUpper(null); }
+      if (p.state === 'block') p.setState('idle');   // (the guard's upper layer fades with the next clip's fade-in: play)
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
@@ -2990,6 +2992,9 @@ function enemyRead(e, d) {
       } else if (lead >= AI.reaction && r < AI.parry + AI.dodge && e.stamina >= stats.dodgeCost) {
         // A wide blow (arc 120+: the heavy, the spinning finisher) is rolled from; a narrow one side-stepped.
         e.plan = { kind: 'dodge', at: p.hitAt - stats.dodgeWindow * 0.5 + jitter(), serial: p.moveSerial, roll: (p.move.arc ?? 0) >= 120 };
+      } else if (p.move.guardBreak && lead >= AI.reaction && Math.random() < feintRead() && e.stamina >= stats.dodgeCost) {
+        // A feint's thrust read for what it is: stepped away from, not guarded.
+        e.plan = { kind: 'dodge', at: p.hitAt - stats.dodgeWindow * 0.5 + jitter(), serial: p.moveSerial };
       } else if (r < AI.parry + AI.dodge + AI.block && !guardBroken(e) && !p.move.unblockable) {
         e.plan = { kind: 'block', at: gameTime + Math.min(Math.max(0, lead - 0.05), AI.reaction), serial: p.moveSerial };
       }
@@ -3082,7 +3087,8 @@ function enemyGuard(e, time) {
 function enemyAttack(e, pressing) {
   const pool = ART.enemy.filter((m) => m.name !== 'slash2');
   const r = Math.random();
-  const name = pressing ? (r < 0.6 ? 'slash' : r < 0.75 ? 'thrust' : r < 0.92 ? 'stab' : 'heavy') : (r < 0.4 ? 'slash' : r < 0.58 ? 'thrust' : r < 0.82 ? 'stab' : 'heavy');
+  // (The player's moves only: light cuts, the spin, the feint; the heavy is gone.)
+  const name = pressing ? (r < 0.65 ? 'slash' : r < 0.82 ? 'thrust' : 'stab') : (r < 0.45 ? 'slash' : r < 0.65 ? 'thrust' : 'stab');
   enemyStart(e, pool.find((m) => m.name === name));
 }
 /** The foe starts a move; a feint (a move with a bait) first plays its bait. */
@@ -3109,6 +3115,17 @@ function enemyDecide(e, d, adv, pressing) {
     e.think = 0.5;
     return;
   }
+  // The player's other skills: the dash cut through (3 s cooldown), the jump cut,
+  // and backing out of the fight to get away when losing.
+  if (d > 2.2 && d < 3.4 && gameTime >= (e.dashReady ?? 0) && r < 0.25) {
+    e.dashReady = gameTime + ART.dash.cooldown;
+    e.yaw = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+    enemyStart(e, ART.enemy.find((m) => m.name === 'dashcut'));
+    e.think = 0.3;
+    return;
+  }
+  if (d > 1.8 && d < 3.4 && e.grounded && Math.random() < 0.12) { enemyJumpCut(e, d); e.think = 0.4; return; }
+  if ((e.hp < e.maxHp * 0.35 || adv <= -2) && gameTime >= (e.fleeReady ?? 0) && Math.random() < 0.25) { enemyFlee(e); return; }
   const inReach = d < 2.6;
   if (pressing) {
     // The upper hand: in and at it.
@@ -3138,6 +3155,27 @@ function enemyDecide(e, d, adv, pressing) {
   e.think = 0.45 + Math.random() * 0.6;
 }
 
+/** The jump cut, as the player's: a jump at the player and Light 1 in the air. */
+function enemyJumpCut(e, d) {
+  const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
+  e.yaw = Math.atan2(toP.x, toP.z);
+  e.move = null;
+  e.setState('jump');
+  e.vy = 4.5;
+  e.grounded = false;
+  e.vel.copy(toP).multiplyScalar(Math.max(0, d - 1.4) / 0.5);   // (to cutting range over the rise)
+  e.playSlot('jump', { fade: 0.1 });
+}
+/** Out of the fight to get away: the stance dropped, running off for a while, then back to it. */
+/** How often the foe reads a feint (lets the guard go), with its skill: 30% .. 75%. */
+const feintRead = () => 0.3 + 0.45 * (stats.aiSkill ?? 0.5);
+function enemyFlee(e) {
+  e.fleeReady = gameTime + 8;
+  e.stance = false;
+  e.move = null;
+  e.setState('flee');
+  e.fleeFor = 1.5 + Math.random();
+}
 function enemyStrafe(e) {
   e.setState('strafe');
   e.strafeDir = Math.random() < 0.5 ? 1 : -1;
@@ -3149,6 +3187,7 @@ function enemyUpdate(dt) {
   const e = enemy;
   e.t += dt;
   e.crouch = 0;
+  if (e.state !== 'flee' && e.stance === false) e.stance = undefined;
   // A wave coming: parried back (timed on its arrival), or side-stepped, now and then.
   for (const w of waves) {
     if (w.owner === e || w.aiSeen || w.deflected) continue;
@@ -3179,6 +3218,24 @@ function enemyUpdate(dt) {
   if (e.state !== 'block' && e.state !== 'dodge') e.stamina = Math.min(stats.maxStamina, e.stamina + stats.staminaRegen * dt);
   enemyRead(e, d);
   switch (e.state) {
+    case 'jump':
+      // In the air towards the player; the cut once in reach (or as the jump tops out).
+      e.faceTarget(player, dt, 8);
+      if (d < 1.8 || e.t > 0.32 || e.grounded) {
+        e.timedChecked = false;
+        startMove(e, ART.enemy.find((m) => m.name === 'jumpcut'));
+        e.lungeLeft = 0;
+        if (d < 1.4) e.vel.multiplyScalar(0.3);
+      }
+      break;
+    case 'flee': {
+      const away = e.pos.clone().sub(player.pos).setY(0).normalize();
+      e.vel.copy(away).multiplyScalar(stats.runSpeed * legMul(e));
+      e.turnTo(Math.atan2(away.x, away.z), dt, 10);
+      e.playSlot('run', { fade: 0.2 });
+      if (e.t > e.fleeFor || d > 10) { e.stance = undefined; e.setState('idle'); e.think = 0.2; }
+      break;
+    }
     case 'charge':
       e.faceTarget(player, dt, 8);
       e.vel.set(0, 0, 0);
@@ -3226,7 +3283,7 @@ function enemyUpdate(dt) {
       break;
     case 'attack': {
       const mt = e.moveTime();
-      if (mt < e.move.hit && !e.move.launch) e.faceTarget(player, dt, 6);
+      if (mt < e.move.hit && !e.move.launch && !e.move.through) e.faceTarget(player, dt, 6);
       rootMotion(e);
       if (!e.move) break;   // (a guard stopped its dash through)
       if (e.move.launch != null && !e.waveDone && mt >= e.move.launch) { e.waveDone = true; launchWave(e); }
@@ -3258,6 +3315,11 @@ function enemyUpdate(dt) {
     case 'block':
       e.faceTarget(player, dt, 8);
       e.vel.set(0, 0, 0);
+      // Guarding as a feint comes: now and then it sees it, lets the guard go and steps away.
+      if (player.state === 'feint' && e.feintDrop !== player.feintReady) {
+        e.feintDrop = player.feintReady;
+        if (Math.random() < feintRead()) { e.setState('idle'); if (enemyStep(e, Math.random() < 0.5 ? 'side' : 'out')) break; }
+      }
       if (e.t > e.blockFor || player.state === 'exposed') { e.setState('idle'); e.think = 0.2; }
       break;
     case 'strafe': {
@@ -3279,8 +3341,12 @@ function enemyUpdate(dt) {
           if (d < 4.5 && enemyStep(e, 'in', 'attack')) break;
         }
       }
-      // A feint's wind-up looks like a heavy blow, and is often met with a guard.
-      if (!guardBroken(e) && player.state === 'feint' && Math.random() < dt * 6) { enemyGuard(e, 0.7 + Math.random() * 0.5); break; }
+      // A feint's wind-up: read (a step away) or fallen for (the guard up, which it breaks).
+      if (player.state === 'feint' && e.feintSeen !== player.feintReady) {
+        e.feintSeen = player.feintReady;
+        if (Math.random() < feintRead()) { if (enemyStep(e, Math.random() < 0.5 ? 'side' : 'out')) break; }
+        else if (!guardBroken(e)) { enemyGuard(e, 0.7 + Math.random() * 0.5); break; }
+      }
       const adv = advantage(e);
       if (adv >= 2) e.aggroUntil = gameTime + 1.4;
       const pressing = gameTime < (e.aggroUntil ?? 0);
@@ -3618,6 +3684,7 @@ window.combat = {
   rightHold(on) { rightHeld = on; if (on) rightClicked = true; },
   get waves() { return waves; },
   enemyWave() { enemyCharge(enemy); },
+  enemyDo(what) { const d = Math.sqrt(dist2(enemy, player)); if (what === 'jump') enemyJumpCut(enemy, d); else if (what === 'flee') enemyFlee(enemy); },
   look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },
   /** Damage a fighter's body part directly (as a landed blow on that zone would). */
   hurt(who, zoneName, dmg) { const f = who === 'enemy' ? enemy : player; return hurtPart(f, f.zones.find((z) => z.name === zoneName), dmg); },

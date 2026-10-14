@@ -93,6 +93,10 @@ export const ARTS = {
     as(A.combo[2], { name: 'thrust' }),
     // The feint: the bait (the chamber), then this thrust.
     as(A.skills.feint.strike, { name: 'stab', bait: A.skills.feint.bait }),
+    // The player's sprint cut, through the player (a guard stops it in front).
+    as(A.dash, { name: 'dashcut' }),
+    // The jump cut (Light 1 in the air), played on the whole body.
+    as(A.air, { name: 'jumpcut' }),
   ];
 }
 
