@@ -578,9 +578,11 @@ function aimBone(bone, child, target) {
 const STAB = {
   stance: null,
   // Idle out of the fight: standing easy, the sword hanging in the right hand
-  // swung 30 degrees forward (clear of the leg), the point down and forward; the free arm as
+  // straight, swung 30 degrees forward and out from the side (clear of the leg),
+  // the point forward and down (the wrist not bent back on itself); the free arm as
   // the idle has it.
-  relaxed: { armDir: [0.58, 0.2, -1], reach: 0.97, blade: [0.42, 0.32, -0.85], left: null, look: 'ahead' },
+  // (Straight: reach 0.995, the elbow's bend, what there is, pointing back.)
+  relaxed: { armDir: [0.58, 0.45, -1], reach: 0.995, pole: [-1, 0.25, 0], blade: [0.85, 0.3, -0.45], left: null, look: 'ahead' },
   // The ready stance: side-on, wide and low, the front (sword side) leg long
   // toward the foe, the weight on the bent back knee; the sword arm straight
   // out at the foe a little below the shoulder, the blade in line rising a
@@ -662,7 +664,10 @@ function makeLungeClip(f, name, keys, duration, base = null, step = 0.025) {
       : pose.armDir ? S.clone().addScaledVector(fwd.clone().multiplyScalar(pose.armDir[0]).addScaledVector(right, pose.armDir[1]).addScaledVector(up, pose.armDir[2]).normalize(), reach * k.reach)
         : S.clone().addScaledVector(line, reach * k.reach));
     const T = k.from ? target(k.from).lerp(target(k.to), k.w) : target(k);
-    twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, T, up.clone().negate().addScaledVector(right, 0.5));
+    // The elbow down and out, or where the pose says (forward, right, up).
+    const pole = (k.from ? k.from.pole && k.to.pole && k.from.pole : k.pole);
+    twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, T, pole ? fwd.clone().multiplyScalar(pole[0]).addScaledVector(right, pole[1]).addScaledVector(up, pole[2])
+      : up.clone().negate().addScaledVector(right, 0.5));
     const blade = new THREE.Vector3(0, 1, 0).transformDirection(f.sword.matrixWorld);
     const bladeOf = (pose) => (pose.blade ? fwd.clone().multiplyScalar(pose.blade[0]).addScaledVector(right, pose.blade[1]).addScaledVector(up, pose.blade[2]).normalize() : line.clone());
     const want = k.from ? bladeOf(k.from).lerp(bladeOf(k.to), k.w).normalize() : bladeOf(k);
