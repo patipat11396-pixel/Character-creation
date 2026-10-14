@@ -50,15 +50,6 @@ export const ARTS = {
       lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55, hitY: 1.13 },
     // Jump attack: Light 1's cut on its own (no combo follows it).
     air: { clip: 'Sword_Regular_A', speed: 1.0, hit: 0.22, end: 0.34, damage: 12, range: 2.1, arc: 110, hitY: 0.8 },
-    // Charged flip cut (hold the right button, up to `max` s; let go, or at
-    // `max`, it goes): a jump into a forward flip, the blade coming down over
-    // the top. Damage x1 to x2 with the charge; the longer the charge, the
-    // likelier the foe is floored (10% at 1 s, 50% at 3 s, 75% at 5 s); a full
-    // charge cannot be blocked or parried. Charging: the sword drawn back
-    // (`pose`), walking slowly (`walk` m/s), no guard; only a side step.
-    charge: { clip: 'Sword_Attack_Air_Vertical', speed: 1.25, hit: 0.42, end: 0.95, damage: 22, range: 2.5, arc: 100,
-      lunge: 1.4, reach: 1.0, straight: true, rec: 'idle', recFade: 0.3, stagger: true, guardDamage: 35, hitY: 0.7,
-      max: 5, hop: 3.2, walk: 0.9, pose: { clip: 'Sword_Attack', at: 0.3 } },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
     // Skills (keys). A feint shows a bait, then thrusts in fast: blocked, it
     // breaks the guard (the target is staggered).
@@ -83,6 +74,9 @@ export const ARTS = {
 {
   const A = ARTS.basicSword;
   const as = (move, extra) => Object.assign(Object.create(move), extra);
+  // Right button: Light 3's spinning cut on its own (an edit to Light 3 is an
+  // edit to it), a 25% chance to floor the foe; spent 0.6 s after, as the combo's end.
+  A.spin = as(A.combo[2], { sitChance: 0.25 });
   A.enemy = [
     as(A.combo[0], { name: 'slash', next: 'slash2', nextChance: 0.6 }),
     as(A.combo[1], { name: 'slash2' }),
