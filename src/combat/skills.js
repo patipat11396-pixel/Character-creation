@@ -50,8 +50,8 @@ export const ARTS = {
       lunge: 0.6, reach: 0.95, stagger: true, stamina: 15, guardDamage: 40, poise: 55, hitY: 1.13 },
     air: { clip: 'Sword_Attack', speed: 1.5, hit: 0.52, end: 1.0, damage: 20, range: 2.2, arc: 120, stagger: true },
     dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
-    // Skills (keys). A feint shows the heavy wind-up, then cuts in fast: it
-    // breaks a guard (the target is staggered) and cannot be blocked.
+    // Skills (keys). A feint shows a bait, then thrusts in fast: blocked, it
+    // breaks the guard (the target is staggered).
     skills: {
       feint: {
         key: 'KeyE', name: 'Feint', name_cn: '虚招', cooldown: 4, stamina: 15,
@@ -60,7 +60,7 @@ export const ARTS = {
         // The real strike is a thrust (the captured right jab, the blade along the
         // forearm, made at load): the arm straight at 0.22 s of it, played a bit fast.
         strike: { clip: 'Sword_Thrust', speed: 1.3, hit: 0.22, end: 0.5, straight: true,
-          damage: 16, range: 2.4, arc: 70, lunge: 0.6, reach: 1.0, guardBreak: true, unblockable: true,
+          damage: 16, range: 2.4, arc: 70, lunge: 0.6, reach: 1.0, guardBreak: true,
           trail: 0.08, hitY: 0.65, aimFloor: 0.8 },   // crouched, straight ahead   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },

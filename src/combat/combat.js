@@ -1469,7 +1469,7 @@ const BUILT_IN = JSON.parse(JSON.stringify({ moves: MOVES.map(([, m]) => pickMov
 function pickMove(m) { return { clip: m.clip, speed: m.speed ?? 1, hit: m.hit, end: m.end }; }
 function readAnim() { try { return JSON.parse(localStorage.getItem(ANIM_KEY)) ?? null; } catch { return null; } }
 function saveAnim() {
-  const data = { moves: Object.fromEntries(MOVES.map(([k, m]) => [k, pickMove(m)])), slots: ANIM_SLOTS };
+  const data = { moves: Object.fromEntries(MOVES.map(([k, m]) => [k, pickMove(m)])), slots: ANIM_SLOTS, feint2: true };
   try { localStorage.setItem(ANIM_KEY, JSON.stringify(data)); } catch { /* private mode */ }
   return data;
 }
@@ -1481,7 +1481,9 @@ function applyAnim(data) {
   // Saves from before the captured fight idle hold the made stance; drop those.
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
   // The feint's strike is the new thrust; saves holding the old stab drop it.
-  if (['Sword_Stab', 'Sword_Regular_A'].includes(data.moves?.['Feint strike']?.clip)) delete data.moves['Feint strike'];
+  // Saves from before the feint's thrust was fixed may hold anything for it (a
+  // cut, old timing): they drop it once (saves made since carry `feint2`).
+  if (!data.feint2 && data.moves) delete data.moves['Feint strike'];
   // The foe's moves are the player's own now: saves holding its old ones drop them.
   for (const k of Object.keys(data.moves ?? {})) if (k.startsWith('Enemy ')) delete data.moves[k];
   // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
