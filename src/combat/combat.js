@@ -1833,7 +1833,7 @@ function staggerDrift(f) {
  * short.
  */
 // How far through its move a blocked swing is held: Light 1, 2, 3, others.
-const BLOCK_HOLD = { 0: 0.61, 1: 0.45, 2: 0.68, other: 0.61 };
+const BLOCK_HOLD = { 0: 0.61, 1: 0.40, 2: 0.68, other: 0.61 };
 function recoil(att, def) {
   // Which light cut was stopped: attacking again goes on to the next one.
   att.blockedCombo = ART.combo.indexOf(att.move);
@@ -1852,9 +1852,14 @@ function stagger(f, dur, text, slot = 'stagger') {
   f.move = null;
   f.setState('stagger');
   f.hitDur = dur;
+  // Straight into the stagger: everything else stops at once, no blend.
+  f.mixer.stopAllAction();
+  f.action = null;
+  f.upper = null;
+  f.upperName = null;
   // A short stagger plays the reel faster, so it shows more than its first moment.
-  if (slot === 'stagger') f.playSlot('stagger', { loop: false, fade: 0.06, speed: ANIM_SLOTS.stagger.speed * Math.max(1, 0.6 / dur) });
-  else f.playSlot(slot, { loop: false, fade: 0.05 });
+  if (slot === 'stagger') f.playSlot('stagger', { loop: false, fade: 0, speed: ANIM_SLOTS.stagger.speed * Math.max(1, 0.6 / dur) });
+  else f.playSlot(slot, { loop: false, fade: 0 });
   if (text) floatText(f.zones[0].a, text, 'status');
 }
 

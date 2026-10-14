@@ -80,7 +80,8 @@ swordsman, with a third-person camera.
 
 **Hits and stagger.** Every blow that lands stuns for 0.2 s (no knock-downs)
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
-55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
+55); a full gauge staggers for 1 s. A stagger cuts straight in: every other
+animation stops at once, with no blend. A perfect parry staggers the attacker
 (the foe 0.5 s, the player 0.35 s) while the parrier, at once (no guard
 raised first), cuts the blade aside with `Sword_Regular_A` (`PARRY_CLIP`; the screen shakes
 when it is half through; its cut played
@@ -89,7 +90,7 @@ blend;
 an attack may cut it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
 guard stops dead: the attacker's swing is held part way through the move
-(Light 1 at 61%, Light 2 at 45%, Light 3 at 68%, others at 61%) and they are staggered for 0.2 s, the combo cut short. Every blow that lands or is blocked, given
+(Light 1 at 61%, Light 2 at 40%, Light 3 at 68%, others at 61%) and they are staggered for 0.2 s, the combo cut short. Every blow that lands or is blocked, given
 or taken, shakes the camera; a dodge leaves a short motion blur. The third
 light hit, the finisher, is over in under 0.5 s.
 
