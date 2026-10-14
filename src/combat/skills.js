@@ -61,7 +61,7 @@ export const ARTS = {
         // forearm, made at load): the arm straight at 0.22 s of it, played a bit fast.
         strike: { clip: 'Sword_Thrust', speed: 1.3, hit: 0.22, end: 0.5, straight: true,
           damage: 16, range: 2.4, arc: 70, lunge: 0.6, reach: 1.0, guardBreak: true, unblockable: true,
-          trail: 0.08, hitY: 0.85, aimFloor: 0.8 },   // aimed high: chest to head   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
+          trail: 0.08, hitY: 0.65, aimFloor: 0.8 },   // crouched, straight ahead   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).

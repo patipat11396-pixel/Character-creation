@@ -1133,7 +1133,8 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, be
 // (the arm cocked) are the feint's bait, held; the rest is the strike, the
 // arm straight at 0.22 s of it.
 const THRUST_FROM = 0.13;
-const THRUST_RISE = 0.3;   // the thrust aims high: up 0.3 m per metre ahead
+const THRUST_RISE = 0.06;   // the thrust goes straight ahead (rising 6 cm per metre)
+const THRUST_CROUCH = 0.16;   // m the hips sink for it: down as the arm cocks, up again as it comes back
 /** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the sword arm stabbing straight ahead, the blade in line. */
 function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   const V = () => new THREE.Vector3(), Pw = (o) => o.getWorldPosition(V());
@@ -1153,12 +1154,28 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   poseFromClip(f, base, cockT);
   const cocked = Pw(B.RightHand).sub(Pw(B.RightArm));
   const armLen = Pw(B.RightArm).distanceTo(Pw(B.RightForeArm)) + Pw(B.RightForeArm).distanceTo(Pw(B.RightHand));
-  // Aimed high: at the foe's head and neck.
   const straight = fwd.clone().addScaledVector(up, THRUST_RISE).normalize().multiplyScalar(armLen * 0.97);
   const times = [], qv = bones.map(() => []), pv = [];
   const end = holdTo ?? to - from;
+  let hiT = 0;
+  for (let t = 0, best = -Infinity; t <= base.duration + 1e-6; t += 1 / fps) { const r = reach(t); if (r > best) { best = r; hiT = t; } }
   for (let t = 0; t <= end + 1e-6; t += 1 / fps) {
-    const k = THREE.MathUtils.clamp((reach(Math.min(from + t, to)) - lo) / Math.max(hi - lo, 1e-4), 0, 1);
+    const bt = Math.min(from + t, to);
+    const k = THREE.MathUtils.clamp((reach(bt) - lo) / Math.max(hi - lo, 1e-4), 0, 1);
+    // Crouch: down while the arm cocks, held through the stab, up as it comes back.
+    const c = bt <= THRUST_FROM ? THREE.MathUtils.smoothstep(bt, 0, THRUST_FROM) : bt <= hiT ? 1 : k;
+    if (c > 0) {
+      const feet = ['Left', 'Right'].map((sd) => [Pw(B[`${sd}Foot`]), B[`${sd}Foot`].getWorldQuaternion(new THREE.Quaternion())]);
+      const hw = Pw(B.Hips);
+      B.Hips.position.copy(B.Hips.parent.worldToLocal(hw.setY(hw.y - THRUST_CROUCH * c)));
+      f.root.updateMatrixWorld(true);
+      ['Left', 'Right'].forEach((sd, i) => {
+        const foot = B[`${sd}Foot`];
+        twoBoneIK(B[`${sd}UpLeg`], B[`${sd}Leg`], foot, feet[i][0], fwd);
+        foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(feet[i][1]));
+        foot.updateMatrixWorld(true);
+      });
+    }
     const target = Pw(B.RightArm).add(cocked.clone().lerp(straight, k));
     twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, target, up.clone().negate().addScaledVector(fwd.clone().cross(up), 0.5));
     const [b0, b1] = f.blade();
@@ -1465,7 +1482,7 @@ function applyAnim(data) {
   // Saves from before the captured fight idle hold the made stance; drop those.
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
   // The feint's strike is the new thrust; saves holding the old stab drop it.
-  if (data.moves?.['Feint strike']?.clip === 'Sword_Stab') delete data.moves['Feint strike'];
+  if (['Sword_Stab', 'Sword_Regular_A'].includes(data.moves?.['Feint strike']?.clip)) delete data.moves['Feint strike'];
   // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
   if (data.moves?.['Light 1']?.clip === 'Sword_Cut_1') delete data.moves['Light 1'];
   // Saves from before the slow guard steps hold them at full speed; drop those.
@@ -1576,7 +1593,7 @@ function startMove(f, move) {
   if (!f.isPlayer) {
     const r = Math.random();
     const want = aimHeightAt(player, r < 0.15 ? 'head' : r < 0.6 ? 'chest' : 'legs');
-    f.aim = THREE.MathUtils.clamp((Math.max(want, move.aimFloor ?? 0) - (move.hitY ?? 1)) * AIM.perMetre, -AIM.max, AIM.max);
+    f.aim = move.straight ? 0 : THREE.MathUtils.clamp((Math.max(want, move.aimFloor ?? 0) - (move.hitY ?? 1)) * AIM.perMetre, -AIM.max, AIM.max);
   }
   // Soft lock: close the gap to a target in front, so the blade ends at its body
   // (up to 2 m; a move's own lunge is the least it moves).
@@ -2753,8 +2770,9 @@ function tick(real) {
     enemy.pos.add(sep);
     player.pos.sub(sep);
   }
-  // The player's cut follows the camera: looking down cuts low, looking up cuts high.
-  player.aim = aimFromCamera();
+  // The player's cut follows the camera: looking down cuts low, looking up cuts
+  // high. (Not a straight thrust: it goes straight ahead.)
+  player.aim = player.move?.straight ? 0 : aimFromCamera();
   for (const f of [player, enemy]) {
     f.unfinishPose();
     f.mixer.update(dt);
