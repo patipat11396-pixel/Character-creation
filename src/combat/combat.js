@@ -233,11 +233,17 @@ class Fighter {
       }
     }
     for (const n of ['Fight_Back', 'Fight_Forward', 'Fight_Left', 'Fight_Right']) if (!this.clips.has(n)) this.clips.set(n, this.clips.get('Idle_Fight'));
-    // The thrust (the feint's strike and its bait) and the forward dash, made
-    // from the fight stance.
-    this.clips.set('Thrust_Chamber', makeStanceMove(this, 'Thrust_Chamber', THRUST_CHAMBER, 0.6));
-    this.clips.set('Sword_Thrust', makeStanceMove(this, 'Sword_Thrust', THRUST, 0.48));
-    this.clips.set('Dodge_Forward', makeStanceMove(this, 'Dodge_Forward', DUCK_DASH, 0.5));
+    // The thrust (the feint's strike and its bait): the captured right jab,
+    // the blade along the forearm. The forward dash: the left dodge, ducking.
+    {
+      const jab = this.clips.get('Fighting_Right_Jab');
+      if (jab) {
+        this.clips.set('Thrust_Chamber', makeBladeAlongArm(this, jab, 'Thrust_Chamber', 0, THRUST_FROM, 0.6));
+        this.clips.set('Sword_Thrust', makeBladeAlongArm(this, jab, 'Sword_Thrust', THRUST_FROM, jab.duration));
+      }
+      const dodge = this.clips.get('Dodge_left');
+      if (dodge) this.clips.set('Dodge_Forward', makeDucking(this, dodge, 'Dodge_Forward'));
+    }
     // Light cut 1, from the references: ready -> wind-up -> follow-through -> ready.
     this.clips.set('Sword_Cut_1', makePoseClip(this, 'Sword_Cut_1',
       [[0, GUARD], [0.12, CUT1_UP], [0.24, CUT1_DOWN], [0.34, CUT1_DOWN], [0.52, GUARD]], 0.52));
@@ -1124,90 +1130,56 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, be
   return clip;
 }
 
-// Moves made from the fight stance (Idle_Fight's first frame), keyed in time.
-// Each key: draw (sword hand pulled back, m), reach (0..1 to a straight arm
-// at the foe; null leaves the arm as in the stance), hipsF / hipsD (hips
-// forward / down, m), step / lift (front foot forward / up, m), lean (chest
-// bent forward, deg), bow (neck and head bowed, deg).
-const STANCE_REST = { draw: 0, reach: 0, hipsF: 0, hipsD: 0, step: 0, lift: 0, lean: 0, bow: 0 };
-// The thrust: from the chamber (hand drawn back, weight sunk) the front foot
-// steps out as the arm drives straight at the foe, the hips following low;
-// the blow lands with the arm straight (0.12 s), held a moment, then the
-// foot comes back and the stance returns.
-const THRUST_CHAMBER = [[0, STANCE_REST], [0.2, { ...STANCE_REST, draw: 0.14, hipsD: 0.04, lean: -4 }], [0.6, { ...STANCE_REST, draw: 0.14, hipsD: 0.04, lean: -4 }]];
-const THRUST = [
-  [0, { ...STANCE_REST, draw: 0.14, hipsD: 0.04, lean: -4 }],
-  [0.06, { ...STANCE_REST, draw: 0.04, reach: 0.45, hipsF: 0.12, hipsD: 0.06, step: 0.18, lift: 0.07, lean: 4 }],
-  [0.12, { ...STANCE_REST, reach: 1, hipsF: 0.3, hipsD: 0.1, step: 0.42, lean: 12, bow: -6 }],
-  [0.24, { ...STANCE_REST, reach: 1, hipsF: 0.3, hipsD: 0.1, step: 0.42, lean: 12, bow: -6 }],
-  [0.36, { ...STANCE_REST, reach: 0.4, hipsF: 0.12, hipsD: 0.05, step: 0.2, lift: 0.05, lean: 4 }],
-  [0.48, STANCE_REST],
-];
-// The forward dash: a quick duck, the chest and head bent forward and the
-// hips sunk (as a dodge ducks under a cut), then up again.
-const DUCK_DASH = [
-  [0, { ...STANCE_REST, reach: null }],
-  [0.08, { ...STANCE_REST, reach: null, hipsD: 0.16, lean: 30, bow: 18 }],
-  [0.3, { ...STANCE_REST, reach: null, hipsD: 0.16, lean: 30, bow: 18 }],
-  [0.5, { ...STANCE_REST, reach: null }],
-];
-function makeStanceMove(f, name, keys, duration, fps = 30) {
-  const base = f.clips.get('Idle_Fight');
-  if (!base) return null;
+// The thrust is the captured right jab (Fighting_Right_Jab): the arm drives
+// straight out, the body behind it, as a thrust does. Its first THRUST_FROM s
+// (the arm cocked) are the feint's bait, held; the rest is the strike, the
+// arm straight at 0.22 s of it.
+const THRUST_FROM = 0.13;
+/** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the blade along the forearm, ahead. */
+function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   const V = () => new THREE.Vector3(), Pw = (o) => o.getWorldPosition(V());
   const B = f.bones, sk = f.mesh.skeleton;
   const bones = sk.bones.filter((b) => b.name !== 'root' && !/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name));
   const held = sk.bones.map((b) => [b.position.clone(), b.quaternion.clone()]);
   const yaw = f.root.rotation.y;
   f.root.rotation.y = 0;
-  const up = new THREE.Vector3(0, 1, 0), fwd = new THREE.Vector3(0, 0, 1);   // the rig faces +Z at yaw 0
-  const tip = up.clone().cross(fwd);   // turning about this bends the top forward
-  const smooth = (x) => x * x * (3 - 2 * x);
-  const at = (t) => {
-    let i = 0;
-    while (i < keys.length - 2 && t > keys[i + 1][0]) i++;
-    const [t0, a] = keys[i], [t1, b] = keys[i + 1];
-    const k = smooth(THREE.MathUtils.clamp((t - t0) / Math.max(t1 - t0, 1e-6), 0, 1));
-    const o = {};
-    for (const key of Object.keys(STANCE_REST)) o[key] = a[key] == null || b[key] == null ? null : a[key] + (b[key] - a[key]) * k;
-    return o;
-  };
-  // The stance: where the feet, hand and shoulder are.
-  poseFromClip(f, base, 0);
-  const feet0 = ['Left', 'Right'].map((s) => Pw(B[`${s}Foot`]));
-  const footQ0 = ['Left', 'Right'].map((s) => B[`${s}Foot`].getWorldQuaternion(new THREE.Quaternion()));
-  const front = feet0[0].dot(fwd) > feet0[1].dot(fwd) ? 0 : 1;
-  const hand0 = Pw(B.RightHand);
-  const armLen = Pw(B.RightArm).distanceTo(Pw(B.RightForeArm)) + Pw(B.RightForeArm).distanceTo(hand0);
+  const fwd = new THREE.Vector3(0, 0, 1);   // the rig faces +Z at yaw 0
   const times = [], qv = bones.map(() => []), pv = [];
-  for (let t = 0; t <= duration + 1e-6; t += 1 / fps) {
-    const k = at(t);
-    poseFromClip(f, base, 0);
-    // Hips forward and down.
-    const hw = Pw(B.Hips).addScaledVector(fwd, k.hipsF).addScaledVector(up, -k.hipsD);
-    B.Hips.position.copy(B.Hips.parent.worldToLocal(hw));
-    f.root.updateMatrixWorld(true);
-    // Chest bent forward, the neck and head bowed.
-    for (const n of ['Spine1', 'Spine2']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad(k.lean / 2)));
-    for (const n of ['Neck', 'Head']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad(k.bow / 2)));
-    // Feet: the back one stays, the front one steps out (and up on the way).
-    ['Left', 'Right'].forEach((s, i) => {
-      const target = feet0[i].clone();
-      if (i === front) target.addScaledVector(fwd, k.step).addScaledVector(up, k.lift);
-      twoBoneIK(B[`${s}UpLeg`], B[`${s}Leg`], B[`${s}Foot`], target, fwd);
-      const foot = B[`${s}Foot`];
-      foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(footQ0[i]));
-      foot.updateMatrixWorld(true);
-    });
-    // The sword arm: drawn back, or driven out straight at the foe, the blade in line.
-    if (k.reach != null) {
-      const shoulder = Pw(B.RightArm);
-      const straight = shoulder.clone().addScaledVector(fwd.clone().addScaledVector(up, -0.06).normalize(), armLen * 0.98);
-      const drawn = hand0.clone().addScaledVector(fwd, k.hipsF - k.draw).addScaledVector(up, -k.hipsD);
-      twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, drawn.lerp(straight, k.reach), up.clone().negate().addScaledVector(tip, -0.5));
-      const [b0, b1] = f.blade();
-      turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fwd.clone().addScaledVector(up, -0.04).normalize()));
-    }
+  const end = holdTo ?? to - from;
+  for (let t = 0; t <= end + 1e-6; t += 1 / fps) {
+    poseFromClip(f, base, Math.min(from + t, to));
+    const fore = Pw(B.RightHand).sub(Pw(B.RightForeArm)).normalize();
+    const [b0, b1] = f.blade();
+    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fore.add(fwd).normalize()));
+    bones.forEach((b, i) => qv[i].push(...b.quaternion.toArray()));
+    pv.push(...B.Hips.position.toArray());
+    times.push(+t.toFixed(4));
+  }
+  sk.bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); });
+  f.root.rotation.y = yaw;
+  f.root.updateMatrixWorld(true);
+  return new THREE.AnimationClip(name, times[times.length - 1], [
+    new THREE.VectorKeyframeTrack('Hips.position', times, pv),
+    ...bones.map((b, i) => new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, qv[i])),
+  ]);
+}
+
+/** `base` (a dodge) with the chest and head bent forward through it: a duck. */
+function makeDucking(f, base, name, { lean = 28, bow = 16, fps = 30 } = {}) {
+  const B = f.bones, sk = f.mesh.skeleton;
+  const bones = sk.bones.filter((b) => b.name !== 'root' && !/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name));
+  const held = sk.bones.map((b) => [b.position.clone(), b.quaternion.clone()]);
+  const yaw = f.root.rotation.y;
+  f.root.rotation.y = 0;
+  const tip = new THREE.Vector3(0, 1, 0).cross(new THREE.Vector3(0, 0, 1));   // turning about this bends the top forward
+  const times = [], qv = bones.map(() => []), pv = [];
+  for (let t = 0; t <= base.duration + 1e-6; t += 1 / fps) {
+    poseFromClip(f, base, t);
+    // In over the first 15%, held, out over the last 35%.
+    const x = t / base.duration;
+    const k = x < 0.15 ? THREE.MathUtils.smoothstep(x, 0, 0.15) : x > 0.65 ? 1 - THREE.MathUtils.smoothstep(x, 0.65, 1) : 1;
+    for (const n of ['Spine1', 'Spine2']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad((lean / 2) * k)));
+    for (const n of ['Neck', 'Head']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad((bow / 2) * k)));
     bones.forEach((b, i) => qv[i].push(...b.quaternion.toArray()));
     pv.push(...B.Hips.position.toArray());
     times.push(+t.toFixed(4));
