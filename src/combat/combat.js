@@ -2666,6 +2666,8 @@ function playerUpdate(dt) {
   const parryPress = (pressed.has('ShiftLeft') || pressed.has('ShiftRight')) && !guardBroken(p) && canDefend(p);
   const jumpPress = pressed.has('Space');
   const chargePress = rightClicked;   // right button: charge the wave (the heavy attack is gone)
+  // Sprint key + a direction + attack, the dash cut ready: that, not the next light cut.
+  const dashIntent = attackPress && sprintKey && wish.lengthSq() > 0 && p.stamina > 10 && gameTime >= (p.dashReady ?? 0);
   // A parry tap opens the parry window; one that catches nothing (a miss)
   // locks the parry out for PARRY_MISS_LOCK s, and taps inside an open window
   // do not reopen it: mashing the key no longer parries everything.
@@ -2729,7 +2731,7 @@ function playerUpdate(dt) {
     }
   } else if (p.state === 'attack') {
     const mt = p.moveTime();
-    if (attackPress && mt >= (p.move.chainFrom ?? p.move.hit)) p.queued = true;
+    if (attackPress && !dashIntent && mt >= (p.move.chainFrom ?? p.move.hit)) p.queued = true;
     // Lunge over the wind-up, towards the enemy if near.
     if (p.lungeLeft > 0 && mt < p.move.hit) {
       const step = Math.min(p.lungeLeft, (p.lungeTotal / Math.max(p.move.hit / (p.move.speed ?? 1), 0.05)) * dt);
@@ -2767,7 +2769,7 @@ function playerUpdate(dt) {
       }
     }
   } else if (p.state === 'recover') {
-    if (attackPress && p.comboIndex >= 0 && p.comboIndex < ART.combo.length - 1) {
+    if (attackPress && !dashIntent && p.comboIndex >= 0 && p.comboIndex < ART.combo.length - 1) {
       p.comboIndex++;
       startMove(p, ART.combo[p.comboIndex]);
     } else if (p.t > 0.55 || (wish.lengthSq() && p.t > 0.2)) {
@@ -2782,7 +2784,11 @@ function playerUpdate(dt) {
     if (facing) p.turnTo(camFace, dt, 14);
     if (p.t * feint.bait.speed >= feint.bait.until) { p.comboIndex = -1; startMove(p, feint.strike); }
   }
-  if (pressed.has(feint.key) && (canAct || afterHit || p.state === 'exposed') && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
+  // Skills cut in at once out of a light cut (from its blow on), its recovery, or the
+  // spent gap after the combo: no waiting, and the press is not taken as the next cut.
+  const skillOut = p.state === 'exposed' || p.state === 'recover'
+    || (p.state === 'attack' && ART.combo.includes(p.move) && p.moveTime() >= p.move.hit);
+  if (pressed.has(feint.key) && (canAct || afterHit || skillOut) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
     p.stamina -= feint.stamina;
     p.feintReady = gameTime + feint.cooldown;
     p.move = null;
@@ -2790,10 +2796,10 @@ function playerUpdate(dt) {
     p.setState('feint');
     p.play(feint.bait.clip, { loop: false, speed: feint.bait.speed, fade: 0.08 });
     p.vel.set(0, 0, 0);
-  } else if (p.state === 'exposed' && p.grounded && chargePress && gameTime >= (p.waveReady ?? 0)) {
+  } else if (skillOut && p.grounded && chargePress && gameTime >= (p.waveReady ?? 0)) {
     // The spent gap after the combo does not hold the skills back: the wave's charge...
     startCharge(p);
-  } else if (p.state === 'exposed' && p.grounded && attackPress && sprintKey && wish.lengthSq() && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) {
+  } else if (skillOut && p.grounded && attackPress && sprintKey && wish.lengthSq() && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) {
     startDashCut(p);   // ...and the dash cut (sprint key, a direction and attack) go at once
   } else if (p.state === 'dodge' && !p.rolling && p.dash?.doneAt != null && p.chargeFire && p.grounded) {
     // A charge let go during the side step goes as the step stops.
@@ -2895,6 +2901,7 @@ function playerUpdate(dt) {
 /** The sprint cut (cooldown ART.dash.cooldown); locked on, straight at the foe and on through it. */
 function startDashCut(p) {
   p.comboIndex = -1;
+  p.queued = false;
   p.stamina -= 10;
   p.dashReady = gameTime + ART.dash.cooldown;
   if (lockOn) p.yaw = Math.atan2(enemy.pos.x - p.pos.x, enemy.pos.z - p.pos.z);

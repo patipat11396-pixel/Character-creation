@@ -290,6 +290,11 @@ before coming back. It reads feints now and then (30% to 75% with its skill):
 it steps away from the bait instead of raising its guard, lets a raised guard
 go to step away, or side-steps the thrust.
 
+**Skills cut in.** The feint (E), the wave's charge (right button) and the
+dash cut (sprint key, a direction and attack) go at once out of a light cut
+from its blow on, out of its recovery, and out of the spent gap after the
+combo; the press is not taken as the next light cut.
+
 **Letting go of the guard.** In the fight it cuts straight back to the stance
 (standing or stepping), with no blend: the guard's crouched steps mixed with
 the stance's steps made odd legs. Out of the fight it fades, the guard's upper
