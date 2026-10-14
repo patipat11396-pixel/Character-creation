@@ -2782,7 +2782,7 @@ function playerUpdate(dt) {
     if (facing) p.turnTo(camFace, dt, 14);
     if (p.t * feint.bait.speed >= feint.bait.until) { p.comboIndex = -1; startMove(p, feint.strike); }
   }
-  if (pressed.has(feint.key) && (canAct || afterHit) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
+  if (pressed.has(feint.key) && (canAct || afterHit || p.state === 'exposed') && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
     p.stamina -= feint.stamina;
     p.feintReady = gameTime + feint.cooldown;
     p.move = null;
@@ -2790,6 +2790,11 @@ function playerUpdate(dt) {
     p.setState('feint');
     p.play(feint.bait.clip, { loop: false, speed: feint.bait.speed, fade: 0.08 });
     p.vel.set(0, 0, 0);
+  } else if (p.state === 'exposed' && p.grounded && chargePress && gameTime >= (p.waveReady ?? 0)) {
+    // The spent gap after the combo does not hold the skills back: the wave's charge...
+    startCharge(p);
+  } else if (p.state === 'exposed' && p.grounded && attackPress && sprintKey && wish.lengthSq() && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) {
+    startDashCut(p);   // ...and the dash cut (sprint key, a direction and attack) go at once
   } else if (p.state === 'dodge' && !p.rolling && p.dash?.doneAt != null && p.chargeFire && p.grounded) {
     // A charge let go during the side step goes as the step stops.
     fireCharge(p);
@@ -2804,13 +2809,7 @@ function playerUpdate(dt) {
   } else if (canAct && p.state !== 'dodge' && p.state !== 'attack') {
     if (attackPress) {
       if (!p.grounded) { if (!p.airCut) { p.airCut = true; p.comboIndex = -1; startMove(p, ART.air); } }   // one cut a jump
-      else if (p.sprinting && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) {
-        p.comboIndex = -1;
-        p.stamina -= 10;
-        p.dashReady = gameTime + ART.dash.cooldown;
-        if (lockOn) p.yaw = Math.atan2(enemy.pos.x - p.pos.x, enemy.pos.z - p.pos.z);   // (locked on: straight at the foe, and on through)
-        startMove(p, ART.dash);
-      }
+      else if (p.sprinting && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) startDashCut(p);
       else {
         // Just after a light cut was stopped by a guard, the next one follows.
         const next = gameTime - (p.recoilEndAt ?? -99) < 0.4 && p.blockedCombo >= 0 && p.blockedCombo < ART.combo.length - 1 ? p.blockedCombo + 1 : 0;
@@ -2846,12 +2845,7 @@ function playerUpdate(dt) {
         if (a) a.holdAt = g.hold;
       }
     } else if (chargePress && p.grounded && gameTime >= (p.waveReady ?? 0)) {
-      // Right button held: charging the wave (let go, or at its most, it goes).
-      p.move = null;
-      p.comboIndex = -1;
-      p.chargeT = 0;
-      p.chargeMaxed = false;
-      p.setState('charge');
+      startCharge(p);
     } else {
       // Letting go of the guard in the fight cuts straight back to the stance (no blend: the
       // guard's crouched steps and the stance's steps mixed into odd legs); out of it, a fade.
@@ -2896,6 +2890,23 @@ function playerUpdate(dt) {
 
   physics(p, dt);
   if (!p.grounded && p.state !== 'attack') p.playSlot('jump', { fade: 0.1 });
+}
+
+/** The sprint cut (cooldown ART.dash.cooldown); locked on, straight at the foe and on through it. */
+function startDashCut(p) {
+  p.comboIndex = -1;
+  p.stamina -= 10;
+  p.dashReady = gameTime + ART.dash.cooldown;
+  if (lockOn) p.yaw = Math.atan2(enemy.pos.x - p.pos.x, enemy.pos.z - p.pos.z);
+  startMove(p, ART.dash);
+}
+/** Right button held: charging the wave (let go, or at its most, it goes). */
+function startCharge(p) {
+  p.move = null;
+  p.comboIndex = -1;
+  p.chargeT = 0;
+  p.chargeMaxed = false;
+  p.setState('charge');
 }
 
 function doDodge(wish, camFwd) {
