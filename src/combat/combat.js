@@ -578,9 +578,9 @@ function aimBone(bone, child, target) {
 const STAB = {
   stance: null,
   // Idle out of the fight: standing easy, the sword hanging in the right hand
-  // a little out from the body, the point down and forward; the free arm as
+  // swung 30 degrees forward (clear of the leg), the point down and forward; the free arm as
   // the idle has it.
-  relaxed: { armDir: [0.4, 0.2, -1], reach: 0.97, blade: [0.42, 0.32, -0.85], left: null, look: 'ahead' },
+  relaxed: { armDir: [0.58, 0.2, -1], reach: 0.97, blade: [0.42, 0.32, -0.85], left: null, look: 'ahead' },
   // The ready stance: side-on, wide and low, the front (sword side) leg long
   // toward the foe, the weight on the bent back knee; the sword arm straight
   // out at the foe a little below the shoulder, the blade in line rising a
