@@ -1464,7 +1464,6 @@ const ANIM_KEY = 'character-creation:combat-anim';
 const MOVES = [
   ['Light 1', ART.combo[0]], ['Light 2', ART.combo[1]], ['Light 3', ART.combo[2]], ['Heavy', ART.heavy],
   ['Air', ART.air], ['Dash', ART.dash], ['Feint strike', ART.skills.feint.strike],
-  ...ART.enemy.map((m) => [`Enemy ${m.name}`, m]),
 ];
 const BUILT_IN = JSON.parse(JSON.stringify({ moves: MOVES.map(([, m]) => pickMove(m)), slots: ANIM_SLOTS }));
 function pickMove(m) { return { clip: m.clip, speed: m.speed ?? 1, hit: m.hit, end: m.end }; }
@@ -1483,8 +1482,8 @@ function applyAnim(data) {
   for (const slot of ['idle', 'fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Sword_Out') delete data.slots[slot];
   // The feint's strike is the new thrust; saves holding the old stab drop it.
   if (['Sword_Stab', 'Sword_Regular_A'].includes(data.moves?.['Feint strike']?.clip)) delete data.moves['Feint strike'];
-  // The foe's first cut is the player's Light 1 now; saves holding the made cut drop it.
-  if (data.moves?.['Enemy slash']?.clip === 'Sword_Cut_1') delete data.moves['Enemy slash'];
+  // The foe's moves are the player's own now: saves holding its old ones drop them.
+  for (const k of Object.keys(data.moves ?? {})) if (k.startsWith('Enemy ')) delete data.moves[k];
   // Light 1 is Sword_Regular_A again; saves holding the made cut for it drop it.
   if (data.moves?.['Light 1']?.clip === 'Sword_Cut_1') delete data.moves['Light 1'];
   // Saves from before the slow guard steps hold them at full speed; drop those.
@@ -2464,9 +2463,22 @@ function enemyGuard(e, time) {
 function enemyAttack(e, pressing) {
   const pool = ART.enemy.filter((m) => m.name !== 'slash2');
   const r = Math.random();
-  const name = pressing ? (r < 0.65 ? 'slash' : r < 0.8 ? 'thrust' : r < 0.9 ? 'stab' : 'heavy') : (r < 0.45 ? 'slash' : r < 0.65 ? 'thrust' : r < 0.8 ? 'stab' : 'heavy');
+  const name = pressing ? (r < 0.6 ? 'slash' : r < 0.75 ? 'thrust' : r < 0.92 ? 'stab' : 'heavy') : (r < 0.4 ? 'slash' : r < 0.58 ? 'thrust' : r < 0.82 ? 'stab' : 'heavy');
+  enemyStart(e, pool.find((m) => m.name === name));
+}
+/** The foe starts a move; a feint (a move with a bait) first plays its bait. */
+function enemyStart(e, move) {
   e.timedChecked = false;
-  startMove(e, pool.find((m) => m.name === name));
+  if (move.bait) {
+    // The feint, as the player's: the bait (the chamber), then the thrust.
+    e.move = null;
+    e.feintMove = move;
+    e.setState('feint');
+    e.play(move.bait.clip, { loop: false, speed: move.bait.speed, fade: 0.08 });
+    e.vel.set(0, 0, 0);
+    return;
+  }
+  startMove(e, move);
 }
 
 function enemyDecide(e, d, adv, pressing) {
@@ -2531,6 +2543,11 @@ function enemyUpdate(dt) {
       }
       break;
     }
+    case 'feint':
+      e.vel.set(0, 0, 0);
+      e.faceTarget(player, dt, 10);
+      if (e.t * e.feintMove.bait.speed >= e.feintMove.bait.until) startMove(e, e.feintMove);
+      break;
     case 'push':
       e.vel.set(0, 0, 0);
       e.faceTarget(player, dt, 10);
@@ -2907,6 +2924,6 @@ window.combat = {
   start() { active = true; $('start').hidden = true; },
   step(n = 1, dt = 1 / 60, each = null) { stepping = true; for (let i = 0; i < n; i++) { each?.(i); tick(dt); } draw(); },
   release() { stepping = false; },
-  startEnemyMove(name) { enemy.timedChecked = false; startMove(enemy, ART.enemy.find((m) => m.name === name)); },
+  startEnemyMove(name) { enemyStart(enemy, ART.enemy.find((m) => m.name === name)); },
 };
 main();

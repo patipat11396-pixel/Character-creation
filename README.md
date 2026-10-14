@@ -203,10 +203,11 @@ towards the player).
 Stepping with the guard held, the hips sink to the standing guard's height,
 the feet kept on the ground by bending the legs.
 
-**The foe's moves** are the player's: its first cut is `Sword_Regular_A`
-(Light 1), then `Sword_Regular_B`, the spinning `Sword_Regular_C`, the heavy
-`Sword_Attack`, and the feint's crouched straight thrust (`stab`,
-`Sword_Thrust`, breaking a guard), all a little slower to be read.
+**The foe's moves** are the player's own, the same in every way (each reads
+the player's move through its prototype, so an edit to one is an edit to
+both): Light 1 → 2 (`slash`, `slash2`), the spinning Light 3 (`thrust`), the
+heavy, and the feint (`stab`: the chamber bait, then the crouched straight
+thrust, breaking a guard), which it picks about one attack in five.
 
 **Thrust.** The feint's strike is `Sword_Thrust`: the captured right jab
 (`Fighting_Right_Jab`), its timing and body kept, the sword hand run on a
