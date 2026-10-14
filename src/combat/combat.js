@@ -2853,7 +2853,20 @@ function playerUpdate(dt) {
       p.chargeMaxed = false;
       p.setState('charge');
     } else {
-      if (p.state === 'block') p.setState('idle');   // (the guard's upper layer fades with the next clip's fade-in: play)
+      // Letting go of the guard in the fight cuts straight back to the stance (no blend: the
+      // guard's crouched steps and the stance's steps mixed into odd legs); out of it, a fade.
+      let cut = false;
+      if (p.state === 'block') {
+        p.setState('idle');
+        if (engaged(p)) {
+          cut = true;
+          p.mixer.stopAllAction();
+          p.action = null;
+          p.upper = null;
+          p.upperName = null;
+          p.crouchW = 0;
+        }
+      }
       const moving = wish.lengthSq() > 0;
       p.sprinting = moving && sprintKey && p.stamina > 1;
       const speed = p.sprinting ? stats.sprintSpeed : stats.runSpeed;
@@ -2866,7 +2879,7 @@ function playerUpdate(dt) {
       if (fightStep || (!moving && facing)) p.turnTo(camFace, dt, 10);
       else if (moving) p.turnTo(Math.atan2(wish.x, wish.z), dt, 12);
       if (p.grounded && !(gameTime < (p.previewUntil ?? 0) && !moving)) {
-        p.playSlot(fightStep ? stepSlot(p, wish) : moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: moving ? 0.18 : 0.35 });
+        p.playSlot(fightStep ? stepSlot(p, wish) : moving ? (p.sprinting ? 'sprint' : 'run') : idleSlot(p), { fade: cut ? 0 : moving ? 0.18 : 0.35 });
         p.state = moving ? 'move' : 'idle';
       }
     }

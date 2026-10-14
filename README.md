@@ -290,9 +290,10 @@ before coming back. It reads feints now and then (30% to 75% with its skill):
 it steps away from the bait instead of raising its guard, lets a raised guard
 go to step away, or side-steps the thrust.
 
-**Letting go of the guard while stepping.** The guard's upper layer fades out
-with the next clip's fade-in, at the same pace (a quicker fade had pulled the
-chest and arms part way to the bind pose for a moment).
+**Letting go of the guard.** In the fight it cuts straight back to the stance
+(standing or stepping), with no blend: the guard's crouched steps mixed with
+the stance's steps made odd legs. Out of the fight it fades, the guard's upper
+layer fading with the next clip at the same pace.
 
 **Pacing.** After an attack ends, guarding and parrying wait 0.1 s (and
 never happen mid-attack); a dodge (side step or roll) goes at once, also out
