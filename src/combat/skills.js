@@ -59,9 +59,9 @@ export const ARTS = {
         bait: { clip: 'Thrust_Chamber', speed: 1, until: 0.3 },
         // The real strike is a thrust (the captured right jab, the blade along the
         // forearm, made at load): the arm straight at 0.22 s of it, played a bit fast.
-        strike: { clip: 'Sword_Thrust', speed: 1.3, hit: 0.22, end: 0.5,
+        strike: { clip: 'Sword_Thrust', speed: 1.3, hit: 0.22, end: 0.5, straight: true,
           damage: 16, range: 2.4, arc: 70, lunge: 0.6, reach: 1.0, guardBreak: true, unblockable: true,
-          trail: 0.08, hitY: 0.65, aimFloor: 0.8 },   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
+          trail: 0.08, hitY: 0.85, aimFloor: 0.8 },   // aimed high: chest to head   // a low stab would pass between the legs   // trail only on the thrust itself (not the turn out of the bait)
       },
     },
     // The sparring partner's moves (the same art, read from the other side).

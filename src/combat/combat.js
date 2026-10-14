@@ -1133,6 +1133,7 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, be
 // (the arm cocked) are the feint's bait, held; the rest is the strike, the
 // arm straight at 0.22 s of it.
 const THRUST_FROM = 0.13;
+const THRUST_RISE = 0.3;   // the thrust aims high: up 0.3 m per metre ahead
 /** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the sword arm stabbing straight ahead, the blade in line. */
 function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   const V = () => new THREE.Vector3(), Pw = (o) => o.getWorldPosition(V());
@@ -1152,7 +1153,8 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   poseFromClip(f, base, cockT);
   const cocked = Pw(B.RightHand).sub(Pw(B.RightArm));
   const armLen = Pw(B.RightArm).distanceTo(Pw(B.RightForeArm)) + Pw(B.RightForeArm).distanceTo(Pw(B.RightHand));
-  const straight = fwd.clone().addScaledVector(up, -0.05).normalize().multiplyScalar(armLen * 0.97);
+  // Aimed high: at the foe's head and neck.
+  const straight = fwd.clone().addScaledVector(up, THRUST_RISE).normalize().multiplyScalar(armLen * 0.97);
   const times = [], qv = bones.map(() => []), pv = [];
   const end = holdTo ?? to - from;
   for (let t = 0; t <= end + 1e-6; t += 1 / fps) {
@@ -1160,7 +1162,7 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
     const target = Pw(B.RightArm).add(cocked.clone().lerp(straight, k));
     twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, target, up.clone().negate().addScaledVector(fwd.clone().cross(up), 0.5));
     const [b0, b1] = f.blade();
-    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fwd.clone().addScaledVector(up, -0.03).normalize()));
+    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fwd.clone().addScaledVector(up, THRUST_RISE).normalize()));
     bones.forEach((b, i) => qv[i].push(...b.quaternion.toArray()));
     pv.push(...B.Hips.position.toArray());
     times.push(+t.toFixed(4));
@@ -1556,7 +1558,8 @@ const hitLog = [];
 
 function startMove(f, move) {
   f.moveId = (f.moveId ?? 0) + 1;
-  f.armTurn = f.strikeHeading(move);
+  // (A straight thrust already points ahead: its arm is not turned.)
+  f.armTurn = move.straight ? 0 : f.strikeHeading(move);
   f.move = move;
   f.moveHit = false;
   f.pendingZone = null;
@@ -2157,7 +2160,7 @@ function playerUpdate(dt) {
     if (engaged(p) && mt < p.move.hit) p.turnTo(camFace, dt, 30);
     // At the blow, see where it really landed (the blend from the stance
     // shifts it a little) and correct that move's turn for next time.
-    if (engaged(p) && mt >= p.move.hit && p.measured !== p.moveId) {
+    if (engaged(p) && !p.move.straight && mt >= p.move.hit && p.measured !== p.moveId) {
       p.measured = p.moveId;
       const tip = p.blade()[1].sub(p.bones.Hips.getWorldPosition(new THREE.Vector3()));
       const err = THREE.MathUtils.euclideanModulo(Math.atan2(tip.x, tip.z) - camFace + Math.PI, Math.PI * 2) - Math.PI;
