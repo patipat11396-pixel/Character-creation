@@ -1368,7 +1368,22 @@ function rootMotion(f) {
   const ahead = m.ahead[i] + (m.ahead[i + 1] - m.ahead[i]) * u;
   const step = ahead - (f.rmDone ?? 0);
   f.rmDone = ahead;
-  if (step > 0) f.pos.addScaledVector(f.forward(new THREE.Vector3()), step);
+  if (step <= 0) return;
+  const fwd = f.forward(new THREE.Vector3());
+  // Running through: a guard facing it stops it dead just in front (a blocked blow),
+  // checked as the body reaches the guard (the blade's moment comes too late at this speed).
+  if (f.move.through && !f.moveHit) {
+    const foe = f === player ? enemy : player;
+    const to = foe.pos.clone().sub(f.pos).setY(0), along = to.dot(fwd), side = Math.abs(to.x * fwd.z - to.z * fwd.x);
+    const stopAt = f.radius + foe.radius + 0.25;
+    const guarding = foe.state === 'block' && !guardBroken(foe) && foe.forward().angleTo(to.clone().negate().normalize()) < THREE.MathUtils.degToRad(70);
+    if (guarding && along > 0 && side < 0.7 && along - step <= stopAt) {
+      f.pos.addScaledVector(fwd, Math.max(0, along - stopAt));
+      resolveHit(f, foe, foe.zones.find((z) => z.name === 'chest') ?? foe.zones[0]);
+      return;
+    }
+  }
+  f.pos.addScaledVector(fwd, step);
 }
 /** Dashing along a root-motion move: passes through bodies (not pushed apart). */
 const passing = (f) => f.state === 'attack' && !!f.clips.get(f.move?.clip)?.userData?.motion;
@@ -1521,9 +1536,11 @@ function updateBars() {
   $('enemy-poise').style.width = `${((enemy.poise ?? 0) / STAGGER.gauge) * 100}%`;
   $('poise-fill').style.width = `${((player.poise ?? 0) / STAGGER.gauge) * 100}%`;
   $('enemy-text').textContent = `${Math.ceil(enemy.hp)} / ${enemy.maxHp}`;
-  const left = Math.max(0, (player.feintReady ?? 0) - gameTime);
-  $('skill-e').classList.toggle('cool', left > 0);
-  $('skill-e-cd').textContent = left > 0 ? left.toFixed(1) : '';
+  for (const [id, ready] of [['skill-e', player.feintReady], ['skill-dash', player.dashReady], ['skill-wave', player.waveReady]]) {
+    const left = Math.max(0, (ready ?? 0) - gameTime);
+    $(id)?.classList.toggle('cool', left > 0);
+    if ($(`${id}-cd`)) $(`${id}-cd`).textContent = left > 0 ? left.toFixed(1) : '';
+  }
   const broken = Math.max(0, (player.guardBrokenUntil ?? 0) - gameTime);
   $('combo').textContent = broken > 0 ? `Guard broken ${broken.toFixed(1)} s`
     : player.comboIndex >= 0 && player.state === 'attack' ? `${ART.name} · ${player.comboIndex + 1}` : ART.name;
@@ -1788,7 +1805,7 @@ function startMove(f, move) {
   const gap = Math.sqrt(dist2(f, foe));
   const ahead = gap < 5 && inFront(f, foe, 5, 140);
   // (A move with no blade contact, the wave's, has no soft lock: it jumps back.)
-  f.lungeLeft = move.noBlade ? 0 : Math.max(move.lunge ?? 0, ahead ? Math.min(2, gap - (move.reach ?? 0.95)) : 0);
+  f.lungeLeft = move.noBlade || move.through ? 0 : Math.max(move.lunge ?? 0, ahead ? Math.min(2, gap - (move.reach ?? 0.95)) : 0);
   f.lungeTotal = f.lungeLeft;
   if (ahead) f.faceTarget(foe, 1, 1);
   if (move.unblockable) flashSword(f, 0xff2a2a); else if (!f.isPlayer) flashSword(f, 0xffe7a0);
@@ -2016,6 +2033,7 @@ function chargeGlow(f) {
 /** Let the charge go: the reversed spin, jumping back, the wave launched as the blade comes round in front (launchWave). */
 function fireCharge(p) {
   const W = ART.wave, t = Math.min(p.chargeT ?? 0, W.max);
+  if (p.isPlayer) p.waveReady = gameTime + W.cooldown;
   const m = Object.create(W);
   m.power = 1 + t / W.max;   // damage and width x1 .. x2
   p.setUpper(null);
@@ -2299,6 +2317,12 @@ function staggerDrift(f) {
 // How far through its move a blocked swing is held: Light 1, 2, 3, others.
 const BLOCK_HOLD = { 0: 0.61, 1: 0.40, 2: 0.68, other: 0.61 };
 function recoil(att, def) {
+  // A dash that runs through is stopped dead by a guard, just in front of the guard.
+  if (att.move?.through) {
+    const back = att.pos.clone().sub(def.pos).setY(0);
+    if (back.lengthSq() < 1e-6 || back.dot(def.forward(new THREE.Vector3())) < 0) back.copy(def.forward(new THREE.Vector3()));
+    att.pos.copy(def.pos).addScaledVector(back.normalize(), att.radius + def.radius + 0.25).setY(att.pos.y);
+  }
   // Which light cut was stopped: attacking again goes on to the next one.
   att.blockedCombo = ART.combo.indexOf(att.move);
   const held = (BLOCK_HOLD[att.blockedCombo] ?? BLOCK_HOLD.other) * (att.move?.end ?? att.action?.getClip().duration ?? 0);
@@ -2713,18 +2737,18 @@ function playerUpdate(dt) {
     }
     // Facing ahead of the camera; the sword arm swings the cut round so the
     // blow lands there too (finishPose, armTurn).
-    if (facing && mt < p.move.hit) p.turnTo(camFace, dt, 30);
-    rootMotion(p);
-    if (p.move.launch != null && !p.waveDone && mt >= p.move.launch) { p.waveDone = true; launchWave(p); }
+    if (facing && mt < p.move.hit && !p.move.through) p.turnTo(camFace, dt, 30);   // (a dash through keeps its line)
+    rootMotion(p);   // (a guard can stop a dash through here: then the move is over)
+    if (p.move?.launch != null && !p.waveDone && mt >= p.move.launch) { p.waveDone = true; launchWave(p); }
     // At the blow, see where it really landed (the blend from the stance
     // shifts it a little) and correct that move's turn for next time.
-    if (engaged(p) && !p.move.straight && mt >= p.move.hit && p.measured !== p.moveId) {
+    if (p.move && engaged(p) && !p.move.straight && mt >= p.move.hit && p.measured !== p.moveId) {
       p.measured = p.moveId;
       const tip = p.blade()[1].sub(p.bones.Hips.getWorldPosition(new THREE.Vector3()));
       const err = THREE.MathUtils.euclideanModulo(Math.atan2(tip.x, tip.z) - camFace + Math.PI, Math.PI * 2) - Math.PI;
       if (Math.abs(err) < 0.6) p.strikeH[p.move.clip] += err * 1.2;   // (the arm turns the tip less than the angle: the shoulder is off the hips)
     }
-    if (mt >= p.move.end) {
+    if (p.move && mt >= p.move.end) {
       if (p.queued && p.move !== ART.air && p.move !== ART.dash && !isFinisher(p.move) && p.comboIndex < ART.combo.length - 1) {
         p.comboIndex++;
         p.queued = false;
@@ -2778,7 +2802,13 @@ function playerUpdate(dt) {
   } else if (canAct && p.state !== 'dodge' && p.state !== 'attack') {
     if (attackPress) {
       if (!p.grounded) { if (!p.airCut) { p.airCut = true; p.comboIndex = -1; startMove(p, ART.air); } }   // one cut a jump
-      else if (p.sprinting && p.stamina > 10) { p.comboIndex = -1; p.stamina -= 10; startMove(p, ART.dash); }
+      else if (p.sprinting && p.stamina > 10 && gameTime >= (p.dashReady ?? 0)) {
+        p.comboIndex = -1;
+        p.stamina -= 10;
+        p.dashReady = gameTime + ART.dash.cooldown;
+        if (lockOn) p.yaw = Math.atan2(enemy.pos.x - p.pos.x, enemy.pos.z - p.pos.z);   // (locked on: straight at the foe, and on through)
+        startMove(p, ART.dash);
+      }
       else {
         // Just after a light cut was stopped by a guard, the next one follows.
         const next = gameTime - (p.recoilEndAt ?? -99) < 0.4 && p.blockedCombo >= 0 && p.blockedCombo < ART.combo.length - 1 ? p.blockedCombo + 1 : 0;
@@ -2813,7 +2843,7 @@ function playerUpdate(dt) {
         const a = p.play(g.clip, { loop: false, speed: g.speed, fade: 0.08, from: g.hold });
         if (a) a.holdAt = g.hold;
       }
-    } else if (chargePress && p.grounded) {
+    } else if (chargePress && p.grounded && gameTime >= (p.waveReady ?? 0)) {
       // Right button held: charging the wave (let go, or at its most, it goes).
       p.move = null;
       p.comboIndex = -1;
@@ -3198,6 +3228,7 @@ function enemyUpdate(dt) {
       const mt = e.moveTime();
       if (mt < e.move.hit && !e.move.launch) e.faceTarget(player, dt, 6);
       rootMotion(e);
+      if (!e.move) break;   // (a guard stopped its dash through)
       if (e.move.launch != null && !e.waveDone && mt >= e.move.launch) { e.waveDone = true; launchWave(e); }
       if (e.lungeLeft > 0 && mt < e.move.hit && d > 0.75) {
         const step = Math.min(e.lungeLeft, (e.lungeTotal / (e.move.hit / e.move.speed)) * dt);
@@ -3507,6 +3538,8 @@ function reset() {
     f.parryAt = -99;
     f.parryPending = false;
     f.parryLockUntil = 0;
+    f.dashReady = 0;
+    f.waveReady = 0;
     f.dodgeAt = -99;
     f.stance = undefined;   // the combat stance automatic again
     f.move = null;

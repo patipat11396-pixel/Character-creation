@@ -60,8 +60,9 @@ export const ARTS = {
     // (`walk` m/s), no guard; only a side step. Spent 0.6 s after. The foe uses it too.
     wave: { clip: 'Spin_Back', speed: 2.0, hit: 0.27, launch: 0.27, end: 0.92, damage: 20, range: 0, arc: 0,
       straight: true, noBlade: true, spent: true, unblockable: true, parryable: false, rec: 'idle',
-      max: 3, hop: 3.2, back: 2.5, walk: 0.9, run: 18, flight: 12, width: 0.9, pose: { clip: 'Charge_Pose', at: 0 } },
-    dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0 },
+      max: 3, cooldown: 6, hop: 3.2, back: 2.5, walk: 0.9, run: 18, flight: 12, width: 0.9, pose: { clip: 'Charge_Pose', at: 0 } },
+    // Sprint + attack: runs through the foe (even locked on), unless a guard stops it in front of it; cooldown s.
+    dash: { clip: 'Sword_Dash_RM', speed: 1.1, hit: 0.3, end: 0.85, damage: 18, range: 2.4, arc: 90, lunge: 0, through: true, cooldown: 3 },
     // Skills (keys). A feint shows a bait, then thrusts in fast: blocked, it
     // breaks the guard (the target is staggered).
     skills: {
