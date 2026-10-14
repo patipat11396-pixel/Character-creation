@@ -2676,7 +2676,9 @@ function playerUpdate(dt) {
       if (facing) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(ART.wave.walk * legMul(p));
       // The legs as stepping in the stance (the fight steps, at the walking speed), the charging arms on top.
-      p.playSlot(wish.lengthSq() ? stepSlot(p, wish) : idleSlot(p), { part: 'lower', fade: 0.2 });
+      // Always the stance's legs, in the fight or not: the charging arms are the stance's, and on the
+      // relaxed legs the turned-in chest pointed the blade off to the side.
+      p.playSlot(wish.lengthSq() ? FIGHT_STEPS[stepSlot(p, wish)] : 'idle', { part: 'lower', fade: 0.2 });
       p.setUpper(ART.wave.pose.clip, { hold: ART.wave.pose.at });
     }
   } else if (p.state === 'dodge' && p.rolling) {
