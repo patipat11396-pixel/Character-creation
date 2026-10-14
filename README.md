@@ -273,8 +273,9 @@ on (no pull to the ground, momentum kept); no combo follows it.
 swings a little with the run), the blade slanting forward and down, clear of
 the legs and the floor.
 
-**Pacing.** After an attack ends, guarding, parrying and dodging wait 0.1 s
-(and never happen mid-attack). A fighter caught in a combo stays stunned
+**Pacing.** After an attack ends, guarding and parrying wait 0.1 s (and
+never happen mid-attack); a dodge (side step or roll) goes at once, also out
+of a recovery and out of the 0.6 s spent after the combo's last cut. A fighter caught in a combo stays stunned
 until the combo ends. A perfect parry staggers the foe for 0.5 s, the player
 for 0.35 s.
 

@@ -1934,7 +1934,7 @@ function stepSlot(f, wish) {
   return Math.abs(fwd) >= Math.abs(side) ? (fwd >= 0 ? 'guardForward' : 'guardBack') : (side > 0 ? 'guardLeft' : 'guardRight');
 }
 
-/** Defending (guard, parry, dodge) waits DEFEND_DELAY s after an attack ends, and is never possible mid-attack. */
+/** Guarding and parrying wait DEFEND_DELAY s after an attack ends (a dodge goes at once), and are never possible mid-attack. */
 const DEFEND_DELAY = 0.1;
 function canDefend(f) {
   return f.state !== 'attack' && f.state !== 'feint' && gameTime >= (f.actionEndAt ?? -99) + DEFEND_DELAY;
@@ -2306,7 +2306,10 @@ function playerUpdate(dt) {
   const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12) || cutPush;
   const afterHit = p.state === 'attack' && p.moveHit;
 
-  if (p.state === 'dead') { /* nothing */ } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil' || p.state === 'exposed') {
+  if (p.state === 'dead') { /* nothing */ } else if (dodgePress && (p.state === 'exposed' || p.state === 'recover') && p.stamina >= dodgeCost(p) && p.grounded) {
+    // Out of an attack's end (the spent gap after the combo, a recovery) a dodge gets away at once.
+    doDodge(wish, fwd);
+  } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil' || p.state === 'exposed') {
     // A light cut stopped by a guard: attacking (during the hold or just
     // after) carries on with the next light cut, as if it had landed.
     if (p.state === 'recoil' && attackPress) p.blockQueued = true;
@@ -2315,7 +2318,7 @@ function playerUpdate(dt) {
       if (p.state === 'recoil') p.recoilEndAt = gameTime;
       if (next >= 0 && p.blockQueued) { p.blockQueued = false; p.comboIndex = next; startMove(p, ART.combo[next]); } else p.setState('idle');
     }
-  } else if (dodgePress && canAct && canDefend(p) && p.stamina >= dodgeCost(p) && p.grounded) {
+  } else if (dodgePress && canAct && p.stamina >= dodgeCost(p) && p.grounded) {   // (no DEFEND_DELAY: a dodge goes at once after an attack)
     doDodge(wish, fwd);
   } else if (p.state === 'push' && !cutPush) {
     p.vel.set(0, 0, 0);
