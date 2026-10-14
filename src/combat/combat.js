@@ -53,7 +53,21 @@ composer.addPass(new RenderPass(scene, camera));
 const blur = new AfterimagePass(0);
 composer.addPass(blur);
 composer.addPass(new OutputPass());
-const draw = () => composer.render();
+// Sword waves bend the light behind them (an air-pressure ripple, no colour):
+// while one is out, the scene without them is drawn first into sceneRT, which
+// their material samples a little displaced.
+const sceneRT = new THREE.WebGLRenderTarget(1, 1);
+const waveMeshes = new Set();
+const draw = () => {
+  if (waveMeshes.size) {
+    for (const m of waveMeshes) m.visible = false;
+    renderer.setRenderTarget(sceneRT);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    for (const m of waveMeshes) m.visible = true;
+  }
+  composer.render();
+};
 
 // The animation editor page is a studio, as in the character creator: a dark
 // room, a round floor, no arena.
@@ -1975,28 +1989,73 @@ function fireCharge(p) {
 }
 
 // ------------------------------------------------------------------ sword waves
-// A crescent of light thrown off the blade (the right button's reversed spin): it
+// A crescent of pressed air thrown off the blade (the right button's reversed spin): it
 // runs ART.wave.run m at ART.wave.flight m/s along the thrower's facing, at
 // chest height, `half` m to each side; it cannot be blocked or parried, a
 // dodge (in it as the wave passes) lets it through; it goes on the first body it hits.
 const waves = [];
+// Its look: a flat crescent (seen from above, the bulge leading), a thin
+// upright fin along its middle so it shows from the side too; the scene seen
+// through it is pushed aside and smeared, most at its middle, fading to the tips.
+const waveRes = new THREE.Vector2(1, 1);   // the drawing buffer's size (resize)
+const waveMaterial = (power) => new THREE.ShaderMaterial({
+  uniforms: { tScene: { value: sceneRT.texture }, res: { value: waveRes }, time: { value: 0 }, fade: { value: 1 }, power: { value: power } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tScene; uniform vec2 res; uniform float time, fade, power; varying vec2 vUv;
+    void main() {
+      vec2 uv = gl_FragCoord.xy / res;
+      float across = sin(vUv.y * 3.14159);                 // 0 at the edges, 1 along the middle
+      float tips = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
+      float k = across * tips * fade;
+      vec2 off = vec2(0.012, 0.02) * power * k * (1.0 + 0.35 * sin(vUv.x * 40.0 + time * 30.0));
+      vec3 c = vec3(0.0);
+      for (int i = -2; i <= 2; i++) c += texture2D(tScene, uv + off + vec2(float(i), float(-i)) * 0.0025 * k).rgb;
+      c /= 5.0;
+      // No colour, but it must read over a plain floor too: a darker rim along
+      // both edges (the pressed air's front and back) and a lighter middle.
+      float edge = smoothstep(0.55, 0.95, abs(vUv.y * 2.0 - 1.0)) * tips * fade;
+      c *= 1.0 + 0.12 * k - 0.28 * edge;
+      gl_FragColor = vec4(c, max(smoothstep(0.0, 0.15, k), edge));
+    }`,
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+});
+/** The crescent (local +z ahead, x across, y up): `half` m to each side, bulging `bulge` m ahead, `thick` m at its middle. */
+function crescentGeometry(half, bulge, thick, fin) {
+  const pos = [], uv = [], idx = [];
+  const n = 40;
+  // The flat crescent: its front and back edges.
+  for (let i = 0; i <= n; i++) {
+    const s = i / n * 2 - 1, mid = bulge * (1 - s * s), t = thick * (1 - s * s);
+    pos.push(s * half, 0, mid + t / 2, s * half, 0, mid - t / 2);
+    uv.push(i / n, 0, i / n, 1);
+  }
+  for (let i = 0; i < n; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  // The fin: upright along the middle line.
+  const base = pos.length / 3;
+  for (let i = 0; i <= n; i++) {
+    const s = i / n * 2 - 1, mid = bulge * (1 - s * s), h = fin * (1 - s * s);
+    pos.push(s * half, h / 2, mid, s * half, -h / 2, mid);
+    uv.push(i / n, 0, i / n, 1);
+  }
+  for (let i = 0; i < n; i++) { const a = base + i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
 function launchWave(f) {
   const W = f.move, power = W.power ?? 1;
   const dir = f.forward(new THREE.Vector3());
   const pos = f.pos.clone().addScaledVector(dir, 0.6).setY(0.95);
   const half = W.width * power;
-  const group = new THREE.Group();
-  for (const [inner, color, op] of [[0.8, 0x2f7bff, 0.9], [0.9, 0xbfe0ff, 0.95]]) {
-    const m = new THREE.Mesh(new THREE.RingGeometry(inner, 1, 48, 1, 0, Math.PI),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false }));
-    m.renderOrder = 11;
-    group.add(m);
-  }
-  group.scale.set(half, 0.55 * power, 1);
-  group.position.copy(pos);
-  group.lookAt(pos.clone().add(dir));
-  scene.add(group);
-  waves.push({ owner: f, group, pos, dir, half, dmg: W.damage * power, left: W.run, seen: new Set() });
+  const mesh = new THREE.Mesh(crescentGeometry(half, 0.3 * power, 0.22 * power, 0.25 * power), waveMaterial(power));
+  mesh.renderOrder = 11;
+  mesh.position.copy(pos);
+  mesh.lookAt(pos.clone().add(dir));
+  scene.add(mesh);
+  waveMeshes.add(mesh);
+  waves.push({ owner: f, mesh, pos, dir, half, dmg: W.damage * power, left: W.run, seen: new Set() });
   sound('swing');
 }
 function updateWaves(dt) {
@@ -2006,10 +2065,10 @@ function updateWaves(dt) {
     const from = w.pos.clone();
     w.pos.addScaledVector(w.dir, step);
     w.left -= step;
-    w.group.position.copy(w.pos);
-    const k = 1 - w.left / ART.wave.run;
-    for (const m of w.group.children) m.material.opacity = (m.material.color.getHex() === 0x2f7bff ? 0.9 : 0.95) * Math.min(1, w.left / 1.5);
-    w.group.scale.x = w.half * (1 + 0.15 * k);
+    w.mesh.position.copy(w.pos);
+    const u = w.mesh.material.uniforms;
+    u.time.value = gameTime;
+    u.fade.value = Math.min(1, w.left / 1.5, (ART.wave.run - w.left) / 0.4 + 0.3);
     let gone = w.left <= 1e-4;
     const def = w.owner === player ? enemy : player;
     if (!gone && !w.seen.has(def) && def.state !== 'dead') {
@@ -2022,8 +2081,10 @@ function updateWaves(dt) {
       }
     }
     if (gone) {
-      scene.remove(w.group);
-      for (const m of w.group.children) { m.geometry.dispose(); m.material.dispose(); }
+      scene.remove(w.mesh);
+      waveMeshes.delete(w.mesh);
+      w.mesh.geometry.dispose();
+      w.mesh.material.dispose();
       waves.splice(i, 1);
     }
   }
@@ -3287,7 +3348,7 @@ function tick(real) {
 
 function reset() {
   over = false;
-  for (const w of waves) scene.remove(w.group);
+  for (const w of waves) { scene.remove(w.mesh); waveMeshes.delete(w.mesh); }
   waves.length = 0;
   msgEl.className = '';
   for (const [f, x, z, yaw] of [[player, 0, 4, Math.PI], [enemy, 0, -2, 0]]) {
@@ -3322,6 +3383,7 @@ function resize() {
   const w = window.ANIM_EDITOR_PAGE ? Math.max(200, innerWidth - 360) : innerWidth;
   renderer.setSize(w, innerHeight, false);
   composer.setSize(w, innerHeight);
+  { const v = renderer.getDrawingBufferSize(new THREE.Vector2()); sceneRT.setSize(v.x, v.y); waveRes.copy(v); }
   camera.aspect = w / innerHeight;
   camera.updateProjectionMatrix();
 }
