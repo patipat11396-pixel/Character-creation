@@ -1133,7 +1133,7 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, be
 // (the arm cocked) are the feint's bait, held; the rest is the strike, the
 // arm straight at 0.22 s of it.
 const THRUST_FROM = 0.13;
-/** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the blade along the forearm, ahead. */
+/** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the sword arm stabbing straight ahead, the blade in line. */
 function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   const V = () => new THREE.Vector3(), Pw = (o) => o.getWorldPosition(V());
   const B = f.bones, sk = f.mesh.skeleton;
@@ -1142,13 +1142,25 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   const yaw = f.root.rotation.y;
   f.root.rotation.y = 0;
   const fwd = new THREE.Vector3(0, 0, 1);   // the rig faces +Z at yaw 0
+  const up = new THREE.Vector3(0, 1, 0);
+  // A straight stab: the hand runs on a straight line from where the jab
+  // cocks it (relative to the shoulder) to the arm's length straight ahead,
+  // as far along as the jab's own hand is (its timing kept).
+  const reach = (t) => { poseFromClip(f, base, t); return Pw(B.RightHand).sub(Pw(B.Hips)).dot(fwd); };
+  let lo = Infinity, hi = -Infinity, cockT = 0;
+  for (let t = 0; t <= base.duration + 1e-6; t += 1 / fps) { const r = reach(t); if (r < lo) { lo = r; cockT = t; } hi = Math.max(hi, r); }
+  poseFromClip(f, base, cockT);
+  const cocked = Pw(B.RightHand).sub(Pw(B.RightArm));
+  const armLen = Pw(B.RightArm).distanceTo(Pw(B.RightForeArm)) + Pw(B.RightForeArm).distanceTo(Pw(B.RightHand));
+  const straight = fwd.clone().addScaledVector(up, -0.05).normalize().multiplyScalar(armLen * 0.97);
   const times = [], qv = bones.map(() => []), pv = [];
   const end = holdTo ?? to - from;
   for (let t = 0; t <= end + 1e-6; t += 1 / fps) {
-    poseFromClip(f, base, Math.min(from + t, to));
-    const fore = Pw(B.RightHand).sub(Pw(B.RightForeArm)).normalize();
+    const k = THREE.MathUtils.clamp((reach(Math.min(from + t, to)) - lo) / Math.max(hi - lo, 1e-4), 0, 1);
+    const target = Pw(B.RightArm).add(cocked.clone().lerp(straight, k));
+    twoBoneIK(B.RightArm, B.RightForeArm, B.RightHand, target, up.clone().negate().addScaledVector(fwd.clone().cross(up), 0.5));
     const [b0, b1] = f.blade();
-    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fore.add(fwd).normalize()));
+    turnBoneWorld(B.RightHand, new THREE.Quaternion().setFromUnitVectors(b1.sub(b0).normalize(), fwd.clone().addScaledVector(up, -0.03).normalize()));
     bones.forEach((b, i) => qv[i].push(...b.quaternion.toArray()));
     pv.push(...B.Hips.position.toArray());
     times.push(+t.toFixed(4));

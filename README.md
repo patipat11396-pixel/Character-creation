@@ -204,9 +204,9 @@ Stepping with the guard held, the hips sink to the standing guard's height,
 the feet kept on the ground by bending the legs.
 
 **Thrust.** The feint's strike is `Sword_Thrust`: the captured right jab
-(`Fighting_Right_Jab`) with the blade turned along the forearm, ahead
-(`makeBladeAlongArm`), so the arm drives straight out with the body behind
-it. Its first 0.13 s (the arm cocked) are the bait (`Thrust_Chamber`, held
+(`Fighting_Right_Jab`), its timing and body kept, the sword hand run on a
+straight line from where the jab cocks it to the arm's length straight
+ahead, the blade level and in line (`makeBladeAlongArm`): a straight stab. Its first 0.13 s (the arm cocked) are the bait (`Thrust_Chamber`, held
 to 0.6 s); the strike is the rest, played at 1.3x, the arm straight at
 0.22 s (the blow), over at 0.5 s.
 
