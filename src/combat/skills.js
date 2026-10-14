@@ -54,8 +54,8 @@ export const ARTS = {
     // goes): Light 3's spinning cut played backwards (Spin_Back), jumping
     // `back` m back, a sword wave thrown off the blade at `launch` (clip s: the
     // blade coming round in front) that runs `run` m at `flight` m/s, `width` m
-    // to each side, damage and width x1 to x2 with the charge. No guard stops
-    // the wave; a parry (or an auto parry) sends it back. Charging: the fight
+    // to each side, damage and width x1 to x2 with the charge. A guard takes the
+    // wave (as a blow into it); a parry (or an auto parry) bats it up and away. Charging: the fight
     // stance, the sword swung a little up to the left (`pose`), walking slowly
     // (`walk` m/s), no guard; only a side step. Spent 0.6 s after. The foe uses it too.
     wave: { clip: 'Spin_Back', speed: 2.0, hit: 0.27, launch: 0.27, end: 0.92, damage: 20, range: 0, arc: 0,
@@ -152,7 +152,7 @@ export const DEFAULT_STATS = {
   blockCost: 12,         // per blocked hit
   dodgeWindow: 0.08,     // seconds before a hit in which a dodge is perfect
   parryWindow: 0.12,     // seconds before a hit in which a parry tap is perfect
-  blockReduction: 0.5,   // share of damage taken away by holding parry
+  blockReduction: 0.65,  // share of damage taken away by holding the guard
   counterBonus: 1.5,     // damage multiplier just after a perfect dodge or parry
   runSpeed: 3.8,
   guardSpeed: 0.9,       // moving with the guard up (parry held): slow, careful steps

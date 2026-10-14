@@ -29,6 +29,7 @@ function readStats() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(STATS_KEY)) ?? {}; } catch { /* none */ }
   if (saved.guardSpeed === 1.5) delete saved.guardSpeed;   // the old default: now slower
+  if (saved.blockReduction === 0.5) delete saved.blockReduction;   // the old default: the guard now takes 65%
   return saved;
 }
 function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* private mode */ } }
@@ -2184,7 +2185,7 @@ function updateWaves(dt) {
     }
   }
 }
-/** A wave reaching `def`: through a dodge, back the way it came off a parry (or an auto parry), else it lands (no guard stops it). True if it is spent. */
+/** A wave reaching `def`: through a dodge, batted up by a parry (or an auto parry), taken by a guard, else it lands. True if it is spent. */
 function waveHit(w, def) {
   const att = w.owner;
   // A dodge lets it through; the foe's quick step in to strike is no dodge.
@@ -2195,6 +2196,22 @@ function waveHit(w, def) {
   const free = def.isPlayer ? ['idle', 'move'] : ['idle', 'chase', 'strafe'];
   const auto = !parried && facing && engaged(def) && free.includes(def.state) && def.grounded && !guardBroken(def) && Math.random() < AUTO_PARRY;
   if (parried || auto) { deflectWave(w, def, auto); return false; }
+  // A guard facing it takes it, as a blow into the guard (the guard's share through, stamina spent).
+  if (facing && def.state === 'block' && !guardBroken(def)) {
+    const zoneB = def.zones.find((z) => z.name === 'chest') ?? def.zones[0];
+    const through = (def.isPlayer ? 1 - stats.blockReduction : 0.25) * (partBroken(def, 'torso') ? 1 / PART_RULES.torsoGuard : 1);
+    const dmgB = w.dmg * zoneB.damage * Math.min(1, through);
+    def.hp = Math.max(0, def.hp - dmgB);
+    def.stamina -= stats.blockCost * (partBroken(def, 'armL') ? PART_RULES.armLGuardCost : 1);
+    sound('block');
+    fightShake(att, def, 0.04);
+    sparks(zoneB.a.clone().lerp(zoneB.b, 0.5), 0xfff0b0);
+    floatText(zoneB.a, `Blocked ${Math.round(dmgB)}`, 'blocked');
+    hitLog.push(`${att.isPlayer ? 'P' : 'E'}>wave ${Math.round(dmgB * 10) / 10} blocked`);
+    if (def.hp <= 0) { die(def); return true; }
+    if (def.stamina <= 0) { def.stamina = 0; breakGuard(def); shieldBreakFx(def, att); stagger(def, STAGGER.guardBreak, 'Guard Break', 'staggerBack'); }
+    return true;
+  }
   const zone = def.zones.find((z) => z.name === 'chest') ?? def.zones[0];
   const dmg = w.dmg * zone.damage;
   lastCombatAt = gameTime;
@@ -3000,7 +3017,7 @@ function physics(f, dt) {
 // How well it defends follows stats.aiSkill (0..1, the Stats panel).
 function aiFor(skill) {
   return {
-    parry: 0.3 * skill, dodge: 0.25 * skill, block: 0.35 + 0.25 * skill,   // chances per player move (the rest: no defence)
+    parry: 0.3 * skill, dodge: 0.2 * skill, block: 0.55 + 0.3 * skill,   // chances per player move (the rest: no defence): a tight guard
     reaction: 0.24 - 0.1 * skill,   // s needed to react to a move: quicker blows can only be blocked or taken
     error: 0.1 - 0.07 * skill,      // s, spread of its timing (the parry window is 0.12 s, the dodge's 0.08 s)
   };
@@ -3229,6 +3246,7 @@ function enemyUpdate(dt) {
       if (!['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state)) continue;
       if (r < AI.parry * 1.5 && !guardBroken(e)) e.wavePlan = { at: gameTime + (along - e.radius) / ART.wave.flight - stats.parryWindow * 0.5 };
       else if (r < AI.parry * 1.5 + AI.dodge * 2) enemyStep(e, 'side');
+      else if (r < AI.parry * 1.5 + AI.dodge * 2 + AI.block && !guardBroken(e)) { e.faceTarget(player, 1, 100); enemyGuard(e, along / ART.wave.flight + 0.3); }
     }
   }
   if (e.wavePlan && gameTime >= e.wavePlan.at) {
