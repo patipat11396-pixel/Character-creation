@@ -1833,7 +1833,7 @@ function staggerDrift(f) {
  * short.
  */
 // How far through its move a blocked swing is held: Light 1, 2, 3, others.
-const BLOCK_HOLD = { 0: 0.61, 1: 0.55, 2: 0.68, other: 0.61 };
+const BLOCK_HOLD = { 0: 0.61, 1: 0.45, 2: 0.68, other: 0.61 };
 function recoil(att, def) {
   // Which light cut was stopped: attacking again goes on to the next one.
   att.blockedCombo = ART.combo.indexOf(att.move);
