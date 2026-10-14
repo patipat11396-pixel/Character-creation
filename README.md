@@ -74,7 +74,7 @@ swordsman, with a third-person camera.
 | Right click / Q | heavy attack: slow overhead blow, staggers, a blocked one drains 40 guard stamina; can follow a light hit |
 | Space | jump |
 | Ctrl (or C) | sprint, uses stamina (in fullscreen, F, the keyboard is locked so Ctrl+W cannot close the tab) |
-| Alt | dash / dodge forward, left, right or back (with W/A/D/S, against the camera's way in the fight; back with no direction): the longer it is held, the further (0.4 m for a tap up to 1.5 m, at 6 m/s); forward as the left dodge ducking, chest and head bent forward (`Dodge_Forward`, `makeDucking`); **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
+| Alt | dash / dodge forward, left, right or back (with W/A/D/S, against the camera's way in the fight; back with no direction): the longer it is held, the further (0.4 m for a tap up to 1.5 m, at 6 m/s); forward as the left dodge as it is, turned so its left (where it leans its head) is ahead; **perfect** only if pressed within the dodge window before the blow (0.05–0.12 s, a stat) |
 | Shift | hold: guard (up at once, the held pose in 0.08 s; −50% damage, costs stamina; red attacks cannot be blocked), and walk slowly (0.9 m/s, crouched) with it up, the legs stepping under the held guard; tap within the parry window before the blow: **perfect parry** (no damage, the attacker staggers for 1 s) |
 | E | Feint 虚招 (skill): a fake heavy wind-up, then a fast stab that breaks a guard (cooldown 4 s); a broken guard cannot block or parry for 5 s |
 
@@ -82,13 +82,14 @@ swordsman, with a third-person camera.
 and fills the target's stagger gauge (the orange bar; 2 × damage, a heavy
 55); a full gauge staggers for 1 s. A perfect parry staggers the attacker
 (the foe 0.5 s, the player 0.35 s) while the parrier, at once (no guard
-raised first), cuts the blade aside with `Sword_Regular_A` (`PARRY_CLIP`, its cut played
+raised first), cuts the blade aside with `Sword_Regular_A` (`PARRY_CLIP`; the screen shakes
+when it is half through; its cut played
 in 0.2 s, fast at first and slowing to its end, cut straight into with no
 blend;
 an attack may cut it short after 0.12 s) (it reels back two steps; no stun). A guard broken by a feint or
 by running out of stamina cannot block or parry for 5 s. A blow stopped by a
-guard bounces off: the attacker is held for 0.1 s (the swing runs back a
-little) and the combo is cut short. Every blow that lands or is blocked, given
+guard stops dead: the attacker's swing is held at half way (50% of the
+move) and they are staggered for 0.2 s, the combo cut short. Every blow that lands or is blocked, given
 or taken, shakes the camera; a dodge leaves a short motion blur. The third
 light hit, the finisher, is over in under 0.5 s.
 

@@ -234,15 +234,13 @@ class Fighter {
     }
     for (const n of ['Fight_Back', 'Fight_Forward', 'Fight_Left', 'Fight_Right']) if (!this.clips.has(n)) this.clips.set(n, this.clips.get('Idle_Fight'));
     // The thrust (the feint's strike and its bait): the captured right jab,
-    // the blade along the forearm. The forward dash: the left dodge, ducking.
+    // the blade along the forearm.
     {
       const jab = this.clips.get('Fighting_Right_Jab');
       if (jab) {
         this.clips.set('Thrust_Chamber', makeBladeAlongArm(this, jab, 'Thrust_Chamber', 0, THRUST_FROM, 0.6));
         this.clips.set('Sword_Thrust', makeBladeAlongArm(this, jab, 'Sword_Thrust', THRUST_FROM, jab.duration));
       }
-      const dodge = this.clips.get('Dodge_left');
-      if (dodge) this.clips.set('Dodge_Forward', makeDucking(this, dodge, 'Dodge_Forward'));
     }
     // Light cut 1, from the references: ready -> wind-up -> follow-through -> ready.
     this.clips.set('Sword_Cut_1', makePoseClip(this, 'Sword_Cut_1',
@@ -1164,35 +1162,6 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   ]);
 }
 
-/** `base` (a dodge) with the chest and head bent forward through it: a duck. */
-function makeDucking(f, base, name, { lean = 28, bow = 16, fps = 30 } = {}) {
-  const B = f.bones, sk = f.mesh.skeleton;
-  const bones = sk.bones.filter((b) => b.name !== 'root' && !/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name));
-  const held = sk.bones.map((b) => [b.position.clone(), b.quaternion.clone()]);
-  const yaw = f.root.rotation.y;
-  f.root.rotation.y = 0;
-  const tip = new THREE.Vector3(0, 1, 0).cross(new THREE.Vector3(0, 0, 1));   // turning about this bends the top forward
-  const times = [], qv = bones.map(() => []), pv = [];
-  for (let t = 0; t <= base.duration + 1e-6; t += 1 / fps) {
-    poseFromClip(f, base, t);
-    // In over the first 15%, held, out over the last 35%.
-    const x = t / base.duration;
-    const k = x < 0.15 ? THREE.MathUtils.smoothstep(x, 0, 0.15) : x > 0.65 ? 1 - THREE.MathUtils.smoothstep(x, 0.65, 1) : 1;
-    for (const n of ['Spine1', 'Spine2']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad((lean / 2) * k)));
-    for (const n of ['Neck', 'Head']) turnBoneWorld(B[n], new THREE.Quaternion().setFromAxisAngle(tip, THREE.MathUtils.degToRad((bow / 2) * k)));
-    bones.forEach((b, i) => qv[i].push(...b.quaternion.toArray()));
-    pv.push(...B.Hips.position.toArray());
-    times.push(+t.toFixed(4));
-  }
-  sk.bones.forEach((b, i) => { b.position.copy(held[i][0]); b.quaternion.copy(held[i][1]); });
-  f.root.rotation.y = yaw;
-  f.root.updateMatrixWorld(true);
-  return new THREE.AnimationClip(name, times[times.length - 1], [
-    new THREE.VectorKeyframeTrack('Hips.position', times, pv),
-    ...bones.map((b, i) => new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, qv[i])),
-  ]);
-}
-
 /** `base` with the right arm (shoulder to hand) taken from the sword idle. */
 function makeArmedClip(f, name, base, armFrom = 'Idle_Sword') {
   const clip = f.clips.get(base), idle = f.clips.get(armFrom);
@@ -1777,9 +1746,9 @@ function perfect(def, att, text, parry = false) {
     def.mixer.stopAllAction();
     def.action = null;
     def.play(PARRY_CLIP, { loop: false, fade: 0, speed: PARRY_CUT / PARRY_TIME });
+    def.parryShook = false;   // (it shakes half way through: parryEase)
     att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(2.5));
     hitStop = 0.08;
-    shake(0.05);
     perfectFx(at, 0xf0a800, true, def.isPlayer);
   } else {
     att.exposedUntil = gameTime + 1.2;
@@ -1798,9 +1767,11 @@ function parryEase(f) {
   const x = Math.min(1, f.t / PARRY_TIME);
   a.time = PARRY_CUT * (1 - (1 - x) ** 3);
   a.timeScale = 0;
+  // The screen shakes when the cut is half through.
+  if (!f.parryShook && a.time >= PARRY_CUT * 0.5) { f.parryShook = true; shake(0.08); }
 }
 // perfect: the player parried; perfectFoe: the foe parried by the player.
-const STAGGER = { hitStun: 0.2, recoil: 0.1, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
+const STAGGER = { hitStun: 0.2, recoil: 0.2, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
   f.move = null;
   f.comboIndex = -1;
@@ -1857,16 +1828,18 @@ function staggerDrift(f) {
 }
 
 /**
- * A blow stopped by a guard: the attacker's blade bounces off and they are
- * held for STAGGER.recoil s (the swing runs backwards a little), the combo cut short.
+ * A blow stopped by a guard: the attacker's swing stops dead half way
+ * (held at 50% of the move) and they are staggered for STAGGER.recoil s, the
+ * combo cut short.
  */
 function recoil(att, def) {
+  const half = 0.5 * (att.move?.end ?? att.action?.getClip().duration ?? 0);
   att.move = null;
   att.comboIndex = -1;
   att.queued = false;
   att.setState('recoil');
   att.hitDur = STAGGER.recoil;
-  if (att.action) att.action.timeScale = -0.8 * Math.abs(att.action.timeScale || 1);
+  if (att.action) { att.action.time = half; att.action.timeScale = 0; }
   att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(1.2));
 }
 
@@ -2289,7 +2262,9 @@ function doDodge(wish, camFwd) {
   else if (wish.dot(side) >= 0) { dir = side; clip = 'dodgeLeft'; }
   else { dir = side.clone().negate(); clip = 'dodgeRight'; }
   p.dodgeDir = dir;
-  p.yaw = Math.atan2(ahead.x, ahead.z);
+  // Forward is the left dodge as it is, turned so its left (where it leans
+  // its head) is ahead.
+  p.yaw = Math.atan2(ahead.x, ahead.z) - (clip === 'dodgeForward' ? Math.PI / 2 : 0);
   // Its length is set by how long Alt is held: DASH.min .. DASH.max.
   p.dash = { len: 0, held: true, doneAt: null };
   p.playSlot(clip, { loop: clip === 'dodgeForward', fade: 0.05 });
