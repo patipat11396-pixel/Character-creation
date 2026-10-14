@@ -1828,18 +1828,18 @@ function staggerDrift(f) {
 }
 
 /**
- * A blow stopped by a guard: the attacker's swing stops dead half way
- * (held at 50% of the move) and they are staggered for STAGGER.recoil s, the
- * combo cut short.
+ * A blow stopped by a guard: the attacker's swing stops dead (held at 75%
+ * of the move) and they are staggered for STAGGER.recoil s, the combo cut
+ * short.
  */
 function recoil(att, def) {
-  const half = 0.5 * (att.move?.end ?? att.action?.getClip().duration ?? 0);
+  const held = 0.75 * (att.move?.end ?? att.action?.getClip().duration ?? 0);
   att.move = null;
   att.comboIndex = -1;
   att.queued = false;
   att.setState('recoil');
   att.hitDur = STAGGER.recoil;
-  if (att.action) { att.action.time = half; att.action.timeScale = 0; }
+  if (att.action) { att.action.time = held; att.action.timeScale = 0; }
   att.vel.copy(att.pos.clone().sub(def.pos).setY(0).normalize().multiplyScalar(1.2));
 }
 
