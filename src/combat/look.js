@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { HAIR_DEFAULTS, HairRig, hairMaterial, makeHairCollision } from '../hair.js';
 
 // The character's look in the fight, from the setup the menu saved: painted
@@ -158,13 +159,19 @@ export const LEG_DEFAULTS = { female: 0, male: 0 };
  * The setup's hairstyle on a fighter (in its bind pose, before it moves).
  * Returns { rig, state } or null for bald; call rig.update(dt, state) each frame.
  */
+// Loaded once each (a crowd of foes shares the hairstyle: each gets a clone).
+const hairFiles = new Map();
+let hairIndex = null, hairDefaults = null;
 export async function hairFor(fighter, body, setup, loadGLB, scene) {
   const hair = { ...HAIR_DEFAULTS, ...setup?.hair };
   if (!hair.style || hair.style === 'bald') return null;
-  const index = await fetch('models/hair/index.json').then((r) => r.json());
+  hairIndex ??= fetch('models/hair/index.json').then((r) => r.json());
+  const index = await hairIndex;
   const entry = index.find((e) => e.id === hair.style);
   if (!entry?.file) return null;
-  const gltf = await loadGLB(entry.file);
+  if (!hairFiles.has(entry.file)) hairFiles.set(entry.file, loadGLB(entry.file));
+  const file = await hairFiles.get(entry.file);
+  const gltf = { scene: SkeletonUtils.clone(file.scene) };
   const extras = fighter.root.userData.body;
   const head = fighter.bones.Head;
   // Fitted against the head as modelled (as in the menu): the fight draws the
@@ -191,7 +198,8 @@ export async function hairFor(fighter, body, setup, loadGLB, scene) {
   // The fit saved for this style and body wins over the general one.
   let fit = setup?.hairFits?.[body]?.[hair.style];
   if (!fit) {
-    const defaults = await fetch('models/defaults.json').then((r) => r.json()).catch(() => null);
+    hairDefaults ??= fetch('models/defaults.json').then((r) => r.json()).catch(() => null);
+    const defaults = await hairDefaults;
     fit = defaults?.hairFits?.[body]?.[hair.style];
   }
   return { rig, state: { ...hair, ...fit, collide: hair.collide !== false } };

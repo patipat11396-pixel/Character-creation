@@ -5,6 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { ARTS, ANIM_SLOTS, DEFAULT_STATS, HIT_ZONES, ZONE_ORDER, CRIT, BLADE_ACTIVE, BODY_PARTS, PART_RULES } from './skills.js';
 import { readSetup, skinMaterial, applyFace, hairFor, clothMaterial, LEG_DEFAULTS } from './look.js';
 import { applyAnimEdits, createAnimEditor } from './editor.js';
@@ -18,7 +19,7 @@ import { applyAnimEdits, createAnimEditor } from './editor.js';
 
 const PACKED = null;   // filled in for the published page (models as text parts)
 const STATS_KEY = 'character-creation:combat-stats';
-const ROOM = 14;       // half size of the room (m)
+const ROOM = 30;       // half size of the room (m): room for a crowd of foes
 const HEAD_SCALE = 0.88;
 const FIST = { Thumb: [0, 25, 55], Index: [75, 95, 60], Middle: [75, 95, 60], Ring: [75, 95, 60], Pinky: [75, 95, 60] };
 const ART = ARTS.basicSword;
@@ -98,11 +99,13 @@ if (STUDIO) {
 }
 scene.add(new THREE.HemisphereLight(0xffffff, STUDIO ? 0x2a2d35 : 0xd8d8d4, STUDIO ? 0.9 : 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-sun.position.set(6, 12, 5);
+const SUN_OFFSET = new THREE.Vector3(6, 12, 5);
+sun.position.copy(SUN_OFFSET);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 40 });
 scene.add(sun);
+scene.add(sun.target);
 
 if (STUDIO) {
   const floor = new THREE.Mesh(new THREE.CircleGeometry(1.8, 64), new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.95 }));
@@ -118,7 +121,7 @@ if (STUDIO) {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
-  const grid = new THREE.GridHelper(ROOM * 2, 28, 0xe2e2de, 0xebebe8);
+  const grid = new THREE.GridHelper(ROOM * 2, ROOM * 2, 0xe2e2de, 0xebebe8);
   grid.position.y = 0.002;
   scene.add(grid);
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
@@ -234,6 +237,7 @@ class Fighter {
     this.bones = Object.fromEntries(this.mesh.skeleton.bones.map((b) => [b.name, b]));
     this.mixer = new THREE.AnimationMixer(this.root);
     this.clips = new Map(gltf.animations.map((c) => [c.name, c]));
+    this.template = opts.template ?? null;
     this.action = null;
     // Fingers: the clips have no finger tracks; the sword hand makes a fist.
     this.fingers = [];
@@ -246,8 +250,75 @@ class Fighter {
     this.sword = makeSword(opts.tint);
     this.bones.RightHand.add(this.sword);
     this.gripSword();
-    // Clips the library lacks, made from the rig: a stab (the feint's real
-    // strike) and a stagger (reeling back a couple of steps).
+    // A crowd foe made from a template (the same body): its clips, made once, shared.
+    if (this.template) {
+      this.clips = new Map(this.template.clips);
+      this.strikeH = { ...this.template.strikeH };
+    } else this.makeClips(opts);
+    this.bladePrev = null;
+    // Hit zones: capsules on the bones.
+    this.zones = HIT_ZONES.filter((z) => this.bones[z.from] && (!z.to || this.bones[z.to]))
+      .map((z) => ({ ...z, a: new THREE.Vector3(), b: new THREE.Vector3() }));
+    // Body radius for pushing apart.
+    this.radius = 0.35;
+    this.yaw = 0;
+    this.vel = new THREE.Vector3();
+    this.vy = 0;
+    this.grounded = true;
+    this.hp = opts.maxHp;
+    this.maxHp = opts.maxHp;
+    this.stamina = stats.maxStamina;
+    this.state = 'idle';
+    this.t = 0;          // time in the current state (game seconds)
+    this.move = null;    // the move being performed
+    this.moveHit = false;
+    this.comboIndex = -1;
+    this.queued = false;
+    this.counterUntil = 0;
+    this.parts = makeParts(this.maxHp);
+    this.invulnUntil = 0;
+    scene.add(this.root);
+  }
+
+  /**
+   * Put the sword in the right fist, from the hand's own bones: the handle's
+   * centre in the hole of the fist (between the knuckles and the curled
+   * finger tips), its axis along the knuckle line (little finger to index,
+   * the blade out of the thumb side) at exactly 90 degrees to the hand's
+   * length, and the blade's edge facing the way the knuckles point.
+   */
+  gripSword() {
+    const hand = this.bones.RightHand;
+    const names = ['Index', 'Middle', 'Ring', 'Pinky'];
+    // Curl the fingers into the fist for the measurement, then put them back.
+    const saved = this.fingers.map((f) => f.bone.quaternion.clone());
+    const q = new THREE.Quaternion();
+    for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle));
+    hand.updateMatrixWorld(true);
+    const local = (name) => hand.worldToLocal(this.bones[`RightHand${name}`].getWorldPosition(new THREE.Vector3()));
+    const knuckles = names.map((n) => local(`${n}1`));
+    const tips = names.map((n) => local(`${n}3`));
+    this.fingers.forEach((f, i) => f.bone.quaternion.copy(saved[i]));
+    const centre = new THREE.Vector3();
+    for (const v of [...knuckles, ...tips]) centre.add(v);
+    centre.divideScalar(8);
+    const along = knuckles[1].clone().normalize();                        // wrist to middle knuckle
+    const axis = knuckles[0].clone().sub(knuckles[3]);                    // little finger to index
+    axis.addScaledVector(along, -axis.dot(along)).normalize();            // at 90 degrees to the hand
+    const edge = along.clone().addScaledVector(axis, -along.dot(axis)).normalize();
+    const basis = new THREE.Matrix4().makeBasis(edge, axis, edge.clone().cross(axis));   // sword X = edge, Y = blade
+    this.sword.quaternion.setFromRotationMatrix(basis);
+    // The handle (sword y -0.1..0.1) centred in the fist.
+    const s = hand.getWorldScale(new THREE.Vector3()).x;
+    this.sword.position.copy(centre);
+    this.sword.scale.setScalar(1 / s);
+    this.sword.updateMatrix();
+  }
+
+
+  /** The clips the library lacks, made from the rig (once per body: crowd foes share them). */
+  makeClips(opts) {
+    // A stab (the feint's real strike) and a stagger (reeling back a couple of steps).
     this.clips.set('Idle_Sword_Out', makeStanceClip(this));
     // The fight idle, from motion capture (models/anims/idle_fight.bvh); the
     // made stance if it did not load.
@@ -315,67 +386,16 @@ class Fighter {
       const clip = makeInPlaceClip(this, name);
       if (clip) this.clips.set(name, clip);
     }
-    this.bladePrev = null;
-    // Hit zones: capsules on the bones.
-    this.zones = HIT_ZONES.filter((z) => this.bones[z.from] && (!z.to || this.bones[z.to]))
-      .map((z) => ({ ...z, a: new THREE.Vector3(), b: new THREE.Vector3() }));
-    // Body radius for pushing apart.
-    this.radius = 0.35;
-    this.yaw = 0;
-    this.vel = new THREE.Vector3();
-    this.vy = 0;
-    this.grounded = true;
-    this.hp = opts.maxHp;
-    this.maxHp = opts.maxHp;
-    this.stamina = stats.maxStamina;
-    this.state = 'idle';
-    this.t = 0;          // time in the current state (game seconds)
-    this.move = null;    // the move being performed
-    this.moveHit = false;
-    this.comboIndex = -1;
-    this.queued = false;
-    this.counterUntil = 0;
-    this.parts = makeParts(this.maxHp);
-    this.invulnUntil = 0;
-    scene.add(this.root);
-  }
-
-  /**
-   * Put the sword in the right fist, from the hand's own bones: the handle's
-   * centre in the hole of the fist (between the knuckles and the curled
-   * finger tips), its axis along the knuckle line (little finger to index,
-   * the blade out of the thumb side) at exactly 90 degrees to the hand's
-   * length, and the blade's edge facing the way the knuckles point.
-   */
-  gripSword() {
-    const hand = this.bones.RightHand;
-    const names = ['Index', 'Middle', 'Ring', 'Pinky'];
-    // Curl the fingers into the fist for the measurement, then put them back.
-    const saved = this.fingers.map((f) => f.bone.quaternion.clone());
-    const q = new THREE.Quaternion();
-    for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle));
-    hand.updateMatrixWorld(true);
-    const local = (name) => hand.worldToLocal(this.bones[`RightHand${name}`].getWorldPosition(new THREE.Vector3()));
-    const knuckles = names.map((n) => local(`${n}1`));
-    const tips = names.map((n) => local(`${n}3`));
-    this.fingers.forEach((f, i) => f.bone.quaternion.copy(saved[i]));
-    const centre = new THREE.Vector3();
-    for (const v of [...knuckles, ...tips]) centre.add(v);
-    centre.divideScalar(8);
-    const along = knuckles[1].clone().normalize();                        // wrist to middle knuckle
-    const axis = knuckles[0].clone().sub(knuckles[3]);                    // little finger to index
-    axis.addScaledVector(along, -axis.dot(along)).normalize();            // at 90 degrees to the hand
-    const edge = along.clone().addScaledVector(axis, -along.dot(axis)).normalize();
-    const basis = new THREE.Matrix4().makeBasis(edge, axis, edge.clone().cross(axis));   // sword X = edge, Y = blade
-    this.sword.quaternion.setFromRotationMatrix(basis);
-    // The handle (sword y -0.1..0.1) centred in the fist.
-    const s = hand.getWorldScale(new THREE.Vector3()).x;
-    this.sword.position.copy(centre);
-    this.sword.scale.setScalar(1 / s);
-    this.sword.updateMatrix();
   }
 
   get pos() { return this.root.position; }
+  /** Hidden (a fallen foe cleared away): not drawn, not posed. */
+  setHidden(h) {
+    if (this.hidden === h) return;
+    this.hidden = h;
+    this.shown = null;   // (updateLOD shows or hides it all on its next go)
+    updateLOD(this);
+  }
   forward(out = new THREE.Vector3()) { return out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
 
   /**
@@ -1558,6 +1578,9 @@ function updateBars() {
   $('enemy-poise').style.width = `${((enemy.poise ?? 0) / STAGGER.gauge) * 100}%`;
   $('poise-fill').style.width = `${((player.poise ?? 0) / STAGGER.gauge) * 100}%`;
   $('enemy-text').textContent = `${Math.ceil(enemy.hp)} / ${enemy.maxHp}`;
+  if (enemies.length > 1) $('enemy-text').textContent += ` · ${aliveEnemies().length} / ${enemies.length} standing`;
+  const nameWant = enemy === enemies[0] ? 'Sparring Swordsman · 陪练剑客' : `Swordsman ${enemy.slot + 1}`;
+  if ($('enemy-name').textContent !== nameWant) $('enemy-name').textContent = nameWant;
   for (const [id, ready] of [['skill-e', player.feintReady], ['skill-dash', player.dashReady], ['skill-wave', player.waveReady]]) {
     const left = Math.max(0, (ready ?? 0) - gameTime);
     $(id)?.classList.toggle('cool', left > 0);
@@ -1655,6 +1678,7 @@ function buildSettings() {
     ['parryWindow', 'Perfect parry window (s)', 0.05, 0.2, 0.005],
     ['blockReduction', 'Block damage reduction', 0.3, 0.9, 0.05],
     ['aiSkill', 'Enemy skill (parry, dodge, block)', 0, 1, 0.05],
+    ['enemyCount', 'Foes in the room', 1, 100, 1],
   ];
   const box = $('settings-rows');
   for (const [k, label, min, max, step] of rows) {
@@ -1662,6 +1686,8 @@ function buildSettings() {
     row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${stats[k]}"><b>${stats[k]}</b>`;
     const input = row.querySelector('input');
     input.addEventListener('input', () => { stats[k] = Number(input.value); row.querySelector('b').textContent = input.value; saveStats(); });
+    // (The number of foes takes effect when the slider is let go: spawning takes a moment.)
+    if (k === 'enemyCount') input.addEventListener('change', () => ensureEnemies(stats.enemyCount));
     box.appendChild(row);
   }
 }
@@ -1784,7 +1810,24 @@ let assist = true;
 
 // ------------------------------------------------------------------ fighters
 
+// `enemy` is the player's current target (the locked one, else the nearest
+// standing foe); `enemies` are all the foes (enemies[0] the named sparring partner).
 let player, enemy;
+const enemies = [];
+const fighters = () => [player, ...enemies];
+const aliveEnemies = () => enemies.filter((e) => e.state !== 'dead');
+let lockTarget = null;
+/** The player's target this frame: the locked foe, else the nearest standing one (the last one if none stands). */
+function pickTarget() {
+  if (lockOn && lockTarget && lockTarget.state !== 'dead') return lockTarget;
+  let best = null, bd = Infinity;
+  for (const e of enemies) {
+    if (e.state === 'dead') continue;
+    const d = dist2(e, player);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best ?? enemy ?? enemies[0];
+}
 let gameTime = 0;
 let timeScale = 1, slowUntil = 0, hitStop = 0;
 let over = false;
@@ -2183,8 +2226,8 @@ function updateWaves(dt) {
     u.time.value = gameTime;
     u.fade.value = w.deflected ? Math.min(1, w.left / 3) : Math.min(1, w.left / 1.5, (ART.wave.run - w.left) / 0.4 + 0.3);
     let gone = w.left <= 1e-4;
-    const def = w.owner === player ? enemy : player;
-    if (!gone && !w.deflected && !w.seen.has(def) && def.state !== 'dead') {
+    for (const def of w.owner === player ? enemies : [player]) {
+      if (gone || w.deflected || w.seen.has(def) || def.state === 'dead') continue;
       // Swept past the body this frame (its centre between the wave's last and new place, within its width)?
       const rel = def.pos.clone().sub(from).setY(0);
       const along = rel.dot(w.dir), side = Math.abs(rel.x * w.dir.z - rel.z * w.dir.x);
@@ -2304,7 +2347,13 @@ lockMark.renderOrder = 12;
 lockMark.visible = false;
 scene.add(lockMark);
 function updateLock() {
-  if (lockOn && (enemy.state === 'dead' || Math.sqrt(dist2(player, enemy)) > 30)) { lockOn = false; message('Lock-on off'); }
+  if (lockOn && lockTarget?.state === 'dead') {
+    // The locked foe fell: on to the nearest standing one, if any.
+    lockTarget = null;
+    const next = pickTarget();
+    if (next && next.state !== 'dead') lockTarget = enemy = next; else { lockOn = false; message('Lock-on off'); }
+  }
+  if (lockOn && Math.sqrt(dist2(player, enemy)) > 30) { lockOn = false; message('Lock-on off'); }
   lockMark.visible = lockOn;
   if (!lockOn) return;
   lockMark.position.copy(enemy.bones.Head.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0, 0.38, 0));
@@ -2315,7 +2364,7 @@ function engaged(f) {
   // F sets the player's stance by hand (on, or off until F again); until then it is automatic.
   if (f.stance !== undefined) return f.stance;
   const foe = f === player ? enemy : player;
-  return Math.sqrt(dist2(f, foe)) < 6 || gameTime - lastCombatAt < 4;
+  return (foe && Math.sqrt(dist2(f, foe)) < 6) || gameTime - lastCombatAt < 4;
 }
 const idleSlot = (f) => (engaged(f) ? 'idle' : 'idleCalm');
 const GUARD_CROUCH = 0.26;   // m the hips sink while stepping with the guard held (down to the standing guard's height)
@@ -2419,9 +2468,13 @@ function stagger(f, dur, text, slot = 'stagger') {
 function die(f) {
   f.move = null;
   f.setState('dead');
+  f.diedAt = gameTime;
   f.playSlot('death', { loop: false, fade: 0.1 });
-  over = true;
-  message(f.isPlayer ? 'Defeated — press R to try again' : 'Victory — press R to fight again', f.isPlayer ? 'bad' : 'good');
+  const left = aliveEnemies().length;
+  if (f.isPlayer || left === 0) {
+    over = true;
+    message(f.isPlayer ? 'Defeated — press R to try again' : 'Victory — press R to fight again', f.isPlayer ? 'bad' : 'good');
+  } else message(`Down — ${left} left`, 'good');
 }
 
 // ------------------------------------------------------------------ perfect parry / dodge effects
@@ -2602,7 +2655,8 @@ class SwordTrail {
 }
 const trails = new Map();
 function updateTrails() {
-  for (const f of [player, enemy]) {
+  for (const f of fighters()) {
+    if (f.hidden) continue;
     if (!trails.has(f)) trails.set(f, new SwordTrail());
     trails.get(f).update(f);
     // The stab: a burst off the tip as the thrust reaches out.
@@ -2650,19 +2704,29 @@ function sparks(pos, color) {
 }
 
 /** Blade contact while the move's blade is live. */
-function bladeStep(att, def) {
+/** The attacker's blade this frame against each of `defs` (its last place kept once, after all of them). */
+function bladeStep(att, defs) {
   const move = att.move;
-  if (!move || att.moveHit || move.noBlade) return;
+  if (!move || att.moveHit || move.noBlade) { att.bladePrev = null; return; }
+  const now = att.blade();
+  if (att.bladePrev) for (const def of defs) {
+    if (att.moveHit || att.move !== move) break;
+    if (def.state === 'dead' || dist2(att, def) > (move.range + 2.5) ** 2) continue;
+    bladeStepOne(att, def, now);
+  }
+  att.bladePrev = now;
+}
+function bladeStepOne(att, def, now) {
+  const move = att.move;
   const mt = att.moveTime();
   const live = mt >= move.hit - BLADE_ACTIVE.before && mt <= move.hit + BLADE_ACTIVE.after;
-  const now = att.blade();
-  if (live && att.bladePrev) {
+  if (live) {
     // A timed defence counts at the scheduled blow even if the blade would graze nothing yet.
     const due = gameTime >= att.hitAt && inFront(att, def, move.range, move.arc);
     // A blade that touches before the blow's scheduled moment (the aim tilts the swing)
     // lands at that moment: the timing ring and the parry / dodge windows stay true.
-    const zone = att.pendingZone ?? bladeContact(att.bladePrev, now, def);
-    if (zone && gameTime < att.hitAt - 0.02) att.pendingZone = zone;
+    const zone = (att.pendingZone?.def === def ? att.pendingZone.zone : null) ?? bladeContact(att.bladePrev, now, def);
+    if (zone && gameTime < att.hitAt - 0.02) att.pendingZone = { zone, def };
     else if (zone) { att.pendingZone = null; resolveHit(att, def, zone); }
     else if (due && !att.timedChecked) {
       att.timedChecked = true;
@@ -2672,7 +2736,6 @@ function bladeStep(att, def) {
       else if (!guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) { att.moveHit = true; perfect(def, att, 'Perfect Parry!', true); }
     }
   }
-  att.bladePrev = now;
 }
 
 // ------------------------------------------------------------------ player control
@@ -2715,7 +2778,8 @@ function playerUpdate(dt) {
   const canAct = ['idle', 'move', 'block'].includes(p.state) || (p.state === 'recover' && p.t > 0.12) || cutPush;
   const afterHit = p.state === 'attack' && p.moveHit;
 
-  if (p.state === 'dead') { /* nothing */ } else if (dodgePress && (p.state === 'exposed' || p.state === 'recover') && p.stamina >= dodgeCost(p) && p.grounded) {
+  if (p.state === 'dead') { /* nothing */ } else if (dodgePress && (p.state === 'exposed' || p.state === 'recover'
+    || (p.state === 'attack' && p.move === ART.dash && p.moveTime() >= p.move.hit)) && p.stamina >= dodgeCost(p) && p.grounded) {
     // Out of an attack's end (the spent gap after the combo, a recovery) a dodge gets away at once.
     doDodge(wish, fwd);
   } else if (p.state === 'hit' || p.state === 'stagger' || p.state === 'recoil' || p.state === 'exposed') {
@@ -2823,7 +2887,7 @@ function playerUpdate(dt) {
   // Skills cut in at once out of a light cut (from its blow on), its recovery, or the
   // spent gap after the combo: no waiting, and the press is not taken as the next cut.
   const skillOut = p.state === 'exposed' || p.state === 'recover'
-    || (p.state === 'attack' && ART.combo.includes(p.move) && p.moveTime() >= p.move.hit);
+    || (p.state === 'attack' && (ART.combo.includes(p.move) || p.move === ART.dash) && p.moveTime() >= p.move.hit);
   if (pressed.has(feint.key) && (canAct || afterHit || skillOut) && p.grounded && gameTime >= (p.feintReady ?? 0) && p.stamina >= feint.stamina) {
     p.stamina -= feint.stamina;
     p.feintReady = gameTime + feint.cooldown;
@@ -3176,7 +3240,7 @@ function enemyStart(e, move) {
 function enemyDecide(e, d, adv, pressing) {
   const r = Math.random();
   // Out of reach, now and then: charge the wave and throw it.
-  if (!pressing && d > 4 && d < 14 && gameTime >= (e.waveReady ?? 0) && r < 0.3) {
+  if (!pressing && d > 4 && d < 14 && gameTime >= (e.waveReady ?? 0) && r < 0.3 && !enemies.some((o) => o !== e && o.state === 'charge')) {
     e.waveReady = gameTime + 6 + Math.random() * 4;
     enemyCharge(e);
     e.think = 0.5;
@@ -3243,6 +3307,43 @@ function enemyFlee(e) {
   e.setState('flee');
   e.fleeFor = 1.5 + Math.random();
 }
+/**
+ * A foe without an attack token (only ENEMY_TOKENS press the player at once)
+ * keeps a ring round the fight at its own distance, circling, guard now and then.
+ */
+const ENEMY_TOKENS = 2;
+function enemyWait(e, d, dt) {
+  e.holdAt ??= 4.5 + Math.random() * 3;
+  e.circle ??= Math.random() < 0.5 ? 1 : -1;
+  const toP = player.pos.clone().sub(e.pos).setY(0).normalize();
+  if (d > 12) {
+    e.state = 'chase';
+    e.vel.copy(toP).multiplyScalar(3.8 * legMul(e));
+    e.playSlot('run', { fade: 0.2 });
+    return;
+  }
+  const side = new THREE.Vector3(toP.z, 0, -toP.x).multiplyScalar(e.circle);
+  const v = THREE.MathUtils.clamp((d - e.holdAt) * 1.2, -1.5, 1.5);
+  e.vel.copy(toP).multiplyScalar(v).addScaledVector(side, 0.5).multiplyScalar(legMul(e) * FIGHT_STEP_SPEED * 1.5);
+  e.state = 'chase';
+  e.playSlot(Math.abs(v) > 0.3 ? (v > 0 ? 'walk' : 'guardBack') : (e.circle > 0 ? 'guardLeft' : 'guardRight'), { fade: 0.25 });
+  if (e.think <= 0) {
+    e.think = 0.8 + Math.random() * 1.2;
+    if (Math.random() < 0.3) e.circle = -e.circle;
+    // From out there it may still charge a wave (one foe at a time).
+    if (d > 4 && d < 14 && gameTime >= (e.waveReady ?? 0) && !enemies.some((o) => o.state === 'charge') && Math.random() < 0.15) {
+      e.waveReady = gameTime + 8 + Math.random() * 6;
+      enemyCharge(e);
+    }
+  }
+}
+/** The attack tokens: the ENEMY_TOKENS standing foes nearest the player (re-dealt every frame). */
+function dealTokens() {
+  const list = aliveEnemies().sort((a, b) => dist2(a, player) - dist2(b, player));
+  for (const e of enemies) e.hasToken = false;
+  for (let i = 0; i < Math.min(ENEMY_TOKENS, list.length); i++) list[i].hasToken = true;
+}
+
 function enemyStrafe(e) {
   e.setState('strafe');
   e.strafeDir = Math.random() < 0.5 ? 1 : -1;
@@ -3250,17 +3351,17 @@ function enemyStrafe(e) {
   e.playSlot(e.strafeDir > 0 ? 'guardLeft' : 'guardRight', { fade: 0.2 });
 }
 
-function enemyUpdate(dt) {
-  const e = enemy;
+function enemyUpdate(e, dt) {
   e.t += dt;
   e.crouch = 0;
   if (e.state !== 'flee' && e.stance === false) e.stance = undefined;
   // A wave coming: parried back (timed on its arrival), or side-stepped, now and then.
   for (const w of waves) {
-    if (w.owner === e || w.aiSeen || w.deflected) continue;
+    if (w.owner !== player || w.deflected || w.aiSeenBy?.has(e)) continue;
     const rel = e.pos.clone().sub(w.pos).setY(0), along = rel.dot(w.dir);
     if (along > 0 && along / ART.wave.flight < 0.45) {
-      w.aiSeen = true;
+      (w.aiSeenBy ??= new Set()).add(e);
+      if (w.aiSeen) continue;   // (tests: no reaction)
       const AI = aiFor(stats.aiSkill ?? 0.5), r = Math.random();
       if (!['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state)) continue;
       if (r < AI.parry * 1.5 && !guardBroken(e)) e.wavePlan = { at: gameTime + (along - e.radius) / ART.wave.flight - stats.parryWindow * 0.5 };
@@ -3401,6 +3502,7 @@ function enemyUpdate(dt) {
     default: {   // idle, chase, recover: footwork around its preferred distance
       e.faceTarget(player, dt, 6);
       if (e.state === 'recover' && e.think > 0) { e.vel.multiplyScalar(0.8); break; }
+      if (!e.hasToken) { enemyWait(e, d, dt); break; }
       // The player spent after a full combo: in at once and cut (most times, more with skill).
       if (player.state === 'exposed' && e.punished !== player.exposedId) {
         e.punished = player.exposedId;
@@ -3507,6 +3609,7 @@ function updateZoneDebug() {
   if (!showZones) { for (const m of zoneMeshes) m.visible = false; return; }
   let i = 0;
   for (const f of [player, enemy]) {
+    if (!f) continue;
     for (const z of f.zones) {
       let m = zoneMeshes[i];
       if (!m) {
@@ -3599,7 +3702,7 @@ function frame() {
   // Nothing moves until the fight is started (the enemy waits too).
   if (!active) {
     // Waiting to start: both stand in the sword idle (nothing else moves).
-    for (const f of [player, enemy]) { f.unfinishPose(); f.mixer.update(real); f.finishPose(); f.hair?.rig.update(real, f.hair.state); }
+    animateAll(real);
     updateCamera(real);
     draw();
     return;
@@ -3608,13 +3711,175 @@ function frame() {
   draw();
 }
 
+// ------------------------------------------------------------------ level of detail
+// Far foes are drawn with a coarse copy of each skinned part (vertex
+// clustering: vertices on a grid merged, their skinning kept, the UV seams
+// kept apart), made once per mesh and shared by every foe with that mesh;
+// the mouth parts are not drawn at all. Shadows only from the player and the
+// SHADOW_FOES foes nearest the camera; foes off-screen are not drawn.
+// Two coarse levels: beyond LOD_DIST[0] m from the camera, and beyond LOD_DIST[1]
+// (1 m of slack back the other way); each a grid cell (share of the mesh's
+// largest size) and how finely the UV seams are kept apart (0: not at all).
+const LOD_DIST = [7, 15];
+const LOD_LEVELS = [{ cell: 0.022, uv: 4 }, { cell: 0.05, uv: 0 }];
+const SHADOW_FOES = 4;
+const lodGeoms = new Map();
+function clusterGeometry(geo, level) {
+  const pos = geo.attributes.position, n = pos.count;
+  geo.computeBoundingBox();
+  const size = geo.boundingBox.getSize(new THREE.Vector3());
+  const cell = Math.max(size.x, size.y, size.z) * level.cell;
+  const uv = level.uv ? geo.attributes.uv : null;
+  const ids = new Map(), map = new Int32Array(n), reps = [];
+  for (let i = 0; i < n; i++) {
+    let key = `${Math.floor(pos.getX(i) / cell)},${Math.floor(pos.getY(i) / cell)},${Math.floor(pos.getZ(i) / cell)}`;
+    if (uv) key += `,${Math.floor(uv.getX(i) * level.uv)},${Math.floor(uv.getY(i) * level.uv)}`;
+    let id = ids.get(key);
+    if (id === undefined) { id = reps.length; ids.set(key, id); reps.push(i); }
+    map[i] = id;
+  }
+  const m = reps.length, out = new THREE.BufferGeometry();
+  const get = (a, i, k) => (k === 0 ? a.getX(i) : k === 1 ? a.getY(i) : k === 2 ? a.getZ(i) : a.getW(i));
+  for (const [name, attr] of Object.entries(geo.attributes)) {
+    const isize = attr.itemSize;
+    const arr = name === 'skinIndex' ? new Uint16Array(m * isize) : new Float32Array(m * isize);
+    if (name === 'position' || name === 'normal') {
+      // Positions and normals averaged over the cluster (the rest from one vertex).
+      const cnt = new Float32Array(m);
+      for (let i = 0; i < n; i++) { const c = map[i]; cnt[c]++; for (let k = 0; k < isize; k++) arr[c * isize + k] += get(attr, i, k); }
+      for (let c = 0; c < m; c++) for (let k = 0; k < isize; k++) arr[c * isize + k] /= cnt[c];
+      if (name === 'normal') for (let c = 0; c < m; c++) {
+        const l = Math.hypot(arr[c * 3], arr[c * 3 + 1], arr[c * 3 + 2]) || 1;
+        arr[c * 3] /= l; arr[c * 3 + 1] /= l; arr[c * 3 + 2] /= l;
+      }
+    } else for (let c = 0; c < m; c++) for (let k = 0; k < isize; k++) arr[c * isize + k] = get(attr, reps[c], k);
+    out.setAttribute(name, new THREE.BufferAttribute(arr, isize));
+  }
+  const idx = geo.index;
+  const groups = geo.groups.length ? geo.groups : [{ start: 0, count: idx ? idx.count : n, materialIndex: 0 }];
+  const tris = [];
+  for (const g of groups) {
+    const start = tris.length;
+    const endAt = Math.min(g.start + g.count, idx ? idx.count : n);
+    for (let t = g.start; t + 2 < endAt + 0; t += 3) {
+      const a = map[idx ? idx.getX(t) : t], b = map[idx ? idx.getX(t + 1) : t + 1], c = map[idx ? idx.getX(t + 2) : t + 2];
+      if (a !== b && b !== c && a !== c) tris.push(a, b, c);
+    }
+    if (geo.groups.length) out.addGroup(start, tris.length - start, g.materialIndex);
+  }
+  out.setIndex(tris);
+  out.computeBoundingSphere();
+  return out;
+}
+const MOUTH = ['Teeth', 'Gums', 'Tongue'];
+/** The coarse copies of `f`'s skinned parts (and hair), bound to its own skeletons. */
+function buildLOD(f) {
+  f.lodParts = [];
+  const parts = [];
+  f.root.traverse((o) => { if (o.isSkinnedMesh) parts.push(o); });
+  if (f.hair) parts.push(f.hair.rig.mesh);
+  for (const hi of parts) {
+    const mouth = MOUTH.includes(hi.material?.name);
+    const los = [];
+    if (!mouth) LOD_LEVELS.forEach((level, k) => {
+      const key = `${hi.geometry.uuid}:${k}`;
+      // (The hair's mesh is small for its detail: a grid three times coarser for it.)
+      const isHair = hi === f.hair?.rig.mesh;
+      if (!lodGeoms.has(key)) lodGeoms.set(key, clusterGeometry(hi.geometry, isHair ? { cell: level.cell * 3, uv: 0 } : level));
+      const lo = new THREE.SkinnedMesh(lodGeoms.get(key), hi.material);
+      lo.bindMode = hi.bindMode;
+      lo.bind(hi.skeleton, hi.bindMatrix);
+      lo.position.copy(hi.position); lo.quaternion.copy(hi.quaternion); lo.scale.copy(hi.scale);
+      lo.frustumCulled = false;
+      lo.visible = false;
+      hi.parent.add(lo);
+      los.push(lo);
+    });
+    f.lodParts.push({ hi, los, mouth });
+  }
+  f.lod = 0;
+}
+function updateLOD(f) {
+  const show = !f.hidden && (f.isPlayer || f.onScreen);
+  let lod = f.lod ?? 0;
+  if (f.isPlayer || !f.lodParts) lod = 0;
+  else {
+    // (1 m of slack before going back to a finer level: no flicker at the edge.)
+    while (lod < LOD_DIST.length && f.camDist > LOD_DIST[lod]) lod++;
+    while (lod > 0 && f.camDist < LOD_DIST[lod - 1] - 1) lod--;
+  }
+  if (show === f.shown && lod === f.lod) return;
+  f.shown = show;
+  f.lod = lod;
+  f.root.visible = show;
+  // (The hair hangs from the scene, not the body: shown and hidden by hand.)
+  if (!f.lodParts) { if (f.hair) f.hair.rig.mesh.visible = show; return; }
+  for (const { hi, los } of f.lodParts) {
+    hi.visible = show && lod === 0;
+    los.forEach((lo, k) => { lo.visible = show && lod === k + 1; });
+  }
+}
+/** Shadows: the player and the few foes nearest the camera. */
+function updateShadows() {
+  const near = aliveEnemies().filter((e) => e.onScreen).sort((a, b) => a.camDist - b.camDist).slice(0, SHADOW_FOES);
+  for (const f of fighters()) {
+    const on = f.isPlayer || near.includes(f);
+    if (f.castsShadow === on) continue;
+    f.castsShadow = on;
+    for (const { hi } of f.lodParts ?? []) hi.castShadow = on;
+    f.sword.traverse((o) => { if (o.isMesh) o.castShadow = on; });
+  }
+  // The sun's shadow follows the player (the room is large now).
+  sun.position.copy(player.pos).add(SUN_OFFSET);
+  sun.target.position.copy(player.pos);
+  sun.target.updateMatrixWorld();
+}
+
+// ------------------------------------------------------------------ animating many fighters
+// The player and the foes near the camera (or pressing the player) are posed
+// every frame; foes further off every 2nd, far or off-screen ones every 4th
+// (their time saved up), and the fallen not at all once hidden.
+let frameNo = 0;
+const frustum = new THREE.Frustum(), projView = new THREE.Matrix4(), viewSphere = new THREE.Sphere();
+function animateAll(dt) {
+  if (!player) return;
+  camera.updateMatrixWorld();
+  projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(projView);
+  for (const f of fighters()) {
+    if (f.hidden) continue;
+    f.animAcc = (f.animAcc ?? 0) + dt;
+    viewSphere.center.copy(f.pos).setY(f.pos.y + 0.9);
+    viewSphere.radius = 1.4;
+    f.onScreen = frustum.intersectsSphere(viewSphere);
+    f.camDist = camera.position.distanceTo(viewSphere.center);
+    updateLOD(f);
+    let every = 1;
+    if (!f.isPlayer && !f.hasToken && f.state !== 'attack') every = !f.onScreen || f.camDist > 35 ? 4 : f.camDist > 14 ? 2 : 1;
+    if (every > 1 && (frameNo + (f.slot ?? 0)) % every) continue;
+    const t = f.animAcc;
+    f.animAcc = 0;
+    f.unfinishPose();
+    f.mixer.update(t);
+    f.finishPose(t);
+    if (f.hair && (f.onScreen || f.isPlayer)) f.hair.rig.update(Math.max(t, 1e-4), f.hair.state);
+    if (f.flashUntil && gameTime > f.flashUntil) { f.sword.userData.steel.emissive.setHex(0); f.flashUntil = 0; }
+  }
+  updateShadows();
+}
+
 function tick(real) {
   if (pressed.has('KeyR')) reset();
   if (pressed.has('KeyH')) { assist = !assist; message(assist ? 'Timing assist on' : 'Timing assist off'); }
   if (pressed.has('KeyB')) showZones = !showZones;
   if (pressed.has('KeyP')) { PERF.shown = !PERF.shown; if (!PERF.shown) fpsEl.textContent = ''; }
   if (pressed.has('F11')) fullscreen();
-  if (pressed.has('CapsLock') && active && enemy.state !== 'dead') { lockOn = !lockOn; message(lockOn ? 'Lock-on' : 'Lock-on off'); }
+  if (pressed.has('CapsLock') && active && enemy?.state !== 'dead') { lockOn = !lockOn; lockTarget = lockOn ? enemy : null; message(lockOn ? 'Lock-on' : 'Lock-on off'); }
+  if (pressed.has('KeyQ') && active && lockOn) {
+    // Q: lock on to the next foe (by distance, after the current one).
+    const list = aliveEnemies().sort((a, b) => dist2(a, player) - dist2(b, player));
+    if (list.length) { lockTarget = enemy = list[(list.indexOf(lockTarget) + 1) % list.length]; message('Next target'); }
+  }
   if (pressed.has('Tab')) {
     player.dodgeMode = player.dodgeMode === 'roll' ? 'step' : 'roll';
     message(player.dodgeMode === 'roll' ? 'Dodge: roll' : 'Dodge: side step');
@@ -3627,29 +3892,43 @@ function tick(real) {
   if (hitStop > 0) { hitStop -= real; timeScale = 0.05; } else timeScale = gameTime < slowUntil ? 0.3 : 1;
   const dt = real * timeScale;
   gameTime += dt;
+  enemy = pickTarget();
+  dealTokens();
   playerUpdate(dt);
-  enemyUpdate(dt);
+  frameNo++;
+  for (const e of enemies) {
+    if (e.state === 'dead') { if (gameTime - (e.diedAt ?? 0) > 3) e.setHidden(true); continue; }
+    // Far foes without a token think less often (their time saved up for the next go).
+    e.aiAcc = (e.aiAcc ?? 0) + dt;
+    const far = !e.hasToken && dist2(e, player) > 144 && !['attack', 'charge', 'dodge', 'jump', 'stagger', 'hit'].includes(e.state);
+    if (far && (frameNo + e.slot) % 3) continue;
+    enemyUpdate(e, e.aiAcc);
+    e.aiAcc = 0;
+  }
   updateWaves(dt);
-  // Keep the two apart.
-  const sep = enemy.pos.clone().sub(player.pos).setY(0);
-  const dd = sep.length(), minD = player.radius + enemy.radius;
-  if (dd < minD && dd > 1e-4 && player.state !== 'dead' && enemy.state !== 'dead' && !passing(player) && !passing(enemy)) {
-    sep.multiplyScalar((minD - dd) / dd / 2);
-    enemy.pos.add(sep);
-    player.pos.sub(sep);
+  // Keep bodies apart (the player and every foe, and the foes from each other).
+  const all = fighters();
+  for (let i = 0; i < all.length; i++) {
+    const a = all[i];
+    if (a.state === 'dead') continue;
+    for (let j = i + 1; j < all.length; j++) {
+      const b = all[j];
+      if (b.state === 'dead') continue;
+      const sx = b.pos.x - a.pos.x, sz = b.pos.z - a.pos.z, minD = a.radius + b.radius;
+      if (Math.abs(sx) > minD || Math.abs(sz) > minD) continue;
+      const dd = Math.hypot(sx, sz);
+      if (dd >= minD || dd < 1e-4 || ((a.isPlayer || b.isPlayer) && (passing(a) || passing(b)))) continue;
+      const k = (minD - dd) / dd / 2;
+      b.pos.x += sx * k; b.pos.z += sz * k;
+      a.pos.x -= sx * k; a.pos.z -= sz * k;
+    }
   }
   // The player's cut follows the camera: looking down cuts low, looking up cuts
   // high. (Not a straight thrust: it goes straight ahead.)
   player.aim = player.move?.straight ? 0 : aimFromCamera();
-  for (const f of [player, enemy]) {
-    f.unfinishPose();
-    f.mixer.update(dt);
-    f.finishPose(dt);
-    f.hair?.rig.update(Math.max(dt, 1e-4), f.hair.state);
-    if (f.flashUntil && gameTime > f.flashUntil) { f.sword.userData.steel.emissive.setHex(0); f.flashUntil = 0; }
-  }
-  bladeStep(player, enemy);
-  bladeStep(enemy, player);
+  animateAll(dt);
+  bladeStep(player, enemies);
+  for (const e of enemies) if (e.state !== 'dead') bladeStep(e, [player]);
   updateTrails();
   for (let i = sparkPool.length - 1; i >= 0; i--) {
     const s = sparkPool[i];
@@ -3658,9 +3937,9 @@ function tick(real) {
     s.m.material.opacity = Math.max(0, 1 - s.life / 0.25);
     if (s.life > 0.25) { scene.remove(s.m); sparkPool.splice(i, 1); }
   }
-  for (const f of [player, enemy]) healParts(f, dt);
-  for (const f of [player, enemy]) knockUpdate(f, dt);
-  for (const f of [player, enemy]) {
+  for (const f of fighters()) healParts(f, dt);
+  for (const f of fighters()) knockUpdate(f, dt);
+  for (const f of fighters()) {
     if (f.poise > 0 && gameTime - (f.poiseAt ?? 0) > STAGGER.decayAfter) f.poise = Math.max(0, f.poise - STAGGER.decay * dt);
   }
   // Dodge motion blur: trails while dodging, fading out quickly after.
@@ -3686,7 +3965,10 @@ function reset() {
   for (const w of waves) { scene.remove(w.mesh); waveMeshes.delete(w.mesh); }
   waves.length = 0;
   msgEl.className = '';
-  for (const [f, x, z, yaw] of [[player, 0, 4, Math.PI], [enemy, 0, -2, 0]]) {
+  enemy = enemies[0];
+  lockTarget = null;
+  for (const [f, x, z, yaw] of [[player, 0, 4, Math.PI], ...enemies.map((e, i) => [e, ...foePlace(i)])]) {
+    f.setHidden(false);
     f.pos.set(x, 0, z);
     f.yaw = yaw;
     f.vel.set(0, 0, 0);
@@ -3715,7 +3997,51 @@ function reset() {
     f.playSlot('idleCalm', { fade: 0 });
   }
   camYaw = 0;
-  enemy.think = 1.5;
+  enemies.forEach((e, i) => { e.think = 1.5 + i * 0.03 + Math.random() * 0.5; });
+}
+/** Where foe `i` starts: the sparring partner in front, the rest in widening rings round the room. */
+function foePlace(i) {
+  if (i === 0) return [0, -2, 0];
+  const a = i * 2.39996, r = Math.min(ROOM - 1.5, 7 + 2.4 * Math.sqrt(i));
+  const x = Math.sin(a) * r, z = Math.cos(a) * r;
+  return [x, z, Math.atan2(-x, 4 - z)];
+}
+
+// ------------------------------------------------------------------ the crowd
+// Foes beyond the first: the sparring partner's body and look, its clips shared
+// (no remaking), its hair cloned; made a few at a time so the page stays live.
+let spawnKit = null, spawning = null;
+async function ensureEnemies(n) {
+  if (!spawnKit) return;
+  n = THREE.MathUtils.clamp(Math.round(n), 1, 100);
+  while (spawning) await spawning;
+  spawning = (async () => {
+    while (enemies.length > n) {
+      const e = enemies.pop();
+      e.root.removeFromParent();
+      e.hair?.rig.mesh.removeFromParent();
+      for (const { los } of e.lodParts ?? []) for (const lo of los) lo.removeFromParent();
+    }
+    while (enemies.length < n) {
+      const i = enemies.length;
+      const k = spawnKit;
+      const e = new Fighter({ scene: SkeletonUtils.clone(k.proto), animations: k.animations }, k.body,
+        { name: 'Swordsman', maxHp: 200, skin: k.skin, setup: k.setup, defaults: k.defaults, template: enemies[0], tint: 0x8a1c1c });
+      e.hair = await hairFor(e, k.body, k.setup, loadGLB, scene);
+      e.slot = i;
+      buildLOD(e);
+      const [x, z, yaw] = foePlace(i);
+      e.pos.set(x, 0, z);
+      e.yaw = yaw;
+      e.playSlot('idleCalm', { fade: 0 });
+      e.think = 1 + Math.random();
+      enemies.push(e);
+      if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0));
+    }
+    message(n > 1 ? `${n} foes` : 'One foe');
+  })();
+  await spawning;
+  spawning = null;
 }
 
 function resize() {
@@ -3750,17 +4076,23 @@ async function main() {
     captureText = idleFight;
     const [s1, s2] = await Promise.all([
       skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
+    const proto = SkeletonUtils.clone(g2.scene);   // (before the first foe is made from it)
     player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, defaults, anims, tint: 0xc9a227 });
     enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, defaults, anims, tint: 0x8a1c1c });
     const [h1, h2] = await Promise.all([hairFor(player, body, setup, loadGLB, scene), hairFor(enemy, other, enemySetup, loadGLB, scene)]);
     player.hair = h1;
     enemy.hair = h2;
+    enemy.slot = 0;
+    enemies.push(enemy);
+    buildLOD(enemy);
+    spawnKit = { proto, animations: g2.animations, body: other, setup: enemySetup, skin: s2, defaults };
     // Animation edits made in the editor (kept in this browser).
     applyAnimEdits(player.clips);
     applyAnimEdits(enemy.clips);
     if ($('open-editor')) $('open-editor').disabled = false;
     $('enemy-name').textContent = 'Sparring Swordsman · 陪练剑客';
     $('player-name').textContent = setup?.name || '';
+    if (!window.ANIM_EDITOR_PAGE && stats.enemyCount > 1) await ensureEnemies(stats.enemyCount);
     reset();
     initAnimPanel();
     $('loading').hidden = true;
@@ -3781,6 +4113,9 @@ window.combat = {
   /** Hold (or let go of) the right button: charging the wave. */
   rightHold(on) { rightHeld = on; if (on) rightClicked = true; },
   get waves() { return waves; },
+  get enemies() { return enemies; },
+  spawn(n) { return ensureEnemies(n); },
+  reset() { reset(); },
   enemyWave() { enemyCharge(enemy); },
   enemyDo(what) { const d = Math.sqrt(dist2(enemy, player)); if (what === 'jump') enemyJumpCut(enemy, d); else if (what === 'flee') enemyFlee(enemy); },
   look(yaw, pitch) { camYaw = yaw; if (pitch !== undefined) camPitch = pitch; },

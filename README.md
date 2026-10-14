@@ -294,6 +294,31 @@ go to step away, or side-steps the thrust.
 guards 55% + 30% × its skill (70% at the default), parries 30% × skill and
 side-steps 20% × skill; it guards waves too.
 
+**A crowd of foes** (Stats → *Foes in the room*, 1 to 100; takes effect when
+the slider is let go). The sparring partner stands in front; the others
+(the same body and look, 200 HP) start in widening rings round a larger room
+(60 m across; the sun's shadow follows the player). Every foe fights with the
+foe's AI, but only the two nearest the player hold an **attack token** and
+press in; the rest keep a ring at 4.5–7.5 m, circling, now and then charging a
+wave (one at a time). The player's target is the nearest standing foe (or the
+locked one: Caps Lock locks on, **Q** switches to the next nearest); its name
+and health show at the top with the count still standing. Victory when all are
+down; the fallen are cleared away after 3 s. The player's cut hits one foe
+(the first it meets); a player's wave meets every foe in its way.
+
+**Running a crowd.** Crowd foes share the sparring partner's clips (made once,
+not per foe) and a clone of its hair, so 100 spawn in a few seconds. Per frame:
+- foes off-screen are not drawn; foes near the camera (or pressing the player)
+  are posed every frame, foes past 14 m every 2nd, far or off-screen every 4th;
+  far foes without a token think every 3rd frame (their time saved up);
+- each skinned part has two coarse copies (vertex clustering: the grid merged,
+  the skinning kept), drawn past 7 m and past 15 m: the skin 54k → 3.4k → 0.6k
+  triangles, the clothes 38–50k → 16–20k → 4–5k, the hair 50k → 5.6k → 1.3k;
+  the mouth parts are not drawn past 7 m;
+- only the player and the 4 foes nearest the camera cast shadows.
+Measured with 100 foes (in software rendering): the logic about 2.2 ms a frame;
+39 drawn, about 1.4M triangles in view plus 0.57M in the shadow pass.
+
 **Frame rate.** The logic is cheap (about 0.5 ms a frame); the cost is drawing
 (two skinned bodies of about 360k triangles, drawn for the shadow and the
 view). To hold 60 fps: the scene goes straight to the screen (with MSAA), the

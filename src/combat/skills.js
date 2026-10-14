@@ -158,6 +158,7 @@ export const DEFAULT_STATS = {
   guardSpeed: 0.9,       // moving with the guard up (parry held): slow, careful steps
   sprintSpeed: 6.6,
   aiSkill: 0.5,          // the enemy's defence: 0 none, 1 parries and dodges often and on time
+  enemyCount: 1,         // foes in the room (1: the sparring partner alone; up to 100)
 };
 
 // Hit zones (positional hitboxes): capsules on the bones; the blade has to
