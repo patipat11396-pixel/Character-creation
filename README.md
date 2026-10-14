@@ -294,6 +294,16 @@ go to step away, or side-steps the thrust.
 guards 55% + 30% × its skill (70% at the default), parries 30% × skill and
 side-steps 20% × skill; it guards waves too.
 
+**Frame rate.** The logic is cheap (about 0.5 ms a frame); the cost is drawing
+(two skinned bodies of about 360k triangles, drawn for the shadow and the
+view). To hold 60 fps: the scene goes straight to the screen (with MSAA), the
+post-processing composer (two full-screen passes) only while the dodge's motion
+blur or a sword wave is showing; the shadow filter is plain PCF (not soft); and
+the resolution scale adapts: it starts at most 1.5x the CSS pixels, steps down
+0.15 each second the rate is under 55 fps (to 0.6x), and tries a 0.1 step up
+every 5 s at 59+, keeping the lower scale if that drops the rate again. The
+rate and the scale show at the top left (P hides them).
+
 **No help panel**: the controls list on the left is gone from the screen (this
 README has it).
 

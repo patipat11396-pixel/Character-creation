@@ -38,11 +38,13 @@ function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stat
 
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Resolution scale: starts at most 1.5x and adapts to hold 60 fps (adaptRes).
+const PERF = { pr: Math.min(devicePixelRatio, 1.5), max: Math.min(devicePixelRatio, 2), min: 0.6, ema: 1 / 60, t: 0, upAt: -99, shown: true };
+renderer.setPixelRatio(PERF.pr);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;   // (the soft filter cost a lot of fill for little to see)
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf4f4f2);
 scene.fog = new THREE.Fog(0xf4f4f2, 18, 40);
@@ -59,6 +61,9 @@ composer.addPass(new OutputPass());
 // their material samples a little displaced.
 const sceneRT = new THREE.WebGLRenderTarget(1, 1);
 const waveMeshes = new Set();
+// The composer (two full-screen passes, and no MSAA) only while the motion blur or a
+// wave is showing; the rest of the time the scene goes straight to the screen.
+let composerWarm = false;
 const draw = () => {
   if (waveMeshes.size) {
     for (const m of waveMeshes) m.visible = false;
@@ -67,7 +72,21 @@ const draw = () => {
     renderer.setRenderTarget(null);
     for (const m of waveMeshes) m.visible = true;
   }
-  composer.render();
+  if (blur.uniforms.damp.value > 0.002 || waveMeshes.size) {
+    if (!composerWarm) {
+      // (Its afterimage buffer is stale from the last time: one frame with no trail refills it.)
+      const d = blur.uniforms.damp.value;
+      blur.uniforms.damp.value = 0;
+      composer.render();
+      blur.uniforms.damp.value = d;
+      composerWarm = true;
+      return;
+    }
+    composer.render();
+  } else {
+    composerWarm = false;
+    renderer.render(scene, camera);
+  }
 };
 
 // The animation editor page is a studio, as in the character creator: a dark
@@ -3543,9 +3562,38 @@ function closeEditor() {
 }
 // The editor has its own page; the fight links to it.
 $('open-editor')?.addEventListener('click', () => { location.href = 'anim-editor.html'; });
+const fpsEl = document.createElement('div');
+fpsEl.style.cssText = 'position:fixed;left:14px;top:56px;font:11px system-ui,sans-serif;color:#888;pointer-events:none;z-index:5';
+document.body.appendChild(fpsEl);
+/**
+ * Hold 60 fps: every second, below 55 the resolution scale steps down (to PERF.min);
+ * at 59+ it tries a step up every 5 s, and if that costs the frame rate again it
+ * stays at the lower scale (no see-sawing).
+ */
+function adaptRes(dt) {
+  PERF.ema += (dt - PERF.ema) * 0.05;
+  PERF.t += dt;
+  if (PERF.t < 1) return;
+  PERF.t = 0;
+  const fps = 1 / PERF.ema;
+  fpsEl.textContent = PERF.shown ? `${Math.round(fps)} fps · ${PERF.pr.toFixed(2)}x` : '';
+  const now = performance.now() / 1000;
+  let pr = PERF.pr;
+  if (fps < 55 && pr > PERF.min) {
+    if (now - PERF.upAt < 3) PERF.max = Math.max(PERF.min, pr - 0.1);   // the last step up was too much
+    pr = Math.max(PERF.min, pr - 0.15);
+  } else if (fps >= 59 && pr < PERF.max && now - PERF.upAt > 5) {
+    pr = Math.min(PERF.max, pr + 0.1);
+    PERF.upAt = now;
+  }
+  if (pr !== PERF.pr) { PERF.pr = pr; renderer.setPixelRatio(pr); composer.setPixelRatio(pr); resize(); }
+}
+
 function frame() {
   requestAnimationFrame(frame);
-  const real = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta();
+  adaptRes(raw);
+  const real = Math.min(raw, 0.05);
   if (!player || stepping) return;
   if (editor?.isOpen) { editor.update(real); draw(); return; }
   // Nothing moves until the fight is started (the enemy waits too).
@@ -3564,6 +3612,7 @@ function tick(real) {
   if (pressed.has('KeyR')) reset();
   if (pressed.has('KeyH')) { assist = !assist; message(assist ? 'Timing assist on' : 'Timing assist off'); }
   if (pressed.has('KeyB')) showZones = !showZones;
+  if (pressed.has('KeyP')) { PERF.shown = !PERF.shown; if (!PERF.shown) fpsEl.textContent = ''; }
   if (pressed.has('F11')) fullscreen();
   if (pressed.has('CapsLock') && active && enemy.state !== 'dead') { lockOn = !lockOn; message(lockOn ? 'Lock-on' : 'Lock-on off'); }
   if (pressed.has('Tab')) {
