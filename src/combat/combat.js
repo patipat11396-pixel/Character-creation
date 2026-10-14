@@ -1970,6 +1970,7 @@ function perfect(def, att, text, parry = false) {
   if (def.isPlayer) slowUntil = gameTime + (parry ? 0.1 : 0.6);
   if (!def.isPlayer) { def.think = parry ? 0.3 : 0.05; def.plan = null; }   // and it counters
   if (parry) {
+    def.parryPending = false;   // (a parry that caught something is no miss)
     const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
     stagger(att, att.isPlayer ? STAGGER.perfect : STAGGER.perfectFoe, null);
     // The parrier cuts the other blade aside with Sword_Regular_A (attacks may cut it short after 0.12 s).
@@ -1993,6 +1994,7 @@ function perfect(def, att, text, parry = false) {
 // A blow costs 0.2 s of hit-stun (no knock-downs) and fills the stagger
 // gauge; a full gauge staggers for STAGGER.full seconds and empties.
 const AUTO_PARRY = 0.25;   // chance of an auto parry (resolveHit)
+const PARRY_MISS_LOCK = 0.5;   // s a missed parry tap locks the parry out (the guard still works)
 /** The charge for the right button's wave running on (charging, or stepping aside): the blade glows hotter, red when full. */
 function chargeTick(p, dt) {
   const W = ART.wave;
@@ -2120,6 +2122,7 @@ function reflectWave(w, def, auto) {
   def.action = null;
   def.play(PARRY_CLIP, { loop: false, fade: 0, speed: PARRY_CUT / PARRY_TIME });
   def.parryShook = false;
+  def.parryPending = false;
   def.invulnUntil = gameTime + 0.3;
   if (!def.isPlayer) { def.think = 0.3; def.plan = null; }
   sound('perfect');
@@ -2618,7 +2621,11 @@ function playerUpdate(dt) {
   const parryPress = (pressed.has('ShiftLeft') || pressed.has('ShiftRight')) && !guardBroken(p) && canDefend(p);
   const jumpPress = pressed.has('Space');
   const chargePress = rightClicked;   // right button: charge the wave (the heavy attack is gone)
-  if (parryPress) p.parryAt = gameTime;
+  // A parry tap opens the parry window; one that catches nothing (a miss)
+  // locks the parry out for PARRY_MISS_LOCK s, and taps inside an open window
+  // do not reopen it: mashing the key no longer parries everything.
+  if (p.parryPending && gameTime - p.parryAt > stats.parryWindow + 0.02) { p.parryPending = false; p.parryLockUntil = gameTime + PARRY_MISS_LOCK; }
+  if (parryPress && !p.parryPending && gameTime >= (p.parryLockUntil ?? 0)) { p.parryAt = gameTime; p.parryPending = true; }
 
   // The parry sweep plays out unless an action cuts it off (after 0.12 s).
   const cutPush = p.state === 'push' && p.t > 0.12 && (attackPress || chargePress || dodgePress || jumpPress || pressed.has(ART.skills.feint.key));
@@ -2650,8 +2657,8 @@ function playerUpdate(dt) {
       // Walking slowly while charging; no guard or parry (only a side step).
       if (engaged(p)) p.turnTo(camFace, dt, 10); else if (wish.lengthSq()) p.turnTo(Math.atan2(wish.x, wish.z), dt, 8);
       p.vel.copy(wish).multiplyScalar(ART.wave.walk * legMul(p));
-      const ls = wish.lengthSq() ? ANIM_SLOTS[stepSlot(p, wish)] : ANIM_SLOTS[idleSlot(p)];
-      p.play(ls.clip, { speed: wish.lengthSq() ? ls.speed : 1, part: 'lower', fade: 0.2 });
+      // The legs as stepping in the stance (the fight steps, at the walking speed), the charging arms on top.
+      p.playSlot(wish.lengthSq() ? stepSlot(p, wish) : idleSlot(p), { part: 'lower', fade: 0.2 });
       p.setUpper(ART.wave.pose.clip, { hold: ART.wave.pose.at });
     }
   } else if (p.state === 'dodge' && p.rolling) {
@@ -3472,6 +3479,8 @@ function reset() {
     f.guardBrokenUntil = 0;
     f.plan = null;
     f.parryAt = -99;
+    f.parryPending = false;
+    f.parryLockUntil = 0;
     f.dodgeAt = -99;
     f.stance = undefined;   // the combat stance automatic again
     f.move = null;
