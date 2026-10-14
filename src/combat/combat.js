@@ -238,7 +238,9 @@ class Fighter {
     {
       const jab = this.clips.get('Fighting_Right_Jab');
       if (jab) {
-        this.clips.set('Thrust_Chamber', makeBladeAlongArm(this, jab, 'Thrust_Chamber', 0, THRUST_FROM, 0.6));
+        // The bait: the crouch and the arm cocking spread over its whole time,
+        // easing in (no stop before the stab).
+        this.clips.set('Thrust_Chamber', makeBladeAlongArm(this, jab, 'Thrust_Chamber', 0, THRUST_FROM, ART.skills.feint.bait.until, true));
         this.clips.set('Sword_Thrust', makeBladeAlongArm(this, jab, 'Sword_Thrust', THRUST_FROM, jab.duration));
       }
     }
@@ -1135,8 +1137,8 @@ function makeBvhClip(f, text, name, { fps = 30, blend = 0.4, bladeRise = 0.1, be
 const THRUST_FROM = 0.13;
 const THRUST_RISE = 0.06;   // the thrust goes straight ahead (rising 6 cm per metre)
 const THRUST_CROUCH = 0.16;   // m the hips sink for it: down as the arm cocks, up again as it comes back
-/** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`), the sword arm stabbing straight ahead, the blade in line. */
-function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
+/** `base` from `from` to `to` (clip s, re-timed from 0, held to `holdTo`, or stretched over it), the sword arm stabbing straight ahead, the blade in line. */
+function makeBladeAlongArm(f, base, name, from, to, holdTo = null, stretch = false, fps = 30) {
   const V = () => new THREE.Vector3(), Pw = (o) => o.getWorldPosition(V());
   const B = f.bones, sk = f.mesh.skeleton;
   const bones = sk.bones.filter((b) => b.name !== 'root' && !/Hand(Thumb|Index|Middle|Ring|Pinky)/.test(b.name));
@@ -1160,7 +1162,8 @@ function makeBladeAlongArm(f, base, name, from, to, holdTo = null, fps = 30) {
   let hiT = 0;
   for (let t = 0, best = -Infinity; t <= base.duration + 1e-6; t += 1 / fps) { const r = reach(t); if (r > best) { best = r; hiT = t; } }
   for (let t = 0; t <= end + 1e-6; t += 1 / fps) {
-    const bt = Math.min(from + t, to);
+    // stretch: from..to spread over the whole clip, eased (slow, then quicker).
+    const bt = stretch ? from + (to - from) * (t / end) ** 1.6 : Math.min(from + t, to);
     const k = THREE.MathUtils.clamp((reach(bt) - lo) / Math.max(hi - lo, 1e-4), 0, 1);
     // Crouch: down while the arm cocks, held through the stab, up as it comes back.
     const c = bt <= THRUST_FROM ? THREE.MathUtils.smoothstep(bt, 0, THRUST_FROM) : bt <= hiT ? 1 : k;

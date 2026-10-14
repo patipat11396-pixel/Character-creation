@@ -216,8 +216,9 @@ ahead, the blade in line, the hips sinking 16 cm by IK (`THRUST_CROUCH`:
 down as the arm cocks, held through the stab, up as it comes back)
 (`makeBladeAlongArm`): a crouched, straight stab. Being straight
 (`straight: true`), its arm is not turned round like the cuts' (armTurn)
-nor tilted by the camera's aim. Its first 0.13 s (the arm cocked) are the bait (`Thrust_Chamber`, held
-to 0.6 s); the strike is the rest, played at 1.3x, the arm straight at
+nor tilted by the camera's aim. Its first 0.13 s (the arm cocking, the crouch) are the bait
+(`Thrust_Chamber`), spread over the bait's 0.3 s and easing in, so it
+flows into the stab without a stop; the strike is the rest, played at 1.3x, the arm straight at
 0.22 s (the blow), over at 0.5 s.
 
 **Steps.** Out of the fight the fighter walks and runs with the sword
