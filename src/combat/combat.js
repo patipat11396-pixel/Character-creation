@@ -263,9 +263,8 @@ class Fighter {
       [[0, GUARD], [0.12, CUT1_UP], [0.24, CUT1_DOWN], [0.34, CUT1_DOWN], [0.52, GUARD]], 0.52));
     { const easy = this.clips.get('Idle_A') ?? this.clips.get('Idle_Sword');
       this.clips.set('Idle_Relaxed', makeLungeClip(this, 'Idle_Relaxed', [[0, STAB.relaxed], [easy.duration, STAB.relaxed]], easy.duration, easy, 0.1)); }
-    // Charging the wave: the sword raised up to the left (both hands on the hilt).
-    { const st = this.clips.get('Idle_Fight') ?? this.clips.get('Idle_Sword');
-      this.clips.set('Charge_Pose', makeLungeClip(this, 'Charge_Pose', [[0, STAB.charge], [st.duration, STAB.charge]], st.duration, st, 0.1)); }
+    // Charging the wave: the fight stance as it is, the sword arm swung a little to the left and up.
+    { const c = makeArmTurnClip(this, 'Charge_Pose', 'Idle_Fight', 25, 10); if (c) this.clips.set('Charge_Pose', c); }
     // The feint: the chamber (the bait), then the lunge (the real strike).
     this.clips.set('Stab_Chamber', makeLungeClip(this, 'Stab_Chamber', [[0, STAB.stance], [0.2, STAB.chamber], [0.6, STAB.chamber]], 0.6));
     this.clips.set('Sword_Stab', makeLungeClip(this, 'Sword_Stab', [[0, STAB.chamber], [0.12, STAB.lunge], [0.3, STAB.lunge], [0.5, STAB.stance]], 0.5));
@@ -603,10 +602,6 @@ const STAB = {
   // the idle has it.
   // (Straight: reach 0.995, the elbow's bend, what there is, pointing back.)
   relaxed: { armDir: [0.58, 0.45, -1], reach: 0.995, pole: [-1, 0.25, 0], blade: [0.85, 0.3, -0.45], left: null, look: 'ahead' },
-  // Charging the wave: the hilt in both hands in front of the chest, a little
-  // to the left, the blade raised up to the left at 45 degrees, the body
-  // coiled a little; eyes ahead. (The crouch comes from ART.wave.crouch.)
-  charge: { twist: 12, hand: [0.3, -0.24, -0.16], blade: [0.15, -0.7, 0.7], left: 'grip', look: 'ahead' },
   // The ready stance: side-on, wide and low, the front (sword side) leg long
   // toward the foe, the weight on the bent back knee; the sword arm straight
   // out at the foe a little below the shoulder, the blade in line rising a
@@ -1289,6 +1284,35 @@ function makeRunCarryClip(f, name, base) {
   return new THREE.AnimationClip(name, clip.duration, tracks);
 }
 
+/**
+ * Clip `base` with the sword arm turned about the shoulder: the blade swung
+ * `left` degrees to the fighter's left and `up` degrees up; nothing else changed.
+ */
+function makeArmTurnClip(f, name, base, left, up, fps = 30) {
+  const clip = f.clips.get(base);
+  if (!clip) return null;
+  const B = f.bones, Y = new THREE.Vector3(0, 1, 0);
+  const n = Math.max(2, Math.round(clip.duration * fps) + 1);
+  const times = Array.from({ length: n }, (_, i) => (i / (n - 1)) * clip.duration);
+  const values = [];
+  for (const t of times) {
+    poseFromClip(f, clip, t);
+    const [b0, b1] = [f.sword.localToWorld(f.sword.userData.base.clone()), f.sword.localToWorld(f.sword.userData.tip.clone())];
+    const blade = b1.sub(b0).normalize();
+    // (Turning about +Y swings toward the fighter's left: it faces +Z, its left is +X.)
+    const want = blade.clone().applyAxisAngle(Y, THREE.MathUtils.degToRad(left));
+    const side = want.clone().cross(Y).normalize();
+    if (side.lengthSq() > 1e-6) want.applyAxisAngle(side, THREE.MathUtils.degToRad(up));
+    turnBoneWorld(B.RightArm, new THREE.Quaternion().setFromUnitVectors(blade, want.normalize()));
+    values.push(...B.RightArm.quaternion.toArray());
+  }
+  poseFromClip(f, f.clips.get('Idle_Sword'), 0);
+  return new THREE.AnimationClip(name, clip.duration, [
+    ...clip.tracks.filter((tr) => tr.name !== 'RightArm.quaternion'),
+    new THREE.QuaternionKeyframeTrack('RightArm.quaternion', times, values),
+  ]);
+}
+
 /** Clip `src` from `from` to `to` s, played backwards, as `name`. */
 function makeReversedClip(f, src, name, from, to, fps = 30) {
   const clip = f.clips.get(src);
@@ -1761,7 +1785,8 @@ function startMove(f, move) {
   const foe = f.isPlayer ? enemy : player;
   const gap = Math.sqrt(dist2(f, foe));
   const ahead = gap < 5 && inFront(f, foe, 5, 140);
-  f.lungeLeft = Math.max(move.lunge ?? 0, ahead ? Math.min(2, gap - (move.reach ?? 0.95)) : 0);
+  // (A move with no blade contact, the wave's, has no soft lock: it jumps back.)
+  f.lungeLeft = move.noBlade ? 0 : Math.max(move.lunge ?? 0, ahead ? Math.min(2, gap - (move.reach ?? 0.95)) : 0);
   f.lungeTotal = f.lungeLeft;
   if (ahead) f.faceTarget(foe, 1, 1);
   if (move.unblockable) flashSword(f, 0xff2a2a); else if (!f.isPlayer) flashSword(f, 0xffe7a0);
@@ -2628,7 +2653,6 @@ function playerUpdate(dt) {
       const ls = wish.lengthSq() ? ANIM_SLOTS[stepSlot(p, wish)] : ANIM_SLOTS[idleSlot(p)];
       p.play(ls.clip, { speed: wish.lengthSq() ? ls.speed : 1, part: 'lower', fade: 0.2 });
       p.setUpper(ART.wave.pose.clip, { hold: ART.wave.pose.at });
-      p.crouch = ART.wave.crouch;
     }
   } else if (p.state === 'dodge' && p.rolling) {
     rollVel(p, dt);
@@ -3098,10 +3122,9 @@ function enemyUpdate(dt) {
     case 'charge':
       e.faceTarget(player, dt, 8);
       e.vel.set(0, 0, 0);
-      e.crouch = ART.wave.crouch;
       e.chargeT = Math.min(ART.wave.max, e.chargeT + dt);
       chargeGlow(e);
-      if (e.chargeT >= e.chargeFor) { e.crouch = 0; fireCharge(e); e.think = 0.3; }
+      if (e.chargeT >= e.chargeFor) { fireCharge(e); e.think = 0.3; }
       break;
     case 'dodge': {
       if (e.rolling) {
