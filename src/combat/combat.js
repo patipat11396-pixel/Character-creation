@@ -2097,7 +2097,8 @@ function crescentGeometry(half, bulge, thick, fin) {
 function launchWave(f) {
   const W = f.move, power = W.power ?? 1;
   const dir = f.forward(new THREE.Vector3());
-  const pos = f.pos.clone().addScaledVector(dir, 0.6).setY(0.95);
+  // From the thrower's own body: a foe already close (inside its first stretch) is caught too.
+  const pos = f.pos.clone().addScaledVector(dir, 0.1).setY(0.95);
   const half = W.width * power;
   const mesh = new THREE.Mesh(crescentGeometry(half, 0.3 * power, 0.26 * power, 0.4 * power), waveMaterial(power));
   mesh.renderOrder = 11;
@@ -2108,14 +2109,11 @@ function launchWave(f) {
   waves.push({ owner: f, mesh, pos, dir, half, dmg: W.damage * power, left: W.run, seen: new Set() });
   sound('swing');
 }
-/** Parried: the wave goes back the way it came, the parrier's now (a full run again), with the parry's cut and flash. */
-function reflectWave(w, def, auto) {
-  w.owner = def;
-  w.dir.negate();
-  w.pos.copy(def.pos).addScaledVector(w.dir, def.radius + 0.3).setY(w.pos.y);
-  w.left = ART.wave.run;
-  w.seen.clear();
-  w.aiSeen = false;
+/** Parried: the wave is batted up and away (it hits nothing more and fades), with the parry's cut and flash. */
+function deflectWave(w, def, auto) {
+  w.deflected = true;
+  w.dir.set(w.dir.x * 0.35, 1, w.dir.z * 0.35).normalize();
+  w.left = Math.min(w.left, 3);
   w.mesh.lookAt(w.pos.clone().add(w.dir));
   def.move = null;
   def.setState('push');
@@ -2131,7 +2129,7 @@ function reflectWave(w, def, auto) {
   hitStop = 0.06;
   const at = def.sword.localToWorld(def.sword.userData.tip.clone().multiplyScalar(0.6));
   perfectFx(at, 0xf0a800, true, def.isPlayer);
-  message(def.isPlayer ? (auto ? 'Auto Parry — wave reflected!' : 'Wave reflected!') : 'Your wave was reflected!', def.isPlayer ? 'good' : 'bad');
+  message(def.isPlayer ? (auto ? 'Auto Parry — wave deflected!' : 'Wave deflected!') : 'Your wave was deflected', def.isPlayer ? 'good' : 'bad');
 }
 function updateWaves(dt) {
   for (let i = waves.length - 1; i >= 0; i--) {
@@ -2143,16 +2141,18 @@ function updateWaves(dt) {
     w.mesh.position.copy(w.pos);
     const u = w.mesh.material.uniforms;
     u.time.value = gameTime;
-    u.fade.value = Math.min(1, w.left / 1.5, (ART.wave.run - w.left) / 0.4 + 0.3);
+    u.fade.value = w.deflected ? Math.min(1, w.left / 3) : Math.min(1, w.left / 1.5, (ART.wave.run - w.left) / 0.4 + 0.3);
     let gone = w.left <= 1e-4;
     const def = w.owner === player ? enemy : player;
-    if (!gone && !w.seen.has(def) && def.state !== 'dead') {
+    if (!gone && !w.deflected && !w.seen.has(def) && def.state !== 'dead') {
       // Swept past the body this frame (its centre between the wave's last and new place, within its width)?
       const rel = def.pos.clone().sub(from).setY(0);
       const along = rel.dot(w.dir), side = Math.abs(rel.x * w.dir.z - rel.z * w.dir.x);
       if (along >= -def.radius && along <= step + def.radius && side <= w.half + def.radius) {
-        w.seen.add(def);
-        if (waveHit(w, def)) gone = true;
+        // (Dodged through, it is not marked seen: it is past the body anyway.)
+        const r = waveHit(w, def);
+        if (r !== 'dodged') w.seen.add(def);
+        if (r === true) gone = true;
       }
     }
     if (gone) {
@@ -2167,13 +2167,14 @@ function updateWaves(dt) {
 /** A wave reaching `def`: through a dodge, back the way it came off a parry (or an auto parry), else it lands (no guard stops it). True if it is spent. */
 function waveHit(w, def) {
   const att = w.owner;
-  if (def.state === 'dodge' || gameTime < def.invulnUntil) { if (def.isPlayer) message('Dodged the wave', 'good'); return false; }
+  // A dodge lets it through; the foe's quick step in to strike is no dodge.
+  if ((def.state === 'dodge' && !def.stepIn) || gameTime < def.invulnUntil) { if (def.isPlayer) message('Dodged the wave', 'good'); return 'dodged'; }
   const facing = def.forward().angleTo(w.dir.clone().negate()) < THREE.MathUtils.degToRad(70);
   const sinceParry = gameTime - (def.parryAt ?? -99);
   const parried = facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02;
   const free = def.isPlayer ? ['idle', 'move'] : ['idle', 'chase', 'strafe'];
   const auto = !parried && facing && engaged(def) && free.includes(def.state) && def.grounded && !guardBroken(def) && Math.random() < AUTO_PARRY;
-  if (parried || auto) { reflectWave(w, def, auto); return false; }
+  if (parried || auto) { deflectWave(w, def, auto); return false; }
   const zone = def.zones.find((z) => z.name === 'chest') ?? def.zones[0];
   const dmg = w.dmg * zone.damage;
   lastCombatAt = gameTime;
@@ -2976,6 +2977,7 @@ function enemyRead(e, d) {
     e.stepScale = 1;
     e.stepEnd = 0.5;
     e.afterStep = null;
+    e.stepIn = false;
     const toP = p.pos.clone().sub(e.pos).setY(0).normalize();
     const side = new THREE.Vector3(toP.z, 0, -toP.x);
     const r = Math.random();
@@ -3030,6 +3032,7 @@ function enemyStep(e, kind, then = null) {
   const side = new THREE.Vector3(toP.z, 0, -toP.x).multiplyScalar(Math.random() < 0.5 ? 1 : -1);
   e.yaw = Math.atan2(toP.x, toP.z);
   e.afterStep = then;
+  e.stepIn = kind === 'in';
   e.stepScale = kind === 'in' ? 0.75 : 0.85;
   e.stepEnd = 0.38;
   if (kind === 'in') { e.dodgeDir = toP; e.playSlot('run', { fade: 0.06, speed: 1.4 }); }
@@ -3118,7 +3121,7 @@ function enemyUpdate(dt) {
   e.crouch = 0;
   // A wave coming: parried back (timed on its arrival), or side-stepped, now and then.
   for (const w of waves) {
-    if (w.owner === e || w.aiSeen) continue;
+    if (w.owner === e || w.aiSeen || w.deflected) continue;
     const rel = e.pos.clone().sub(w.pos).setY(0), along = rel.dot(w.dir);
     if (along > 0 && along / ART.wave.flight < 0.45) {
       w.aiSeen = true;
