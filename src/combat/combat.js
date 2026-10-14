@@ -100,9 +100,13 @@ if (STUDIO) {
 scene.add(new THREE.HemisphereLight(0xffffff, STUDIO ? 0x2a2d35 : 0xd8d8d4, STUDIO ? 0.9 : 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
 const SUN_OFFSET = new THREE.Vector3(6, 12, 5);
+// The shadow stand-ins' material: it writes nothing to the view (no colour, no
+// depth); the shadow pass draws them with its own depth material.
+const SHADOW_ONLY = new THREE.MeshBasicMaterial();
+SHADOW_ONLY.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'void main() {\n\tdiscard;'); };
 sun.position.copy(SUN_OFFSET);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(1024, 1024);   // (coarse shadows: cheap; the casters are coarse stand-ins too: buildLOD)
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 40 });
 scene.add(sun);
 scene.add(sun.target);
@@ -225,6 +229,7 @@ class Fighter {
         if (o.material.name.startsWith('Cloth_')) {
           const id = o.material.name.slice('Cloth_'.length);
           o.material = clothMaterial(o, opts.setup?.clothFits?.[body]?.[id] ?? opts.defaults?.clothFits?.[body]?.[id]);
+          o.userData.cloth = true;
         }
       }
     });
@@ -3720,22 +3725,39 @@ function frame() {
 // Two coarse levels: beyond LOD_DIST[0] m from the camera, and beyond LOD_DIST[1]
 // (1 m of slack back the other way); each a grid cell (share of the mesh's
 // largest size) and how finely the UV seams are kept apart (0: not at all).
-const LOD_DIST = [7, 15];
-const LOD_LEVELS = [{ cell: 0.022, uv: 4 }, { cell: 0.05, uv: 0 }];
-const SHADOW_FOES = 4;
+const LOD_DIST = [15, 30];
+const LOD_LEVELS = [{ cell: 0.012, uv: 10 }, { cell: 0.028, uv: 3 }];
+// Budgets: however close they stand, only the LOD_FULL foes nearest the camera get
+// full detail and the LOD_MID next the middle level (a crowd round the player
+// would otherwise all be near).
+const LOD_FULL = 5, LOD_MID = 14;
+const SHADOW_LEVEL = { cell: 0.06, uv: 0 };   // the shadow stand-ins: coarser still (a shadow shows no texture)
+const SHADOW_FOES = 10;   // (cheap now: the stand-ins are the coarsest copies)
 const lodGeoms = new Map();
-function clusterGeometry(geo, level) {
+function clusterGeometry(geo, level, fine = null, size = null) {
   const pos = geo.attributes.position, n = pos.count;
-  geo.computeBoundingBox();
-  const size = geo.boundingBox.getSize(new THREE.Vector3());
-  const cell = Math.max(size.x, size.y, size.z) * level.cell;
+  const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+  // The grid: a share of `size` (the body's: the clothes are small, and a grid
+  // from their own size barely thinned them), else of the mesh's own largest size.
+  if (!size) { geo.computeBoundingBox(); const b = geo.boundingBox.getSize(new THREE.Vector3()); size = Math.max(b.x, b.y, b.z); }
+  const cell = size * level.cell;
   const uv = level.uv ? geo.attributes.uv : null;
-  const ids = new Map(), map = new Int32Array(n), reps = [];
+  const ids = new Map(), map = new Int32Array(n), reps = [], places = new Map(), placeOf = [];
   for (let i = 0; i < n; i++) {
-    let key = `${Math.floor(pos.getX(i) / cell)},${Math.floor(pos.getY(i) / cell)},${Math.floor(pos.getZ(i) / cell)}`;
+    // The face (vertices led by a `fine` bone: the head and neck) on a grid four times
+    // finer: its features are small, and a coarse grid smeared them into stains.
+    let c = cell, tag = '';
+    if (fine && si && sw) {
+      let best = 0, bw = -1;
+      for (let k = 0; k < 4; k++) { const w = k === 0 ? sw.getX(i) : k === 1 ? sw.getY(i) : k === 2 ? sw.getZ(i) : sw.getW(i); if (w > bw) { bw = w; best = k === 0 ? si.getX(i) : k === 1 ? si.getY(i) : k === 2 ? si.getZ(i) : si.getW(i); } }
+      if (fine.has(best)) { c = cell / 4; tag = 'f'; }
+    }
+    const place = `${tag}${Math.floor(pos.getX(i) / c)},${Math.floor(pos.getY(i) / c)},${Math.floor(pos.getZ(i) / c)}`;
+    let key = place;
     if (uv) key += `,${Math.floor(uv.getX(i) * level.uv)},${Math.floor(uv.getY(i) * level.uv)}`;
+    if (!places.has(place)) places.set(place, i);
     let id = ids.get(key);
-    if (id === undefined) { id = reps.length; ids.set(key, id); reps.push(i); }
+    if (id === undefined) { id = reps.length; ids.set(key, id); reps.push(i); placeOf.push(places.get(place)); }
     map[i] = id;
   }
   const m = reps.length, out = new THREE.BufferGeometry();
@@ -3743,16 +3765,12 @@ function clusterGeometry(geo, level) {
   for (const [name, attr] of Object.entries(geo.attributes)) {
     const isize = attr.itemSize;
     const arr = name === 'skinIndex' ? new Uint16Array(m * isize) : new Float32Array(m * isize);
-    if (name === 'position' || name === 'normal') {
-      // Positions and normals averaged over the cluster (the rest from one vertex).
-      const cnt = new Float32Array(m);
-      for (let i = 0; i < n; i++) { const c = map[i]; cnt[c]++; for (let k = 0; k < isize; k++) arr[c * isize + k] += get(attr, i, k); }
-      for (let c = 0; c < m; c++) for (let k = 0; k < isize; k++) arr[c * isize + k] /= cnt[c];
-      if (name === 'normal') for (let c = 0; c < m; c++) {
-        const l = Math.hypot(arr[c * 3], arr[c * 3 + 1], arr[c * 3 + 2]) || 1;
-        arr[c * 3] /= l; arr[c * 3 + 1] /= l; arr[c * 3 + 2] /= l;
-      }
-    } else for (let c = 0; c < m; c++) for (let k = 0; k < isize; k++) arr[c * isize + k] = get(attr, reps[c], k);
+    // Every attribute from one vertex of the cluster (averaged positions slid the
+    // texture off them, averaged normals lit seams up in streaks); where and how it
+    // moves from one vertex of the grid cell, shared by the cell's UV splits (taken
+    // apart, the two sides of a UV seam opened into cracks).
+    const from = name === 'uv' || name === 'uv1' || name === 'color' ? reps : placeOf;
+    for (let c = 0; c < m; c++) for (let k = 0; k < isize; k++) arr[c * isize + k] = get(attr, from[c], k);
     out.setAttribute(name, new THREE.BufferAttribute(arr, isize));
   }
   const idx = geo.index;
@@ -3772,10 +3790,54 @@ function clusterGeometry(geo, level) {
   return out;
 }
 const MOUTH = ['Teeth', 'Gums', 'Tongue'];
+/**
+ * The clothes' coarse copies: their colour, unlit (the cloth is two thin layers,
+ * and merged they lit up in patches), with the cloth's own fitting (its shader hook).
+ */
+const flatCloths = new Map();
+function flatCloth(m) {
+  if (!flatCloths.has(m)) {
+    const f = new THREE.MeshBasicMaterial({ color: m.color.clone().multiplyScalar(0.82), side: THREE.DoubleSide });
+    f.onBeforeCompile = m.onBeforeCompile;
+    f.customProgramCacheKey = () => `flatCloth:${m.uuid}`;
+    flatCloths.set(m, f);
+  }
+  return flatCloths.get(m);
+}
+/** Skin/other parts far away: matte and two-sided, which suits the coarse mesh. */
+const matteParts = new Map();
+function matte(m) {
+  if (Array.isArray(m)) return m.map(matte);
+  if (!matteParts.has(m)) {
+    const c = m.clone();
+    // Collapsed cells can flip a few triangles; draw both faces so they don't read as holes.
+    c.side = THREE.DoubleSide;
+    if (c.isMeshStandardMaterial) { c.normalMap = null; c.bumpMap = null; c.roughness = 1; c.metalness = 0; }
+    if (c.isMeshPhysicalMaterial) { c.clearcoat = 0; c.sheen = 0; c.specularIntensity = 0; }
+    // A collapsed triangle can span two UV islands, and its middle then samples the empty atlas
+    // between them (white streaks). Read the painted map per vertex instead and blend the colour.
+    c.onBeforeCompile = (sh, r) => {
+      m.onBeforeCompile?.(sh, r);
+      if (!c.map) return;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D map;\nvarying vec3 vMapTone;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvMapTone = textureLod(map, vMapUv, 5.0).rgb;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vMapTone;')
+        .replace('#include <map_fragment>', 'diffuseColor.rgb *= vMapTone;');
+    };
+    c.customProgramCacheKey = () => `matte:${m.customProgramCacheKey()}`;
+    matteParts.set(m, c);
+  }
+  return matteParts.get(m);
+}
 /** The coarse copies of `f`'s skinned parts (and hair), bound to its own skeletons. */
 function buildLOD(f) {
   f.lodParts = [];
   const parts = [];
+  f.mesh.geometry.computeBoundingBox();
+  const bb = f.mesh.geometry.boundingBox.getSize(new THREE.Vector3());
+  const bodySize = Math.max(bb.x, bb.y, bb.z);   // (the body's parts share its units)
   f.root.traverse((o) => { if (o.isSkinnedMesh) parts.push(o); });
   if (f.hair) parts.push(f.hair.rig.mesh);
   for (const hi of parts) {
@@ -3783,10 +3845,14 @@ function buildLOD(f) {
     const los = [];
     if (!mouth) LOD_LEVELS.forEach((level, k) => {
       const key = `${hi.geometry.uuid}:${k}`;
-      // (The hair's mesh is small for its detail: a grid three times coarser for it.)
+      // (The hair's mesh is small for its detail: a grid four times coarser for it.)
       const isHair = hi === f.hair?.rig.mesh;
-      if (!lodGeoms.has(key)) lodGeoms.set(key, clusterGeometry(hi.geometry, isHair ? { cell: level.cell * 3, uv: 0 } : level));
-      const lo = new THREE.SkinnedMesh(lodGeoms.get(key), hi.material);
+      const fine = new Set(hi.skeleton.bones.map((b, j) => (/Head|Neck|Eye|Jaw/.test(b.name) ? j : -1)).filter((j) => j >= 0));
+      if (!lodGeoms.has(key)) {
+        const g = clusterGeometry(hi.geometry, isHair ? { cell: level.cell * 4, uv: 0 } : level, isHair ? null : fine, isHair ? null : bodySize);
+        lodGeoms.set(key, g);
+      }
+      const lo = new THREE.SkinnedMesh(lodGeoms.get(key), hi.userData.cloth ? flatCloth(hi.material) : matte(hi.material));
       lo.bindMode = hi.bindMode;
       lo.bind(hi.skeleton, hi.bindMatrix);
       lo.position.copy(hi.position); lo.quaternion.copy(hi.quaternion); lo.scale.copy(hi.scale);
@@ -3795,9 +3861,27 @@ function buildLOD(f) {
       hi.parent.add(lo);
       los.push(lo);
     });
-    f.lodParts.push({ hi, los, mouth });
+    // The shadow stand-in: the coarsest copy, drawn into the shadow map only
+    // (invisible in the view), in place of the full mesh.
+    let shadow = null;
+    if (los.length) {
+      const key = `${hi.geometry.uuid}:shadow`;
+      const isHair = hi === f.hair?.rig.mesh;
+      if (!lodGeoms.has(key)) lodGeoms.set(key, clusterGeometry(hi.geometry, isHair ? { cell: SHADOW_LEVEL.cell * 2, uv: 0 } : SHADOW_LEVEL, null, isHair ? null : bodySize));
+      shadow = new THREE.SkinnedMesh(lodGeoms.get(key), SHADOW_ONLY);
+      shadow.bindMode = hi.bindMode;
+      shadow.bind(hi.skeleton, hi.bindMatrix);
+      shadow.position.copy(hi.position); shadow.quaternion.copy(hi.quaternion); shadow.scale.copy(hi.scale);
+      shadow.frustumCulled = false;
+      shadow.castShadow = false;
+      hi.parent.add(shadow);
+    }
+    hi.castShadow = false;
+    f.lodParts.push({ hi, los, mouth, shadow });
   }
   f.lod = 0;
+  f.castsShadow = null;   // (updateShadows sets the stand-ins' on its next go)
+  f.shown = null;
 }
 function updateLOD(f) {
   const show = !f.hidden && (f.isPlayer || f.onScreen);
@@ -3807,6 +3891,9 @@ function updateLOD(f) {
     // (1 m of slack before going back to a finer level: no flicker at the edge.)
     while (lod < LOD_DIST.length && f.camDist > LOD_DIST[lod]) lod++;
     while (lod > 0 && f.camDist < LOD_DIST[lod - 1] - 1) lod--;
+    // The budget (lodRank: its place by distance among the foes on screen).
+    if (f.lodRank >= LOD_MID) lod = Math.max(lod, 2);
+    else if (f.lodRank >= LOD_FULL) lod = Math.max(lod, 1);
   }
   if (show === f.shown && lod === f.lod) return;
   f.shown = show;
@@ -3814,9 +3901,10 @@ function updateLOD(f) {
   f.root.visible = show;
   // (The hair hangs from the scene, not the body: shown and hidden by hand.)
   if (!f.lodParts) { if (f.hair) f.hair.rig.mesh.visible = show; return; }
-  for (const { hi, los } of f.lodParts) {
+  for (const { hi, los, shadow } of f.lodParts) {
     hi.visible = show && lod === 0;
     los.forEach((lo, k) => { lo.visible = show && lod === k + 1; });
+    if (shadow) shadow.visible = show;
   }
 }
 /** Shadows: the player and the few foes nearest the camera. */
@@ -3826,7 +3914,7 @@ function updateShadows() {
     const on = f.isPlayer || near.includes(f);
     if (f.castsShadow === on) continue;
     f.castsShadow = on;
-    for (const { hi } of f.lodParts ?? []) hi.castShadow = on;
+    for (const { shadow } of f.lodParts ?? []) if (shadow) shadow.castShadow = on;
     f.sword.traverse((o) => { if (o.isMesh) o.castShadow = on; });
   }
   // The sun's shadow follows the player (the room is large now).
@@ -3846,13 +3934,21 @@ function animateAll(dt) {
   camera.updateMatrixWorld();
   projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(projView);
-  for (const f of fighters()) {
+  const all = fighters();
+  for (const f of all) {
     if (f.hidden) continue;
-    f.animAcc = (f.animAcc ?? 0) + dt;
     viewSphere.center.copy(f.pos).setY(f.pos.y + 0.9);
-    viewSphere.radius = 1.4;
+    viewSphere.radius = 2;
     f.onScreen = frustum.intersectsSphere(viewSphere);
     f.camDist = camera.position.distanceTo(viewSphere.center);
+  }
+  // Places by distance among the foes on screen, for the detail budgets.
+  const ranked = enemies.filter((e) => !e.hidden && e.onScreen).sort((a, b) => a.camDist - b.camDist);
+  for (const e of enemies) e.lodRank = Infinity;
+  ranked.forEach((e, i) => { e.lodRank = i; });
+  for (const f of all) {
+    if (f.hidden) continue;
+    f.animAcc = (f.animAcc ?? 0) + dt;
     updateLOD(f);
     let every = 1;
     if (!f.isPlayer && !f.hasToken && f.state !== 'attack') every = !f.onScreen || f.camDist > 35 ? 4 : f.camDist > 14 ? 2 : 1;
@@ -4011,6 +4107,13 @@ function foePlace(i) {
 // Foes beyond the first: the sparring partner's body and look, its clips shared
 // (no remaking), its hair cloned; made a few at a time so the page stays live.
 let spawnKit = null, spawning = null;
+/** Every material's shaders made before they are needed (else a body is skipped for a frame or two while they compile). */
+async function precompile() {
+  const hidden = [];
+  scene.traverse((o) => { if ((o.isMesh || o.isGroup) && !o.visible) { hidden.push(o); o.visible = true; } });
+  try { await (renderer.compileAsync ? renderer.compileAsync(scene, camera) : renderer.compile(scene, camera)); } catch { /* not supported */ }
+  for (const o of hidden) o.visible = false;
+}
 async function ensureEnemies(n) {
   if (!spawnKit) return;
   n = THREE.MathUtils.clamp(Math.round(n), 1, 100);
@@ -4020,7 +4123,7 @@ async function ensureEnemies(n) {
       const e = enemies.pop();
       e.root.removeFromParent();
       e.hair?.rig.mesh.removeFromParent();
-      for (const { los } of e.lodParts ?? []) for (const lo of los) lo.removeFromParent();
+      for (const { los, shadow } of e.lodParts ?? []) { for (const lo of los) lo.removeFromParent(); shadow?.removeFromParent(); }
     }
     while (enemies.length < n) {
       const i = enemies.length;
@@ -4039,6 +4142,7 @@ async function ensureEnemies(n) {
       if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0));
     }
     message(n > 1 ? `${n} foes` : 'One foe');
+    await precompile();
   })();
   await spawning;
   spawning = null;
@@ -4085,6 +4189,7 @@ async function main() {
     enemy.slot = 0;
     enemies.push(enemy);
     buildLOD(enemy);
+    buildLOD(player);   // (the player keeps full detail: only its shadow stand-ins are used)
     spawnKit = { proto, animations: g2.animations, body: other, setup: enemySetup, skin: s2, defaults };
     // Animation edits made in the editor (kept in this browser).
     applyAnimEdits(player.clips);
@@ -4094,6 +4199,7 @@ async function main() {
     $('player-name').textContent = setup?.name || '';
     if (!window.ANIM_EDITOR_PAGE && stats.enemyCount > 1) await ensureEnemies(stats.enemyCount);
     reset();
+    await precompile();
     initAnimPanel();
     $('loading').hidden = true;
     if (window.ANIM_EDITOR_PAGE) { openEditor(); return; }

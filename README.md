@@ -311,13 +311,20 @@ not per foe) and a clone of its hair, so 100 spawn in a few seconds. Per frame:
 - foes off-screen are not drawn; foes near the camera (or pressing the player)
   are posed every frame, foes past 14 m every 2nd, far or off-screen every 4th;
   far foes without a token think every 3rd frame (their time saved up);
-- each skinned part has two coarse copies (vertex clustering: the grid merged,
-  the skinning kept), drawn past 7 m and past 15 m: the skin 54k → 3.4k → 0.6k
-  triangles, the clothes 38–50k → 16–20k → 4–5k, the hair 50k → 5.6k → 1.3k;
-  the mouth parts are not drawn past 7 m;
-- only the player and the 4 foes nearest the camera cast shadows.
-Measured with 100 foes (in software rendering): the logic about 2.2 ms a frame;
-39 drawn, about 1.4M triangles in view plus 0.57M in the shadow pass.
+- each skinned part has two coarse copies (vertex clustering on a grid sized to
+  the body, the head and neck on a grid four times finer so the face holds; each
+  cell keeps one vertex's place and skinning, shared by its UV splits so seams
+  don't crack), drawn past 15 m and past 30 m: the skin 54k → 17k → 5k
+  triangles, the clothes 38–50k → 3–4k → 0.6–0.8k (drawn unlit in their
+  colour), the hair 50k → 10k → 2k; the far skin reads its painted colour per
+  vertex; the mouth parts are not drawn past 15 m;
+- however close they stand, only the 5 foes nearest the camera get full detail
+  and the next 14 the middle copy;
+- shadows are rough: a 1024 shadow map, and the shadow is cast by a still
+  coarser stand-in (about 1k triangles a body, never seen) — the player's and
+  the 10 nearest foes'.
+Measured with 100 foes (in software rendering): the logic about 2–4 ms a frame;
+34 drawn, about 1.8M triangles in view plus 28k in the shadow pass.
 
 **Frame rate.** The logic is cheap (about 0.5 ms a frame); the cost is drawing
 (two skinned bodies of about 360k triangles, drawn for the shadow and the
