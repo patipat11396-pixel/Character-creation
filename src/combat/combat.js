@@ -4111,8 +4111,12 @@ let spawnKit = null, spawning = null;
 async function precompile() {
   const hidden = [];
   scene.traverse((o) => { if ((o.isMesh || o.isGroup) && !o.visible) { hidden.push(o); o.visible = true; } });
-  try { await (renderer.compileAsync ? renderer.compileAsync(scene, camera) : renderer.compile(scene, camera)); } catch { /* not supported */ }
+  // compileAsync gathers the materials at once; hide them again before waiting, or the
+  // wait would hide what the LOD showed in the meantime (the foe gone on the first round).
+  let ready = null;
+  try { ready = renderer.compileAsync ? renderer.compileAsync(scene, camera) : renderer.compile(scene, camera); } catch { /* not supported */ }
   for (const o of hidden) o.visible = false;
+  try { await ready; } catch { /* not supported */ }
 }
 async function ensureEnemies(n) {
   if (!spawnKit) return;
