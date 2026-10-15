@@ -153,9 +153,9 @@ still draws its guard now and then, which the stab then breaks.
 
 **The foe counters.** It does not trade blows it would lose: its own cut
 still winding up and yours landing first, it drops it and guards. A blow it
-guards is answered with a cut as soon as you stop attacking. Caught by the
-first or second cut of your combo, it now and then shakes it off and gets
-its guard up for the rest. After your full combo it either goes in at once
+guards is answered with a cut as soon as you stop attacking. Caught by a cut
+of your combo, it stays caught to the end of it (each next cut holds it). After
+your full combo it either goes in at once
 or keeps its guard a moment and cuts back — and it learns: the more often you
 cancel the opening with a dash cut, the more often it waits behind its guard,
 which stops the dash dead. It reads a dash cut from 6.5 m and raises the

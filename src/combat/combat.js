@@ -1876,7 +1876,7 @@ function startMove(f, move) {
   if (f.isPlayer && move.through && gameTime - (f.exposedAt ?? -99) < 1.2) playerHabit.comboDash = 0.5 * playerHabit.comboDash + 0.5;
   // The next move of a combo keeps the foe it is hitting stunned until this blow lands.
   const held = f.isPlayer ? enemy : player;
-  if (held?.state === 'hit' && held.stunBy === f && !held.breakOut) held.hitDur = Math.max(held.hitDur, held.t + move.hit / (move.speed ?? 1) + 0.05);
+  if (held?.state === 'hit' && held.stunBy === f) held.hitDur = Math.max(held.hitDur, held.t + move.hit / (move.speed ?? 1) + 0.05);
   f.bladePrev = null;
   f.setState('attack');
   if (move === ART.air && !f.grounded) {
@@ -2009,10 +2009,6 @@ function resolveHit(att, def, zone) {
     const armoured = def.state === 'attack' && def.move?.unblockable;
     if (def.poise >= STAGGER.gauge) flinch(def, att, true);
     else if (!armoured && (def.state !== 'attack' || move.stagger || def.isPlayer)) flinch(def, att, move.stagger);
-    // Caught by the first or second cut of the player's combo, a skilled foe now and then
-    // shakes it off and gets its guard up for the rest (no free combo).
-    if (!def.isPlayer && att.isPlayer && def.state === 'hit' && ART.combo.includes(move) && !isFinisher(move)
-      && Math.random() < 0.4 * (stats.aiSkill ?? 0.5)) { def.hitDur = Math.min(def.hitDur, 0.16); def.breakOut = true; }
   }
 }
 
@@ -2359,7 +2355,6 @@ function parryEase(f) {
 // perfect: the player parried; perfectFoe: the foe parried by the player.
 const STAGGER = { hitStun: 0.2, recoil: 0.2, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
 function flinch(f, att, hard) {
-  f.breakOut = false;
   f.move = null;
   f.comboIndex = -1;
   const push = f.pos.clone().sub(att.pos).setY(0).normalize();
@@ -3528,11 +3523,7 @@ function enemyUpdate(e, dt) {
     case 'exposed':
       e.vel.multiplyScalar(Math.max(0, 1 - dt * 6));
       staggerDrift(e);
-      if (e.t > e.hitDur) {
-        e.setState('idle');
-        e.think = 0.25 + Math.random() * 0.4;
-        if (e.breakOut) { e.breakOut = false; enemyGuard(e, 0.6); e.riposteAt = gameTime + 0.05; }
-      }
+      if (e.t > e.hitDur) { e.setState('idle'); e.think = 0.25 + Math.random() * 0.4; }
       break;
     case 'attack': {
       const mt = e.moveTime();
