@@ -294,6 +294,14 @@ go to step away, or side-steps the thrust.
 guards 55% + 30% × its skill (70% at the default), parries 30% × skill and
 side-steps 20% × skill; it guards waves too.
 
+**The foes are wooden mannequins** (`models/foe/`, made by `tools/mannequin/`):
+an uploaded mannequin, re-weighted (its forearms had moved with the hands and its
+shoulders creased) and fitted to the foe body's bind pose, then bound to that
+body's own skeleton in place of its body, clothes, mouth and hair. So the foes
+keep all their clips, the sword grip and the hit zones; at 3k triangles a
+mannequin needs no coarse copies and casts its own shadow. Without the file the
+foes fall back to the made body.
+
 **A crowd of foes** (Stats → *Foes in the room*, 1 to 100; takes effect when
 the slider is let go). The sparring partner stands in front; the others
 (the same body and look, 200 HP) start in widening rings round a larger room

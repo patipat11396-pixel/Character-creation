@@ -282,7 +282,28 @@ class Fighter {
     this.counterUntil = 0;
     this.parts = makeParts(this.maxHp);
     this.invulnUntil = 0;
+    if (opts.mannequin) this.wearMannequin(opts.mannequin);
     scene.add(this.root);
+  }
+
+  /**
+   * The foes' look: the wooden mannequin (models/foe, re-weighted and fitted to
+   * this body's bind pose) on this body's own skeleton, in place of the body,
+   * clothes and mouth. The clips, the sword grip and the hit zones are the body's.
+   */
+  wearMannequin(kit) {
+    const parts = [];
+    this.root.traverse((o) => { if (o.isSkinnedMesh) parts.push(o); });
+    const m = new THREE.SkinnedMesh(kit.geometry, kit.material);
+    m.name = 'Mannequin';
+    m.position.copy(this.mesh.position); m.quaternion.copy(this.mesh.quaternion); m.scale.copy(this.mesh.scale);
+    m.frustumCulled = false;
+    m.castShadow = true;
+    m.userData.lowPoly = true;   // (3k triangles: no coarse copies, and it casts its own shadow)
+    this.mesh.parent.add(m);
+    m.bind(this.mesh.skeleton, this.mesh.bindMatrix);
+    for (const o of parts) o.removeFromParent();
+    this.mannequin = m;
   }
 
   /**
@@ -3841,6 +3862,7 @@ function buildLOD(f) {
   f.root.traverse((o) => { if (o.isSkinnedMesh) parts.push(o); });
   if (f.hair) parts.push(f.hair.rig.mesh);
   for (const hi of parts) {
+    if (hi.userData.lowPoly) { hi.castShadow = false; f.lodParts.push({ hi, los: [], mouth: false, shadow: hi, keep: true }); continue; }
     const mouth = MOUTH.includes(hi.material?.name);
     const los = [];
     if (!mouth) LOD_LEVELS.forEach((level, k) => {
@@ -3901,8 +3923,8 @@ function updateLOD(f) {
   f.root.visible = show;
   // (The hair hangs from the scene, not the body: shown and hidden by hand.)
   if (!f.lodParts) { if (f.hair) f.hair.rig.mesh.visible = show; return; }
-  for (const { hi, los, shadow } of f.lodParts) {
-    hi.visible = show && lod === 0;
+  for (const { hi, los, shadow, keep } of f.lodParts) {
+    hi.visible = show && (lod === 0 || keep);
     los.forEach((lo, k) => { lo.visible = show && lod === k + 1; });
     if (shadow) shadow.visible = show;
   }
@@ -4133,8 +4155,8 @@ async function ensureEnemies(n) {
       const i = enemies.length;
       const k = spawnKit;
       const e = new Fighter({ scene: SkeletonUtils.clone(k.proto), animations: k.animations }, k.body,
-        { name: 'Swordsman', maxHp: 200, skin: k.skin, setup: k.setup, defaults: k.defaults, template: enemies[0], tint: 0x8a1c1c });
-      e.hair = await hairFor(e, k.body, k.setup, loadGLB, scene);
+        { name: 'Swordsman', maxHp: 200, skin: k.skin, setup: k.setup, defaults: k.defaults, template: enemies[0], tint: 0x8a1c1c, mannequin: k.mannequin });
+      e.hair = k.mannequin ? null : await hairFor(e, k.body, k.setup, loadGLB, scene);
       e.slot = i;
       buildLOD(e);
       const [x, z, yaw] = foePlace(i);
@@ -4180,21 +4202,25 @@ async function main() {
       fetch('models/defaults.json').then((r) => r.json()).catch(() => null),
       fetch('models/anims/idle_fight.bvh').then((r) => (r.ok ? r.text() : null)).catch(() => null)]);
     const fightBack = await fetch('models/anims/fight_back.bvh').then((r) => (r.ok ? r.text() : null)).catch(() => null);
+    // The foes' look (the wooden mannequin fitted to their body); without it, the body as made.
+    const mq = await loadGLB(`models/foe/mannequin_${other}.glb`).catch((err) => { console.warn(err); return null; });
+    let mannequin = null;
+    mq?.scene.traverse((o) => { if (o.isMesh) mannequin = { geometry: o.geometry, material: o.material }; });
     const anims = { idleFight, fightBack };
     captureText = idleFight;
     const [s1, s2] = await Promise.all([
       skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
     const proto = SkeletonUtils.clone(g2.scene);   // (before the first foe is made from it)
     player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, defaults, anims, tint: 0xc9a227 });
-    enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, defaults, anims, tint: 0x8a1c1c });
-    const [h1, h2] = await Promise.all([hairFor(player, body, setup, loadGLB, scene), hairFor(enemy, other, enemySetup, loadGLB, scene)]);
+    enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, defaults, anims, tint: 0x8a1c1c, mannequin });
+    const [h1, h2] = await Promise.all([hairFor(player, body, setup, loadGLB, scene), mannequin ? null : hairFor(enemy, other, enemySetup, loadGLB, scene)]);
     player.hair = h1;
     enemy.hair = h2;
     enemy.slot = 0;
     enemies.push(enemy);
     buildLOD(enemy);
     buildLOD(player);   // (the player keeps full detail: only its shadow stand-ins are used)
-    spawnKit = { proto, animations: g2.animations, body: other, setup: enemySetup, skin: s2, defaults };
+    spawnKit = { proto, animations: g2.animations, body: other, setup: enemySetup, skin: s2, defaults, mannequin };
     // Animation edits made in the editor (kept in this browser).
     applyAnimEdits(player.clips);
     applyAnimEdits(enemy.clips);
