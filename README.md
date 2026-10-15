@@ -147,9 +147,21 @@ when free and in reach, plans a defence as a player would: a perfect parry
 (it shoves your blade aside and you stagger 0.3 s), a perfect dodge, a block,
 or nothing. It needs a human reaction time (quick blows can only be blocked
 or taken) and its timing has an error, so it misses sometimes. "Enemy skill"
-in the Stats panel sets how often and how well (default 0.5: about a third of
-blows parried or dodged, a quarter blocked). A feint's wind-up still draws its
-guard, which the stab then breaks.
+in the Stats panel sets how often and how well (default 0.85: about 40% of
+blows parried, the rest mostly blocked; reaction 0.12 s). A feint's wind-up
+still draws its guard now and then, which the stab then breaks.
+
+**The foe counters.** It does not trade blows it would lose: its own cut
+still winding up and yours landing first, it drops it and guards. A blow it
+guards is answered with a cut as soon as you stop attacking. Caught by the
+first or second cut of your combo, it now and then shakes it off and gets
+its guard up for the rest. After your full combo it either goes in at once
+or keeps its guard a moment and cuts back — and it learns: the more often you
+cancel the opening with a dash cut, the more often it waits behind its guard,
+which stops the dash dead. It reads a dash cut from 6.5 m and raises the
+guard at once; gets behind it, it turns round fast; a wave is read again
+once it is free (no longer lost while it was hit); and a player charging a
+wave (no guard) is rushed — the dash cut or a step in and a cut.
 
 **Home menu.** The first page (`index.html`) opens on three buttons: เล่น
 (Play: the sword fight), สร้างตัว (Create character: the creator) and แก้
