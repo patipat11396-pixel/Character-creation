@@ -151,6 +151,14 @@ in the Stats panel sets how often and how well (default 0.85: about 40% of
 blows parried, the rest mostly blocked; reaction 0.12 s). A feint's wind-up
 still draws its guard now and then, which the stab then breaks.
 
+**Blows jolt.** A landed blow (each cut of a combo too, and a wave) jerks the
+one hit back: the upper body snapped back ~14° and eased back over 0.3 s, the
+body shoved 0.15 m; a blow into the guard rocks it back a little (~11°, 0.12 m).
+
+**The foe's skills on the player's terms.** The feint 4 s cooldown and 15
+stamina, the dash cut 3 s and 10 stamina, the wave 6 s; a parry tap that
+catches nothing locks its parry out for 0.5 s, as the player's.
+
 **The foe counters.** It does not trade blows it would lose: its own cut
 still winding up and yours landing first, it drops it and guards. A blow it
 guards is answered with a cut as soon as you stop attacking. Caught by a cut

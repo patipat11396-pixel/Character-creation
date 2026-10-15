@@ -570,6 +570,16 @@ class Fighter {
       }
       this.root.updateMatrixWorld(true);
     }
+    // A blow's jolt: the spine, neck and head tipped back, quickly, then easing back.
+    const jt = gameTime - (this.joltAt ?? -99);
+    if (jt >= 0 && jt < JOLT.time) {
+      const k = jt < JOLT.rise ? Math.sin((jt / JOLT.rise) * Math.PI / 2) : 0.5 + 0.5 * Math.cos(((jt - JOLT.rise) / (JOLT.time - JOLT.rise)) * Math.PI);
+      const fwd = this.forward(new THREE.Vector3());
+      const back = new THREE.Vector3(0, 1, 0).cross(fwd).negate();   // turning about this tips the top backwards
+      const share = { Spine: 0.3, Spine1: 0.25, Spine2: 0.2, Neck: 0.1, Head: 0.15 };
+      for (const [n, w] of Object.entries(share)) turnBoneWorld(this.bones[n], new THREE.Quaternion().setFromAxisAngle(back, THREE.MathUtils.degToRad(this.joltDeg * w * k)));
+      this.root.updateMatrixWorld(true);
+    }
     // Crouch (moving with the guard held): the hips lowered by `crouch` m,
     // the feet kept where they were by bending the legs.
     this.crouchW = (this.crouchW ?? 0) + ((this.crouch ?? 0) - (this.crouchW ?? 0)) * Math.min(1, (dt || 0.016) * 8);
@@ -1987,6 +1997,7 @@ function resolveHit(att, def, zone) {
     if (def.stamina <= 0) { def.stamina = 0; breakGuard(def); shieldBreakFx(def, att); stagger(def, STAGGER.guardBreak, 'Guard Break', 'staggerBack'); }
     else floatText(zone.a, `Blocked ${Math.round(dmg)}`, 'blocked');
     recoil(att, def);
+    jolt(def, hitFrom(att, def).negate(), 11, 0.12);   // rocked back a little behind the guard
     if (!def.isPlayer && att.isPlayer) def.riposteAt = gameTime + 0.05;   // (it cuts back once the player stops)
   } else {
     if (blocking && move.unblockable && def.isPlayer) message('Unblockable!', 'bad');
@@ -2001,6 +2012,7 @@ function resolveHit(att, def, zone) {
   if (!blocking || move.unblockable) {
     // Down already: the blow lands, but there is nothing more to knock.
     if (def.knocked) { hurtPart(def, zone, dmg); return; }
+    jolt(def, hitFrom(att, def).negate(), 14, 0.15);   // jerked back by the blow (each cut of a combo too)
     if (hurtPart(def, zone, dmg) === 'head') return;   // dazed
     if (behind && Math.random() < BACKSTAB.knockChance) { knockDown(def, att); return; }
     addPoise(def, move, dmg);
@@ -2304,6 +2316,7 @@ function waveHit(w, def) {
     sparks(zoneB.a.clone().lerp(zoneB.b, 0.5), 0xfff0b0);
     floatText(zoneB.a, `Blocked ${Math.round(dmgB)}`, 'blocked');
     hitLog.push(`${att.isPlayer ? 'P' : 'E'}>wave ${Math.round(dmgB * 10) / 10} blocked`);
+    jolt(def, w.dir, 9, 0.18);
     if (def.hp <= 0) { die(def); return true; }
     if (def.stamina <= 0) { def.stamina = 0; breakGuard(def); shieldBreakFx(def, att); stagger(def, STAGGER.guardBreak, 'Guard Break', 'staggerBack'); }
     return true;
@@ -2314,6 +2327,7 @@ function waveHit(w, def) {
   def.hp = Math.max(0, def.hp - dmg);
   hitLog.push(`${att.isPlayer ? 'P' : 'E'}>wave ${Math.round(dmg * 10) / 10}`);
   floatText(zone.a.clone().lerp(zone.b, 0.5), `Wave ${Math.round(dmg)}`, 'crit');
+  if (!def.knocked) jolt(def, w.dir, 16, 0.2);
   sound('hit');
   hitStop = 0.06;
   fightShake(att, def, 0.07);
@@ -2354,6 +2368,19 @@ function parryEase(f) {
 }
 // perfect: the player parried; perfectFoe: the foe parried by the player.
 const STAGGER = { hitStun: 0.2, recoil: 0.2, full: 1.0, perfect: 0.35, perfectFoe: 0.5, guardBreak: 0.5, gauge: 100, perDamage: 2, decay: 25, decayAfter: 1.5 };
+/**
+ * A blow's jolt (a landed one, or one into the guard): the upper body snapped back
+ * by `deg` (in JOLT.rise s, eased back by JOLT.time) and the body shoved `push` m
+ * along `dir`, quickly (over JOLT.shove s), whatever its state.
+ */
+const JOLT = { rise: 0.05, time: 0.32, shove: 0.07 };
+function jolt(f, dir, deg, push) {
+  f.joltAt = gameTime;
+  f.joltDeg = deg;
+  f.shoveDir = dir.clone().setY(0).normalize();
+  f.shoveLeft = push;
+  f.shoveSpeed = push / JOLT.shove;
+}
 function flinch(f, att, hard) {
   f.move = null;
   f.comboIndex = -1;
@@ -3123,6 +3150,11 @@ function dist2(a, b) { return (a.pos.x - b.pos.x) ** 2 + (a.pos.z - b.pos.z) ** 
 function physics(f, dt) {
   f.pos.x += f.vel.x * dt;
   f.pos.z += f.vel.z * dt;
+  if (f.shoveLeft > 0) {
+    const step = Math.min(f.shoveLeft, f.shoveSpeed * dt);
+    f.pos.addScaledVector(f.shoveDir, step);
+    f.shoveLeft -= step;
+  }
   if (!f.grounded || f.vy > 0) {
     f.vy -= 14 * dt;
     f.pos.y += f.vy * dt;
@@ -3171,7 +3203,7 @@ function enemyRead(e, d) {
     if (free && d < (p.move.through ? 6.5 : (p.move.range ?? 2) + 1.2) && lead > 0) {
       const r = Math.random();
       const jitter = () => (Math.random() + Math.random() - 1) * AI.error;
-      if (lead >= AI.reaction && r < AI.parry && !guardBroken(e) && p.move.parryable !== false) {
+      if (lead >= AI.reaction && r < AI.parry && !guardBroken(e) && p.move.parryable !== false && gameTime >= (e.parryLockUntil ?? 0)) {
         e.plan = { kind: 'parry', at: p.hitAt - stats.parryWindow * 0.5 + jitter(), serial: p.moveSerial };
       } else if (lead >= AI.reaction && r < AI.parry + AI.dodge && e.stamina >= stats.dodgeCost) {
         // A wide blow (arc 120+: the heavy, the spinning finisher) is rolled from; a narrow one side-stepped.
@@ -3210,8 +3242,9 @@ function enemyRead(e, d) {
     }
   } else {
     e.faceTarget(p, 1, 100);   // (turned to it: a guard only takes what it faces)
-    // A parry is a tap of the guard: held a moment, it blocks if the timing was off.
-    if (kind === 'parry') e.parryAt = gameTime;
+    // A parry is a tap of the guard: held a moment, it blocks if the timing was off
+    // (and, as the player's, a tap that catches nothing locks the parry out PARRY_MISS_LOCK s).
+    if (kind === 'parry') { e.parryAt = gameTime; e.parryPending = true; }
     e.setState('block');
     e.blockFor = kind === 'parry' ? 0.4 : 0.6 + Math.random() * 0.4;
     const a = e.playSlot('guard', { loop: false, fade: 0.08 });
@@ -3253,6 +3286,15 @@ function waitChance() {
   const skill = stats.aiSkill ?? 0.5;
   return Math.min(0.9, 0.15 + 0.75 * playerHabit.comboDash) * (0.4 + 0.6 * skill);
 }
+/** The dash cut, on the player's terms: its cooldown and 10 stamina. False if not ready. */
+function enemyDash(e) {
+  if (gameTime < (e.dashReady ?? 0) || e.stamina <= 10) return false;
+  e.dashReady = gameTime + ART.dash.cooldown;
+  e.stamina -= 10;
+  e.yaw = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+  enemyStart(e, ART.enemy.find((m) => m.name === 'dashcut'));
+  return true;
+}
 /** Cut back now (after a guard, or at an opening): in reach a slash, a little out a step in and a slash. */
 function enemyRiposte(e, d) {
   e.riposteAt = null;
@@ -3291,7 +3333,13 @@ function enemyAttack(e, pressing) {
   const pool = ART.enemy.filter((m) => m.name !== 'slash2');
   const r = Math.random();
   // (The player's moves only: light cuts, the spin, the feint; the heavy is gone.)
-  const name = pressing ? (r < 0.65 ? 'slash' : r < 0.82 ? 'thrust' : 'stab') : (r < 0.45 ? 'slash' : r < 0.65 ? 'thrust' : 'stab');
+  let name = pressing ? (r < 0.65 ? 'slash' : r < 0.82 ? 'thrust' : 'stab') : (r < 0.45 ? 'slash' : r < 0.65 ? 'thrust' : 'stab');
+  // The feint on the player's cooldown and stamina cost.
+  const feint = ART.skills.feint;
+  if (name === 'stab') {
+    if (gameTime < (e.feintReady ?? 0) || e.stamina < feint.stamina) name = 'thrust';
+    else { e.feintReady = gameTime + feint.cooldown; e.stamina -= feint.stamina; }
+  }
   enemyStart(e, pool.find((m) => m.name === name));
 }
 /** The foe starts a move; a feint (a move with a bait) first plays its bait. */
@@ -3313,20 +3361,14 @@ function enemyDecide(e, d, adv, pressing) {
   const r = Math.random();
   // Out of reach, now and then: charge the wave and throw it.
   if (!pressing && d > 4 && d < 14 && gameTime >= (e.waveReady ?? 0) && r < 0.3 && !enemies.some((o) => o !== e && o.state === 'charge')) {
-    e.waveReady = gameTime + 6 + Math.random() * 4;
+    e.waveReady = gameTime + ART.wave.cooldown;   // (the player's cooldown)
     enemyCharge(e);
     e.think = 0.5;
     return;
   }
   // The player's other skills: the dash cut through (3 s cooldown), the jump cut,
   // and backing out of the fight to get away when losing.
-  if (d > 2.4 && d < 4.4 && gameTime >= (e.dashReady ?? 0) && r < 0.25) {   // (the cut comes ~3 m into the run)
-    e.dashReady = gameTime + ART.dash.cooldown;
-    e.yaw = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
-    enemyStart(e, ART.enemy.find((m) => m.name === 'dashcut'));
-    e.think = 0.3;
-    return;
-  }
+  if (d > 2.4 && d < 4.4 && r < 0.25 && enemyDash(e)) { e.think = 0.3; return; }   // (the cut comes ~3 m into the run)
   if (d > 1.8 && d < 3.4 && e.grounded && Math.random() < 0.12) { enemyJumpCut(e, d); e.think = 0.4; return; }
   if ((e.hp < e.maxHp * 0.35 || adv <= -2) && gameTime >= (e.fleeReady ?? 0) && Math.random() < 0.25) { enemyFlee(e); return; }
   const inReach = d < 2.6;
@@ -3436,7 +3478,7 @@ function enemyUpdate(e, dt) {
       (w.aiSeenBy ??= new Set()).add(e);
       if (w.aiSeen) continue;   // (tests: no reaction)
       const AI = aiFor(stats.aiSkill ?? 0.5), r = Math.random();
-      if (r < AI.parry * 1.5 && !guardBroken(e)) e.wavePlan = { at: gameTime + (along - e.radius) / ART.wave.flight - stats.parryWindow * 0.5 };
+      if (r < AI.parry * 1.5 && !guardBroken(e) && gameTime >= (e.parryLockUntil ?? 0)) e.wavePlan = { at: gameTime + (along - e.radius) / ART.wave.flight - stats.parryWindow * 0.5 };
       else if (r < AI.parry * 1.5 + AI.dodge * 2) enemyStep(e, 'side');
       else if (r < AI.parry * 1.5 + AI.dodge * 2 + AI.block && !guardBroken(e)) { e.faceTarget(player, 1, 100); enemyGuard(e, along / ART.wave.flight + 0.3); }
     }
@@ -3446,6 +3488,7 @@ function enemyUpdate(e, dt) {
     if (['idle', 'chase', 'strafe', 'recover', 'block'].includes(e.state) && canDefend(e)) {
       e.faceTarget(player, 1, 100);
       e.parryAt = gameTime;
+      e.parryPending = true;
       e.setState('block');
       e.blockFor = 0.4;
       const a = e.playSlot('guard', { loop: false, fade: 0.08 });
@@ -3460,6 +3503,7 @@ function enemyUpdate(e, dt) {
   if (player.state === 'dead') { e.playSlot('idleCalm', { fade: 0.4 }); e.vel.set(0, 0, 0); physics(e, dt); return; }
   e.think = (e.think ?? 1) - dt;
   if (e.state !== 'block' && e.state !== 'dodge') e.stamina = Math.min(stats.maxStamina, e.stamina + stats.staminaRegen * dt);
+  if (e.parryPending && gameTime - e.parryAt > stats.parryWindow + 0.02) { e.parryPending = false; e.parryLockUntil = gameTime + PARRY_MISS_LOCK; }
   enemyRead(e, d);
   switch (e.state) {
     case 'jump':
@@ -3598,12 +3642,7 @@ function enemyUpdate(e, dt) {
       // The player charging a wave cannot guard (a side step only): rush it.
       if (player.state === 'charge' && d < 6.5 && e.think <= 0.15) {
         e.think = 0.3;
-        if (d > 2.4 && d < 4.4 && gameTime >= (e.dashReady ?? 0)) {
-          e.dashReady = gameTime + ART.dash.cooldown;
-          e.yaw = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
-          enemyStart(e, ART.enemy.find((m) => m.name === 'dashcut'));
-          break;
-        }
+        if (d > 2.4 && d < 4.4 && enemyDash(e)) break;
         if (enemyRiposte(e, d)) break;
       }
       // A feint's wind-up: read (a step away) or fallen for (the guard up, which it breaks).
