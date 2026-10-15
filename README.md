@@ -282,7 +282,8 @@ the legs and the floor.
 
 **The foe's skills are the player's.** Its attacks are the player's moves
 (light cuts, the spin, the feint; no heavy). It also uses the dash cut through
-the player (2.2–3.4 m away, 3 s cooldown; a guard stops it in front), the jump
+the player (2.4–4.4 m away, 3 s cooldown; a guard stops it in front; the cut lands
+on whoever the body runs into, the dash running ~3 m before the blade comes down), the jump
 cut (a jump at the player, Light 1 once in reach), the sword wave (charged out
 of reach), side steps and rolls, parries and auto parries; and, losing (under
 35% health or well behind), it drops its stance and runs off for 1.5–2.5 s

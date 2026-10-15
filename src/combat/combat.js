@@ -1910,6 +1910,11 @@ function flashSword(f, color) {
 }
 
 /** The blade of `att` touched `def`'s zone (or, for timing checks, would have). */
+/** The way a blow comes from: the attacker's side, or for a dash through (which may be
+ *  past its target as it lands) the way it ran in from. */
+function hitFrom(att, def) {
+  return att.move?.through ? att.forward(new THREE.Vector3()).negate().setY(0).normalize() : att.pos.clone().sub(def.pos).setY(0).normalize();
+}
 function resolveHit(att, def, zone) {
   const move = att.move;
   hitLog.push(`${att.isPlayer ? 'P' : 'E'}>${zone.name}`);
@@ -1926,7 +1931,7 @@ function resolveHit(att, def, zone) {
   if (def.state === 'dodge' && def.rolling && def.t >= ROLL.iframes[0] && def.t <= ROLL.iframes[1]) return;
   // Perfect parry: a tap of parry within the window before the blow.
   const sinceParry = gameTime - (def.parryAt ?? -99);
-  const facing = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) < THREE.MathUtils.degToRad(70);
+  const facing = def.forward().angleTo(hitFrom(att, def)) < THREE.MathUtils.degToRad(70);
   if (facing && !guardBroken(def) && sinceParry >= 0 && sinceParry <= stats.parryWindow + 0.02 && move.parryable !== false) {
     perfect(def, att, 'Perfect Parry!', true);
     return;
@@ -1942,7 +1947,7 @@ function resolveHit(att, def, zone) {
   let dmg = move.damage * zone.damage;
   let crit = false;
   // From behind (the attacker in the rear BACKSTAB.arc): double damage, and now and then knocked down.
-  const behind = def.forward().angleTo(att.pos.clone().sub(def.pos).setY(0).normalize()) > THREE.MathUtils.degToRad(180 - BACKSTAB.arc / 2);
+  const behind = def.forward().angleTo(hitFrom(att, def)) > THREE.MathUtils.degToRad(180 - BACKSTAB.arc / 2);
   if (behind) dmg *= BACKSTAB.damage;
   if (partBroken(att, 'armR')) dmg *= PART_RULES.armRDamage;
   if (partBroken(def, 'torso')) dmg *= PART_RULES.torsoDamage;
@@ -2742,16 +2747,26 @@ function bladeStep(att, defs) {
   }
   att.bladePrev = now;
 }
+const DASH_AFTER = 0.3;
+/** A dash through: the foe its body runs into (within a body's width of it) is cut, in the chest. */
+function dashContact(att, def) {
+  const to = def.pos.clone().sub(att.pos).setY(0);
+  if (to.length() > att.radius + def.radius + 0.3) return null;
+  return def.zones.find((z) => z.name === 'chest') ?? def.zones[0];
+}
 function bladeStepOne(att, def, now) {
   const move = att.move;
   const mt = att.moveTime();
-  const live = mt >= move.hit - BLADE_ACTIVE.before && mt <= move.hit + BLADE_ACTIVE.after;
+  // A dash through runs ~3 m in its cut: started close, the body is past the foe before
+  // the blade comes down; started far, still short of it. Its cut lands on whatever the
+  // body runs into over a longer window (at the blow's moment, as below).
+  const live = mt >= move.hit - BLADE_ACTIVE.before && mt <= move.hit + (move.through ? DASH_AFTER : BLADE_ACTIVE.after);
   if (live) {
     // A timed defence counts at the scheduled blow even if the blade would graze nothing yet.
     const due = gameTime >= att.hitAt && inFront(att, def, move.range, move.arc);
     // A blade that touches before the blow's scheduled moment (the aim tilts the swing)
     // lands at that moment: the timing ring and the parry / dodge windows stay true.
-    const zone = (att.pendingZone?.def === def ? att.pendingZone.zone : null) ?? bladeContact(att.bladePrev, now, def);
+    const zone = (att.pendingZone?.def === def ? att.pendingZone.zone : null) ?? bladeContact(att.bladePrev, now, def) ?? (move.through ? dashContact(att, def) : null);
     if (zone && gameTime < att.hitAt - 0.02) att.pendingZone = { zone, def };
     else if (zone) { att.pendingZone = null; resolveHit(att, def, zone); }
     else if (due && !att.timedChecked) {
@@ -3274,7 +3289,7 @@ function enemyDecide(e, d, adv, pressing) {
   }
   // The player's other skills: the dash cut through (3 s cooldown), the jump cut,
   // and backing out of the fight to get away when losing.
-  if (d > 2.2 && d < 3.4 && gameTime >= (e.dashReady ?? 0) && r < 0.25) {
+  if (d > 2.4 && d < 4.4 && gameTime >= (e.dashReady ?? 0) && r < 0.25) {   // (the cut comes ~3 m into the run)
     e.dashReady = gameTime + ART.dash.cooldown;
     e.yaw = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
     enemyStart(e, ART.enemy.find((m) => m.name === 'dashcut'));
