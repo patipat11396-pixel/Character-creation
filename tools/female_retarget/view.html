@@ -1,0 +1,17 @@
+<!doctype html><html><body style="margin:0;background:#ddd">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script src="convert.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+window.GLTFExporter = GLTFExporter;
+window.THREE = THREE; window.FBXLoader = FBXLoader; window.GLTFLoader = GLTFLoader;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(1200, 600); document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xdddddd);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2.2)); const d = new THREE.DirectionalLight(0xffffff, 1.5); d.position.set(2, 4, 3); scene.add(d);
+const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 100000);
+Object.assign(window, { r, scene, cam });
+window.ready = true;
+</script></body></html>

@@ -105,9 +105,10 @@ export const ARTS = {
 export const ANIM_SLOTS = {
   idle: { clip: 'Idle_Fight', speed: 1 },   // ready to fight: the captured stance (models/anims/idle_fight.bvh, made at load)
   idleCalm: { clip: 'Idle_Relaxed', speed: 1 },  // not fighting: standing easy, the sword hanging point down (made at load)
+  // Running: the anime run (body leaning in, arms trailing back, the blade behind).
+  run: { clip: 'Run_Anime', speed: 1 },
+  sprint: { clip: 'Run_Anime', speed: 1.2 },              // also in the fight: sprinting runs
   // Out of the fight: steps with the sword hanging as in idleCalm (made at load).
-  run: { clip: 'Run_Relaxed', speed: 1 },
-  sprint: { clip: 'Sprint_Relaxed', speed: 1 },           // also in the fight: sprinting runs
   walk: { clip: 'Walk_Relaxed', speed: 1 },
   // In the fight: steps forward / back / left / right against the facing.
   // From the captured walk back (made at load): back, and forward / left /

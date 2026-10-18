@@ -90,6 +90,30 @@ const FACE_GROUPS = [
 ];
 const FACE_KEYS = FACE_GROUPS.flatMap(([, items]) => items.map(([k]) => k));
 const FACE_NEG_SCALE = { lipsFull: 0.5, lipsWidth: 0.6 };
+// A body that comes with its own skin, eyes and face shape keys (userData.body.ownSkin:
+// the female, Character_3D_Eyelashes): its keys, by tab. An 'Eye_' slider drives both
+// eyes' keys (Eye_L_…, Eye_R_…); the blink's correctives follow blink × their key.
+const OWN_FACE_GROUPS = [
+  ['Nose', [['Nose_Size', 'Size'], ['Nose_Width', 'Width'], ['Nose_Projection', 'Projection'], ['Nose_Height', 'Height'],
+    ['Nose_Pitch', 'Pitch'], ['Nose_Yaw', 'Turn'], ['Nose_Roll', 'Roll'], ['Nose_TipAngle', 'Tip angle']]],
+  ['Lips', [['Mouth_Width', 'Width'], ['Mouth_Size', 'Size'], ['Mouth_Height', 'Height'], ['Mouth_Projection', 'Projection'],
+    ['Mouth_Pitch', 'Pitch'], ['Mouth_Yaw', 'Turn'], ['Mouth_Tilt', 'Tilt']]],
+  ['Eyes', [['Eye_Size', 'Size'], ['Eye_Width', 'Width'], ['Eye_Height', 'Height'], ['Eye_MoveX', 'Spacing'], ['Eye_MoveY', 'Up / down'],
+    ['Eye_Depth', 'Depth'], ['Eye_Tilt', 'Tilt'], ['Eye_InnerCorner', 'Inner corner'], ['Eye_OuterCorner', 'Outer corner'], ['Eye_Blink', 'Blink', 0, 1]]],
+];
+const OWN_FACE_KEYS = OWN_FACE_GROUPS.flatMap(([, items]) => items.map(([k]) => k));
+/** Shape key name -> influence, for `face` (the sliders' values), both kinds of body. */
+function faceInfluences(face) {
+  const out = {};
+  for (const key of FACE_KEYS) { const v = face[key] ?? 0; out[key] = v < 0 ? v * (FACE_NEG_SCALE[key] ?? 1) : v; }
+  for (const key of OWN_FACE_KEYS) {
+    const v = face[key] ?? 0;
+    if (key.startsWith('Eye_')) { const rest = key.slice(4); out[`Eye_L_${rest}`] = out[`Eye_R_${rest}`] = v; } else out[key] = v;
+  }
+  const blink = face.Eye_Blink ?? 0;
+  for (const k of ['Size', 'Height', 'Tilt', 'InnerCorner', 'OuterCorner']) out[`CORR_L_Blink_${k}`] = out[`CORR_R_Blink_${k}`] = blink * (face[`Eye_${k}`] ?? 0);
+  return out;
+}
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -114,7 +138,7 @@ const state = {
   robe: true,    // the robe (category "robe") is worn
   legs: { ...LEG_DEFAULTS },   // body -> thighs turned inward (degrees) while animating
   lips: { ...LIP_DEFAULTS },
-  face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])),
+  face: Object.fromEntries([...FACE_KEYS, ...OWN_FACE_KEYS].map((k) => [k, 0])),
 };
 let grip = RELAXED_GRIP;
 
@@ -371,7 +395,8 @@ async function buildCharacter(body, kind) {
   root.traverse((o) => {
     if (o.isSkinnedMesh) {
       if (o.material.name.startsWith('Cloth_')) clothes.push(o);
-      else if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name)) mesh = o;
+      // (the skin, by name; a body with its own eyes and lashes has more parts)
+      else if (o.material.name === 'Skin' || (!mesh && !['Teeth', 'Gums', 'Tongue'].includes(o.material.name))) mesh = o;
       if (o.morphTargetDictionary) faceMeshes.push(o);
       o.castShadow = true;
       o.frustumCulled = false; // animated bounds differ from the bind pose
@@ -379,7 +404,8 @@ async function buildCharacter(body, kind) {
   });
   // The unprocessed source is in centimetres.
   if (new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).y > 10) root.scale.multiplyScalar(0.01);
-  mesh.material = kind === 'fixed' ? await paintedSkin(body) : skin;
+  // (a body with its own skin keeps its material: the painted skin fits only our UVs)
+  if (!root.userData.body?.ownSkin) mesh.material = kind === 'fixed' ? await paintedSkin(body) : skin;
   addWeightColors(mesh.geometry);
   const fingers = [];
   for (const bone of mesh.skeleton.bones) {
@@ -453,6 +479,7 @@ async function paintedSkin(body) {
 function applyTone(tone) {
   for (const ch of Object.values(characters)) {
     const m = ch.skin;
+    if (ch.body?.ownSkin) continue;   // (its own skin: no tones)
     if (m.userData.reference) {
       // Painted skin: the shader recolours it (see toneColor); the colour stays white.
       m.color.set(0xffffff);
@@ -700,17 +727,17 @@ function poseMouth(dt) {
   }
   const k = Math.min(1, dt * (state.expression === 'talking' ? 20 : 10));
   for (const key in mouthNow) mouthNow[key] += (target[key] - mouthNow[key]) * k;
+  const faceNow = faceInfluences(state.face);
   for (const ch of Object.values(characters)) {
     for (const m of ch.faceMeshes) {
       for (const key in mouthNow) {
         const i = m.morphTargetDictionary[key];
         if (i !== undefined) m.morphTargetInfluences[i] = mouthNow[key];
       }
-      for (const key of FACE_KEYS) {
+      // (thinner / narrower lips sink behind the skin around them: that end is gentler, see faceInfluences)
+      for (const [key, v] of Object.entries(faceNow)) {
         const i = m.morphTargetDictionary[key];
-        const v = state.face[key];
-        // Thinner / narrower lips sink behind the skin around them; keep that end gentler.
-        if (i !== undefined) m.morphTargetInfluences[i] = v < 0 ? v * (FACE_NEG_SCALE[key] ?? 1) : v;
+        if (i !== undefined) m.morphTargetInfluences[i] = v;
       }
     }
   }
@@ -767,22 +794,37 @@ function buildHairControls() {
 }
 
 function buildFaceControls() {
-  for (const [group, items] of FACE_GROUPS) {
-    const box = document.querySelector(`[data-face-group="${group}"]`);
-    for (const [key, name] of items) {
-      const row = document.createElement('label');
-      row.className = 'slider';
-      row.innerHTML = `<span>${name}</span><input type="range" min="-1" max="1" step="0.01" value="0" data-face="${key}">`;
-      row.querySelector('input').addEventListener('input', (e) => { state.face[key] = Number(e.target.value); });
-      box.appendChild(row);
+  // Both sets, each shown for its kind of body (see showFaceSet).
+  for (const [set, groups] of [['classic', FACE_GROUPS], ['own', OWN_FACE_GROUPS]]) {
+    for (const [group, items] of groups) {
+      const parent = document.querySelector(`[data-face-group="${group}"]`);
+      const box = document.createElement('div');
+      box.dataset.faceSet = set;
+      parent.appendChild(box);
+      for (const [key, name, min = -1, max = 1] of items) {
+        const row = document.createElement('label');
+        row.className = 'slider';
+        row.innerHTML = `<span>${name}</span><input type="range" min="${min}" max="${max}" step="0.01" value="0" data-face="${key}">`;
+        row.querySelector('input').addEventListener('input', (e) => { state.face[key] = Number(e.target.value); });
+        box.appendChild(row);
+      }
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'link';
+      reset.textContent = `Reset ${group.toLowerCase()}`;
+      reset.addEventListener('click', () => setFace(Object.fromEntries(items.map(([k]) => [k, 0]))));
+      box.appendChild(reset);
     }
-    const reset = document.createElement('button');
-    reset.type = 'button';
-    reset.className = 'link';
-    reset.textContent = `Reset ${group.toLowerCase()}`;
-    reset.addEventListener('click', () => setFace(Object.fromEntries(items.map(([k]) => [k, 0]))));
-    box.appendChild(reset);
   }
+}
+/** The face sliders and the panels that fit the body: a body with its own skin has its own
+ *  shape keys, and no painted-skin tone, lip / eye / brow colour, forehead, chin, jaw or expressions. */
+function showFaceSet(ch) {
+  const own = !!ch?.body?.ownSkin;
+  document.querySelectorAll('[data-face-set]').forEach((el) => { el.hidden = el.dataset.faceSet !== (own ? 'own' : 'classic'); });
+  document.querySelectorAll('[data-classic-only]').forEach((el) => { el.hidden = own; });
+  const tab = document.querySelector('[data-tab][aria-selected="true"]');
+  if (own && tab?.hasAttribute('data-classic-only')) setTab('basic');
 }
 
 // ---------------------------------------------------------------- tabs
@@ -799,8 +841,8 @@ function setTab(name) {
 }
 
 function setFace(values) {
-  for (const k of FACE_KEYS) if (typeof values?.[k] === 'number') state.face[k] = values[k];
-  document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face]; });
+  for (const k of [...FACE_KEYS, ...OWN_FACE_KEYS]) if (typeof values?.[k] === 'number') state.face[k] = values[k];
+  document.querySelectorAll('[data-face]').forEach((el) => { el.value = state.face[el.dataset.face] ?? 0; });
 }
 
 /** A row of colour swatches; a null colour shows as "P" (as painted). */
@@ -1152,6 +1194,7 @@ document.querySelectorAll('[data-body]').forEach((b) => {
   const ml = ch.body.mouth;
   if (ml) { lipUniforms.mouthLine.value.set(ml.z, ml.kz, ml.y, ml.ky); lipUniforms.mouthHalf.value = ml.half; }
   applyTone(SKIN_TONES[state.tone]);
+  showFaceSet(ch);
   applyClothFits();
   buildClothControls();
   $('legs').value = state.legs[body] ?? 0;
@@ -1352,6 +1395,8 @@ function buildSteppers() {
   for (const [label, list, get, set] of rows) {
     const row = document.createElement('div');
     row.className = 'stepper';
+    // (painted-skin colours: not for a body with its own skin, see showFaceSet)
+    if (['Eye colour', 'Lipstick', 'Eyebrows'].includes(label)) row.dataset.classicOnly = '';
     row.innerHTML = `<span>${label}</span><button type="button" aria-label="Previous ${label.toLowerCase()}">‹</button>
       <output></output><button type="button" aria-label="Next ${label.toLowerCase()}">›</button>`;
     const [prev, next] = row.querySelectorAll('button');
@@ -1483,7 +1528,7 @@ renderer.setAnimationLoop(() => {
   for (const ch of Object.values(characters)) ch.mixer.update(dt);
   poseLegs();
   // The head is 12% smaller than modelled (after the animation, which may key its scale).
-  for (const ch of Object.values(characters)) ch.headBone.scale.setScalar(HEAD_SCALE);
+  for (const ch of Object.values(characters)) ch.headBone.scale.setScalar(ch.body?.headScale ?? HEAD_SCALE);
   // Robes: the cloth simulation runs for the body on screen.
   for (const ch of Object.values(characters)) {
     if (!ch.root.visible) continue;

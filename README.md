@@ -315,6 +315,15 @@ go to step away, or side-steps the thrust.
 guards 55% + 30% × its skill (70% at the default), parries 30% × skill and
 side-steps 20% × skill; it guards waves too.
 
+**The female body** is Character_3D_Eyelashes (see `tools/female_retarget/`): moved
+onto the game's skeleton, so it uses the same animations; its own skin, eyes and lashes;
+the tank top and shorts carried onto it (fit sliders as before). In the menu its face
+sliders are its own shape keys: Nose (size, width, projection, height, pitch, turn,
+roll, tip angle), Lips (the mouth's width, size, height, projection, pitch, turn,
+tilt) and Eyes (both eyes: size, width, height, spacing, up / down, depth, tilt, inner
+and outer corner, blink); skin tone, lip / eye / brow colour, forehead, chin, jaw and
+the expressions are for the male only. Running (and sprinting) is the anime run.
+
 **The foes are wooden mannequins** (`models/foe/`, made by `tools/mannequin/`):
 an uploaded mannequin, re-weighted (its forearms had moved with the hands and its
 shoulders creased) and fitted to the foe body's bind pose, then bound to that

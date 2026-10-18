@@ -261,3 +261,6 @@ h1 { letter-spacing: .02em; }
 .home-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .home-btn.primary small { color: rgba(0,0,0,.6); }
 .home-link { margin-bottom: -14px; }
+
+/* Panels for one kind of body only (see showFaceSet in main.js). */
+[data-classic-only][hidden], [data-face-set][hidden] { display: none !important; }

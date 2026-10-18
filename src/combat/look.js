@@ -113,9 +113,14 @@ export function applyFace(root, setup) {
   const m = setup?.mouth ?? {};
   // The mouth as the menu mixes it: smile below 0 is a frown.
   const mouth = { jawOpen: m.open ?? 0, smile: Math.max(m.smile ?? 0, 0), frown: Math.max(-(m.smile ?? 0), 0), mouthRound: m.round ?? 0 };
+  // A body with its own face keys: an 'Eye_' value drives both eyes' keys, the blink's
+  // correctives follow blink x their key (as the menu does).
+  const keys = { ...face };
+  for (const [k, v] of Object.entries(face)) if (/^Eye_(?![LR]_)/.test(k)) { keys[`Eye_L_${k.slice(4)}`] = v; keys[`Eye_R_${k.slice(4)}`] = v; }
+  for (const k of ['Size', 'Height', 'Tilt', 'InnerCorner', 'OuterCorner']) keys[`CORR_L_Blink_${k}`] = keys[`CORR_R_Blink_${k}`] = (face.Eye_Blink ?? 0) * (face[`Eye_${k}`] ?? 0);
   root.traverse((o) => {
     if (!o.morphTargetDictionary) return;
-    for (const [k, v] of Object.entries(face)) {
+    for (const [k, v] of Object.entries(keys)) {
       const i = o.morphTargetDictionary[k];
       if (i !== undefined) o.morphTargetInfluences[i] = v < 0 ? v * (FACE_NEG_SCALE[k] ?? 1) : v;
     }

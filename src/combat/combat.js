@@ -225,7 +225,8 @@ class Fighter {
       if (o.isSkinnedMesh) {
         o.castShadow = true;
         o.frustumCulled = false;
-        if (!['Teeth', 'Gums', 'Tongue'].includes(o.material.name) && !o.material.name.startsWith('Cloth_')) this.mesh = o;
+        // (the skin, by name: a body with its own eyes and lashes has more parts)
+        if (o.material.name === 'Skin' || (!this.mesh && !['Teeth', 'Gums', 'Tongue'].includes(o.material.name) && !o.material.name.startsWith('Cloth_'))) this.mesh = o;
         // Clothes as fitted in the menu (the save's fit, else the defaults' one).
         if (o.material.name.startsWith('Cloth_')) {
           const id = o.material.name.slice('Cloth_'.length);
@@ -234,7 +235,8 @@ class Fighter {
         }
       }
     });
-    this.mesh.material = opts.skin;
+    if (opts.skin) this.mesh.material = opts.skin;   // (none for a body with its own skin)
+    this.headScale = this.root.userData.body?.headScale ?? HEAD_SCALE;
     // From the menu: the free hand's grip (the sword hand is always a fist) and the leg stance.
     const hands = opts.setup?.hands ?? opts.defaults?.hands;
     this.freeGrip = hands === 'fist' ? 1 : hands === 'open' ? 0 : 0.1;   // auto: open, ready
@@ -554,7 +556,7 @@ class Fighter {
       if (a?.holdAt != null && a.time >= a.holdAt) { a.time = a.holdAt; a.timeScale = 0; }
     }
     this.root.rotation.y = this.yaw;
-    this.bones.Head.scale.setScalar(HEAD_SCALE);
+    this.bones.Head.scale.setScalar(this.headScale);
     const q = new THREE.Quaternion();
     for (const f of this.fingers) f.bone.quaternion.copy(f.rest).multiply(q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), f.angle * (f.right ? 1 : this.freeGrip)));
     this.root.updateMatrixWorld(true);
@@ -1771,6 +1773,8 @@ function applyAnim(data) {
   for (const slot of ['fightForward', 'fightBack', 'fightLeft', 'fightRight']) if (data.slots?.[slot]?.clip === 'Idle_Fight') delete data.slots[slot];
   // Saves from before the relaxed steps hold the armed ones; drop those.
   for (const [slot, clip] of Object.entries({ run: 'Run_Sword', sprint: 'Sprint_Sword', walk: 'Walk_Sword' })) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
+  // (the old run defaults, now the anime run)
+  for (const [slot, clip] of Object.entries({ run: 'Run_Relaxed', sprint: 'Sprint_Relaxed' })) if (data.slots?.[slot]?.clip === clip) delete data.slots[slot];
   // Saves from before the finisher was sped up hold its old default; drop it.
   const old3 = data.moves?.['Light 3'];
   if (old3 && old3.clip === 'Sword_Regular_C' && old3.speed === 0.9 && old3.end === 0.75) delete data.moves['Light 3'];
@@ -4317,7 +4321,9 @@ async function main() {
     const anims = { idleFight, fightBack };
     captureText = idleFight;
     const [s1, s2] = await Promise.all([
-      skinMaterial(body, setup, texLoader, g1.scene.userData.body), skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
+      // (a body with its own skin keeps its material)
+      g1.scene.userData.body?.ownSkin ? null : skinMaterial(body, setup, texLoader, g1.scene.userData.body),
+      g2.scene.userData.body?.ownSkin ? null : skinMaterial(other, enemySetup, texLoader, g2.scene.userData.body)]);
     const proto = SkeletonUtils.clone(g2.scene);   // (before the first foe is made from it)
     player = new Fighter(g1, body, { name: setup?.name || 'You', player: true, maxHp: stats.maxHp, skin: s1, setup, defaults, anims, tint: 0xc9a227 });
     enemy = new Fighter(g2, other, { name: 'Sparring Swordsman', maxHp: 420, skin: s2, setup: enemySetup, defaults, anims, tint: 0x8a1c1c, mannequin });

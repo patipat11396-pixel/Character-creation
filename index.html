@@ -63,11 +63,11 @@
       <button type="button" role="tab" data-tab="clothes">Clothes</button>
       <button type="button" role="tab" data-tab="nose">Nose</button>
       <button type="button" role="tab" data-tab="lips">Lips</button>
-      <button type="button" role="tab" data-tab="forehead">Forehead</button>
-      <button type="button" role="tab" data-tab="chin">Chin</button>
-      <button type="button" role="tab" data-tab="jaw">Jaw</button>
+      <button type="button" role="tab" data-tab="forehead" data-classic-only>Forehead</button>
+      <button type="button" role="tab" data-tab="chin" data-classic-only>Chin</button>
+      <button type="button" role="tab" data-tab="jaw" data-classic-only>Jaw</button>
       <button type="button" role="tab" data-tab="eyes">Eyes</button>
-      <button type="button" role="tab" data-tab="brow">Brow</button>
+      <button type="button" role="tab" data-tab="brow" data-classic-only>Brow</button>
     </nav>
 
     <section class="tab-panel" role="tabpanel" data-panel="basic">
@@ -75,7 +75,7 @@
         <span class="label">Quick choices</span>
         <div class="steppers" id="steppers"></div>
       </div>
-      <div class="field">
+      <div class="field" data-classic-only>
         <div class="label-row">
           <span class="label">Skin tone</span>
           <span class="value" id="tone-value"></span>
@@ -87,7 +87,7 @@
         <span class="label">Preview animation</span>
         <select id="anim"></select>
       </label>
-      <div class="field">
+      <div class="field" data-classic-only>
         <span class="label">Expression</span>
         <div class="chips" role="radiogroup" aria-label="Expression">
           <button type="button" role="radio" data-expression="neutral">Neutral</button>
@@ -184,7 +184,7 @@
     </section>
 
     <section class="tab-panel" role="tabpanel" data-panel="lips" hidden>
-      <div class="field">
+      <div class="field" data-classic-only>
         <span class="label">Lip colour</span>
         <div class="hair-colors">
           <div class="swatches lips" id="lip-colors" role="radiogroup" aria-label="Lip colour"></div>
@@ -208,7 +208,7 @@
     </section>
 
     <section class="tab-panel" role="tabpanel" data-panel="eyes" hidden>
-      <div class="field">
+      <div class="field" data-classic-only>
         <span class="label">Eye colour</span>
         <div class="hair-colors">
           <div class="swatches eyes" id="eye-colors" role="radiogroup" aria-label="Eye colour"></div>
