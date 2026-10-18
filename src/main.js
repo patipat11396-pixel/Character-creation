@@ -20,10 +20,9 @@ import { HAIR_COLORS, HAIR_DEFAULTS, FIT_DEFAULTS, FIT_KEYS, HairRig, hairMateri
 
 const DEFAULTS_URL = 'models/defaults.json';
 // Fitting hair and clothes (the move / rotate / scale handles and the fit
-// sliders) and setting everyone's defaults are tools for making the character
-// set, not for players: hidden unless the page is opened with ?fit=1, or
-// Ctrl+Alt+F is pressed (which toggles them).
-let fitTools = new URLSearchParams(location.search).has('fit');
+// sliders) and setting everyone's defaults: shown, unless the page is opened
+// with ?fit=0; Ctrl+Alt+F toggles them.
+let fitTools = new URLSearchParams(location.search).get('fit') !== '0';
 const HAIR_INDEX_URL = 'models/hair/index.json';
 // Filled in by the single-file artifact build: model URL -> base64 text parts.
 const PACKED = null;

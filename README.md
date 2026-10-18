@@ -55,11 +55,11 @@ movement), `hairFits` (every style's fit, per body), `lips`, `eyes`,
 `brows` and `face` (the shape sliders).
 
 
-**Fitting tools are hidden for players.** The hair fit (move / rotate / scale
-handles and the fit sliders), the clothes fit sliders, "Set this as the
-default for everyone" and "Download setup" only show when the page is opened
-with `?fit=1`, or after Ctrl+Alt+F (which toggles them). The saved fits in
-`models/defaults.json` still apply to everyone.
+**Fitting tools.** The hair fit (move / rotate / scale handles and the fit
+sliders), the clothes fit sliders, "Set this as the default for everyone" and
+"Download setup" show in the menu; opened with `?fit=0` they are hidden, and
+Ctrl+Alt+F toggles them. The saved fits in `models/defaults.json` apply to
+everyone.
 
 ## Sword combat demo
 
